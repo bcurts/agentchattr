@@ -17,7 +17,7 @@ See [WORKFLOW.md](WORKFLOW.md) for the full process.
 ## Backlog
 
 ### Merge PR #1 — fix/gemini-input-stacking
-- **Owner:** Pending (user action — merge on GitHub)
+- **Owner:** Done
 - **Scope:** Merge the existing PR with Escape fix, configurable cooldowns, tests, and CI
 - **Acceptance criteria:** CI green, branch merged to main
 - **Test plan:** CI runs automatically on merge
@@ -25,7 +25,7 @@ See [WORKFLOW.md](WORKFLOW.md) for the full process.
 ---
 
 ### Session resume on restart
-- **Owner:** Pending
+- **Owner:** In Progress - codex
 - **Scope:** `wrapper.py` — use each agent's `resume_flag` from config to resume the previous session on restart instead of starting cold
 - **Acceptance criteria:** Restarting `start_gemini.sh` resumes the last Gemini session; same for Claude and Codex
 - **Test plan:** Unit test that `run_agent` constructs the correct resume command; manual smoke test
