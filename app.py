@@ -16,6 +16,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from store import MessageStore
 from router import Router
 from agents import AgentTrigger
+from tmux_cleanup import SessionCleanup
 
 log = logging.getLogger(__name__)
 
@@ -148,6 +149,10 @@ def configure(cfg: dict, session_token: str = ""):
     # Apply saved loop guard setting
     if "max_agent_hops" in room_settings:
         router.max_hops = room_settings["max_agent_hops"]
+
+    # Start background cleanup for stale tmux sessions
+    cleanup = SessionCleanup(config, store=store)
+    cleanup.start()
 
     # Background thread: check for wrapper recovery flag files
     _data_dir = Path(data_dir)
