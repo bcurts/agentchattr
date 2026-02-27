@@ -78,6 +78,15 @@ See [WORKFLOW.md](WORKFLOW.md) for the full process.
 
 ---
 
+### Kanban task sidebar
+- **Owner:** Pending - codex (after ngrok auth)
+- **Scope:** Backend `/api/tasks` endpoint parses `TODO.md` → returns tasks as JSON; frontend collapsible sidebar in `static/` shows kanban columns (Pending / In Progress / Review / Done) with auto-refresh every 30s
+- **Acceptance criteria:** Sidebar visible in chat UI; cards update when TODO.md changes; works on mobile viewport
+- **Test plan:** Unit test TODO.md parser; manual UI test
+- **Branch:** feature/kanban-sidebar
+
+---
+
 ### @user mentions filter
 - **Owner:** Pending - gemini-cli (after ngrok docs)
 - **Scope:** `static/` — add a filter button/tab to the chat UI showing only messages that @mention the user, with an unread badge count
