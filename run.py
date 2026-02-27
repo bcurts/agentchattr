@@ -36,10 +36,11 @@ def main():
     from app import app, configure, set_event_loop, store as _store_ref
     configure(config, session_token=session_token)
 
-    # Share the store with the MCP bridge
-    from app import store
+    # Share stores with the MCP bridge
+    from app import store, decisions
     import mcp_bridge
     mcp_bridge.store = store
+    mcp_bridge.decisions = decisions
 
     # Start MCP servers in background threads
     http_port = config.get("mcp", {}).get("http_port", 8200)

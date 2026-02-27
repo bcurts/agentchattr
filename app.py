@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from store import MessageStore
+from decisions import DecisionStore
 from router import Router
 from agents import AgentTrigger
 
@@ -23,6 +24,7 @@ app = FastAPI(title="agentchattr")
 
 # --- globals (set by configure()) ---
 store: MessageStore | None = None
+decisions: DecisionStore | None = None
 router: Router | None = None
 agents: AgentTrigger | None = None
 config: dict = {}
@@ -112,7 +114,7 @@ def _install_security_middleware(token: str, cfg: dict):
 
 
 def configure(cfg: dict, session_token: str = ""):
-    global store, router, agents, config
+    global store, decisions, router, agents, config
     config = cfg
 
     # --- Security: store the session token and install middleware ---
@@ -128,6 +130,8 @@ def configure(cfg: dict, session_token: str = ""):
         log_path = legacy_log_path
 
     store = MessageStore(str(log_path))
+    decisions = DecisionStore(str(Path(data_dir) / "decisions.json"))
+    decisions.on_change(_on_decision_change)
 
     max_hops = cfg.get("routing", {}).get("max_agent_hops", 4)
 
@@ -197,6 +201,20 @@ def _on_store_message(msg: dict):
     asyncio.run_coroutine_threadsafe(_handle_new_message(msg), _event_loop)
 
 
+def _on_decision_change(action: str, decision: dict):
+    """Called from any thread when a decision changes."""
+    if _event_loop is None:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+        if loop is _event_loop:
+            asyncio.ensure_future(broadcast_decision(action, decision))
+            return
+    except RuntimeError:
+        pass
+    asyncio.run_coroutine_threadsafe(broadcast_decision(action, decision), _event_loop)
+
+
 async def _handle_new_message(msg: dict):
     """Broadcast message to web clients + check for @mention triggers."""
     await broadcast(msg)
@@ -205,6 +223,35 @@ async def _handle_new_message(msg: dict):
     sender = msg.get("sender", "")
     text = msg.get("text", "")
     if sender == "system":
+        return
+
+    # Check for slash commands (e.g. from MCP agents)
+    low_text = text.lower()
+    if low_text == "/continue":
+        router.continue_routing()
+        store.add("system", f"Routing resumed by {sender}.")
+        await broadcast_status()
+        return
+
+    if low_text == "/roastreview":
+        agent_names = list(config.get("agents", {}).keys())
+        mentions = " ".join(f"@{a}" for a in agent_names)
+        store.add(sender, f"{mentions} Time for a roast review! Inspect each other's work and constructively roast it.")
+        return
+
+    if low_text.startswith("/poetry"):
+        parts = low_text.split(None, 1)
+        form = parts[1] if len(parts) > 1 else "haiku"
+        if form not in ("haiku", "limerick", "sonnet"):
+            form = "haiku"
+        agent_names = list(config.get("agents", {}).keys())
+        mentions = " ".join(f"@{a}" for a in agent_names)
+        prompts = {
+            "haiku": "Write a haiku about the current state of this codebase.",
+            "limerick": "Write a limerick about the current state of this codebase.",
+            "sonnet": "Write a sonnet about the current state of this codebase.",
+        }
+        store.add(sender, f"{mentions} {prompts[form]}")
         return
 
     targets = router.get_targets(sender, text)
@@ -298,6 +345,17 @@ async def broadcast_settings():
     ws_clients.difference_update(dead)
 
 
+async def broadcast_decision(action: str, decision: dict):
+    data = json.dumps({"type": "decision", "action": action, "data": decision})
+    dead = set()
+    for client in ws_clients:
+        try:
+            await client.send_text(data)
+        except Exception:
+            dead.add(client)
+    ws_clients.difference_update(dead)
+
+
 # --- WebSocket ---
 
 @app.websocket("/ws")
@@ -324,6 +382,9 @@ async def websocket_endpoint(websocket: WebSocket):
     # Send todos {msg_id: status}
     await websocket.send_text(json.dumps({"type": "todos", "data": store.get_todos()}))
 
+    # Send decisions
+    await websocket.send_text(json.dumps({"type": "decisions", "data": decisions.list_all()}))
+
     # Send history
     history = store.get_recent(50)
     for msg in history:
@@ -345,40 +406,10 @@ async def websocket_endpoint(websocket: WebSocket):
                 if not text and not attachments:
                     continue
 
-                # /continue command
-                if text.lower() == "/continue":
-                    router.continue_routing()
-                    store.add("system", "Routing resumed.")
-                    await broadcast_status()
-                    continue
-
                 # /clear command
                 if text.lower() == "/clear":
                     store.clear()
                     await broadcast_clear()
-                    continue
-
-                # /roastreview command
-                if text.lower() == "/roastreview":
-                    agents = list(config.get("agents", {}).keys())
-                    mentions = " ".join(f"@{a}" for a in agents)
-                    store.add(sender, f"{mentions} Time for a roast review! Inspect each other's work and constructively roast it.")
-                    continue
-
-                # /poetry command
-                if text.lower().startswith("/poetry"):
-                    parts = text.lower().split(None, 1)
-                    form = parts[1] if len(parts) > 1 else "haiku"
-                    if form not in ("haiku", "limerick", "sonnet"):
-                        form = "haiku"
-                    agents = list(config.get("agents", {}).keys())
-                    mentions = " ".join(f"@{a}" for a in agents)
-                    prompts = {
-                        "haiku": "Write a haiku about the current state of this codebase.",
-                        "limerick": "Write a limerick about the current state of this codebase.",
-                        "sonnet": "Write a sonnet about the current state of this codebase.",
-                    }
-                    store.add(sender, f"{mentions} {prompts[form]}")
                     continue
 
                 # Store message — the on_message callback handles broadcast + triggers
@@ -427,6 +458,42 @@ async def websocket_endpoint(websocket: WebSocket):
                 if msg_id is not None:
                     store.remove_todo(int(msg_id))
                     await broadcast_todo_update(int(msg_id), None)
+                continue
+
+            elif event.get("type") == "decision_propose":
+                text = event.get("decision", "").strip()
+                owner = event.get("owner") or room_settings.get("username", "user")
+                reason = event.get("reason", "")
+                if text:
+                    decisions.propose(text, owner, reason)
+                continue
+
+            elif event.get("type") == "decision_approve":
+                did = event.get("id")
+                if did is not None:
+                    decisions.approve(int(did))
+                continue
+
+            elif event.get("type") == "decision_unapprove":
+                did = event.get("id")
+                if did is not None:
+                    decisions.unapprove(int(did))
+                continue
+
+            elif event.get("type") == "decision_edit":
+                did = event.get("id")
+                if did is not None:
+                    decisions.edit(
+                        int(did),
+                        decision=event.get("decision"),
+                        reason=event.get("reason"),
+                    )
+                continue
+
+            elif event.get("type") == "decision_delete":
+                did = event.get("id")
+                if did is not None:
+                    decisions.delete(int(did))
                 continue
 
             elif event.get("type") == "update_settings":

@@ -16,6 +16,7 @@ log = logging.getLogger(__name__)
 
 # Shared state — set by run.py before starting
 store = None
+decisions = None
 _presence: dict[str, float] = {}
 _presence_lock = threading.Lock()
 _cursors: dict[str, int] = {}  # agent_name → last seen message id
@@ -26,7 +27,14 @@ _MCP_INSTRUCTIONS = (
     "agentchattr — a shared chat channel for coordinating development between AI agents and humans. "
     "Use chat_send to post messages. Use chat_read to check recent messages. "
     "Use chat_join when you start a session to announce your presence. "
-    "Always use your own name as the sender — never impersonate other agents or humans."
+    "Use chat_decision to list or propose project decisions (humans approve via the web UI). "
+    "Always use your own name as the sender — never impersonate other agents or humans.\n\n"
+    "Decisions are lightweight project memory. They help agents stay aligned on agreed conventions, "
+    "architecture choices, and workflow rules. At the start of a session, call chat_decision(action='list') "
+    "to read existing approved decisions — treat approved decisions as authoritative guidance. "
+    "When you make a significant choice that other agents should follow (e.g. a library pick, naming "
+    "convention, or architecture pattern), propose it as a decision so the human can approve it. "
+    "Keep decisions short and actionable (max 80 chars). Don't propose trivial or session-specific things."
 )
 
 # --- Tool implementations (shared between both servers) ---
@@ -156,10 +164,42 @@ def is_online(name: str) -> bool:
         return name in _presence and now - _presence.get(name, 0) < PRESENCE_TIMEOUT
 
 
+def chat_decision(action: str, sender: str, decision: str = "", reason: str = "") -> str:
+    """Manage project decisions. Agents can list and propose; humans approve via the web UI.
+
+    Actions:
+      - list: Returns all decisions (proposed + approved).
+      - propose: Propose a new decision for human approval. Requires decision text + sender.
+
+    Agents cannot approve, edit, or delete decisions — only humans can do that from the web UI."""
+    action = action.strip().lower()
+
+    if action == "list":
+        items = decisions.list_all()
+        if not items:
+            return "No decisions yet."
+        return json.dumps(items, indent=2, ensure_ascii=False)
+
+    if action == "propose":
+        if not decision.strip():
+            return "Error: decision text is required."
+        if not sender.strip():
+            return "Error: sender is required."
+        result = decisions.propose(decision, sender, reason)
+        if result is None:
+            return "Error: max 30 decisions reached."
+        return f"Proposed decision #{result['id']}: {result['decision']}"
+
+    if action in ("approve", "edit", "delete"):
+        return f"Error: '{action}' is only available to humans via the web UI."
+
+    return f"Unknown action: {action}. Valid actions: list, propose."
+
+
 # --- Server instances ---
 
 _ALL_TOOLS = [
-    chat_send, chat_read, chat_resync, chat_join, chat_who,
+    chat_send, chat_read, chat_resync, chat_join, chat_who, chat_decision,
 ]
 
 

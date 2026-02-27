@@ -11,6 +11,7 @@ let reconnectTimer = null;
 let username = 'user';
 let agentConfig = {};  // { name: { color, label } } — populated from server
 let todos = {};  // { msg_id: "todo" | "done" }
+let decisions = [];  // array of decision objects from server
 let activeMentions = new Set();  // agent names with pre-@ toggled on
 let replyingTo = null;  // { id, sender, text } or null
 let unreadCount = 0;    // messages received while scrolled up
@@ -128,6 +129,8 @@ function init() {
     setupScroll();
     setupSettingsKeys();
     setupKeyboardShortcuts();
+    setupDecisionForm();
+    setupDecisionGrip();
 }
 
 function renderMarkdown(text) {
@@ -246,13 +249,23 @@ function connectWebSocket() {
         } else if (event.type === 'status') {
             updateStatus(event.data);
             // Status is the last event sent on connect — enable sounds after history
-            if (!soundEnabled) soundEnabled = true;
+            if (!soundEnabled) {
+                soundEnabled = true;
+                const loader = document.getElementById('loading-indicator');
+                if (loader) loader.classList.add('hidden');
+            }
         } else if (event.type === 'typing') {
             updateTyping(event.agent, event.active);
         } else if (event.type === 'settings') {
             applySettings(event.data);
         } else if (event.type === 'delete') {
             handleDeleteBroadcast(event.ids);
+        } else if (event.type === 'decisions') {
+            decisions = event.data || [];
+            renderDecisionsPanel();
+            updateDecisionsBadge();
+        } else if (event.type === 'decision') {
+            handleDecisionEvent(event.action, event.data);
         } else if (event.type === 'clear') {
             document.getElementById('messages').innerHTML = '';
             lastMessageDate = null;
@@ -262,6 +275,8 @@ function connectWebSocket() {
     ws.onclose = () => {
         console.log('Disconnected, reconnecting in 2s...');
         soundEnabled = false;  // suppress sounds during reconnect history replay
+        const loader = document.getElementById('loading-indicator');
+        if (loader) loader.classList.remove('hidden');
         reconnectTimer = setTimeout(connectWebSocket, 2000);
     };
 
@@ -1213,7 +1228,7 @@ function renderTodosPanel() {
 
     const todoIds = Object.keys(todos);
     if (todoIds.length === 0) {
-        list.innerHTML = '<div class="pins-empty">No todos</div>';
+        list.innerHTML = '<div class="pins-empty">No pinned messages</div>';
         return;
     }
 
@@ -1399,6 +1414,312 @@ function modalNext(event) {
 function closeImageModal() {
     const modal = document.getElementById('image-modal');
     if (modal) modal.classList.add('hidden');
+}
+
+// --- Auto-grow textarea helper ---
+
+const DECISION_MAX_CHARS = 80;
+
+function autoGrowTextarea(el) {
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
+}
+
+function setupCharCounter(textareaId, counterId) {
+    const ta = document.getElementById(textareaId);
+    const counter = document.getElementById(counterId);
+    if (!ta || !counter) return;
+
+    function update() {
+        autoGrowTextarea(ta);
+        const len = ta.value.length;
+        counter.textContent = `${len}/${DECISION_MAX_CHARS}`;
+        counter.classList.toggle('over', len >= DECISION_MAX_CHARS);
+    }
+    ta.addEventListener('input', update);
+    update();
+}
+
+function setupDecisionGrip() {
+    const grip = document.getElementById('decisions-grip');
+    const panel = document.getElementById('decisions-panel');
+    if (!grip || !panel) return;
+
+    let dragging = false;
+    let startX = 0;
+    let startWidth = 0;
+
+    grip.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        dragging = true;
+        startX = e.clientX;
+        startWidth = panel.offsetWidth;
+        grip.classList.add('dragging');
+        panel.style.transition = 'none';
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!dragging) return;
+        const delta = startX - e.clientX;
+        const newWidth = Math.min(Math.max(startWidth + delta, 220), window.innerWidth * 0.5);
+        panel.style.setProperty('--panel-w', newWidth + 'px');
+        panel.style.width = newWidth + 'px';
+        panel.style.minWidth = newWidth + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (!dragging) return;
+        dragging = false;
+        grip.classList.remove('dragging');
+        panel.style.transition = '';
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+    });
+}
+
+function setupDecisionForm() {
+    setupCharCounter('decision-text', 'decision-text-counter');
+    setupCharCounter('decision-reason', 'decision-reason-counter');
+
+    // Info tooltip — rendered as a fixed body-level element so it floats above everything
+    const infoIcon = document.querySelector('.decisions-info');
+    const tooltip = document.getElementById('decisions-tooltip');
+    if (infoIcon && tooltip) {
+        tooltip.textContent = infoIcon.getAttribute('data-tooltip');
+        infoIcon.addEventListener('mouseenter', () => {
+            const rect = infoIcon.getBoundingClientRect();
+            tooltip.style.top = (rect.top + rect.height / 2 - tooltip.offsetHeight / 2) + 'px';
+            tooltip.style.left = (rect.left - tooltip.offsetWidth - 8) + 'px';
+            tooltip.classList.remove('hidden');
+        });
+        infoIcon.addEventListener('mouseleave', () => {
+            tooltip.classList.add('hidden');
+        });
+    }
+}
+
+// --- Decisions ---
+
+function handleDecisionEvent(action, decision) {
+    if (action === 'propose') {
+        decisions.push(decision);
+    } else if (action === 'approve' || action === 'edit') {
+        const idx = decisions.findIndex(d => d.id === decision.id);
+        if (idx >= 0) decisions[idx] = decision;
+    } else if (action === 'delete') {
+        decisions = decisions.filter(d => d.id !== decision.id);
+    }
+    renderDecisionsPanel();
+    updateDecisionsBadge();
+}
+
+function toggleDecisionsPanel() {
+    const panel = document.getElementById('decisions-panel');
+    panel.classList.toggle('hidden');
+    if (!panel.classList.contains('hidden')) {
+        renderDecisionsPanel();
+    }
+}
+
+function renderDecisionsPanel() {
+    const list = document.getElementById('decisions-list');
+    if (!list) return;
+    list.innerHTML = '';
+
+    // Update counter
+    const counter = document.getElementById('decisions-counter');
+    if (counter) counter.textContent = `${decisions.length}/30`;
+
+    if (decisions.length === 0) {
+        list.innerHTML = '<div class="decisions-empty">No decisions yet</div>';
+        return;
+    }
+
+    // Newest first, no status grouping so toggling doesn't reorder
+    const sorted = [...decisions].sort((a, b) => b.id - a.id);
+
+    for (let i = 0; i < sorted.length; i++) {
+        const d = sorted[i];
+        const displayNum = sorted.length - i;
+        const card = document.createElement('div');
+        card.className = 'decision-card';
+        card.dataset.id = d.id;
+
+        const reasonHtml = d.reason
+            ? `<div class="decision-reason">${escapeHtml(d.reason)}</div>`
+            : '';
+
+        const editIcon = `<button class="edit-btn" onclick="editDecision(${d.id})" title="Edit"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M11.5 2.5l2 2L5 13H3v-2L11.5 2.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg></button>`;
+
+        const trashIcon = `<button class="delete-btn" onclick="startDeleteDecision(${d.id})" title="Delete"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 4h10M6 4V3h4v1M5 4v8.5h6V4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
+
+        // Color the owner like they appear in chat
+        const ownerKey = d.owner.toLowerCase();
+        const ownerColor = agentConfig[ownerKey]?.color || 'var(--user-color)';
+
+        card.innerHTML = `
+            <div class="decision-card-header">
+                <span class="decision-number">#${displayNum}</span>
+                <span class="decision-pill ${d.status}" onclick="toggleDecisionStatus(${d.id})" title="Click to toggle status"><span class="decision-dot"></span>${d.status}</span>
+                <span class="decision-owner" style="color: ${ownerColor}">${escapeHtml(d.owner)}</span>
+                <div class="decision-actions">
+                    ${editIcon}${trashIcon}
+                </div>
+            </div>
+            <div class="decision-text">${escapeHtml(d.decision)}</div>
+            ${reasonHtml}
+        `;
+        list.appendChild(card);
+    }
+}
+
+function updateDecisionsBadge() {
+    const badge = document.getElementById('decisions-badge');
+    if (!badge) return;
+    const count = decisions.filter(d => d.status === 'proposed').length;
+    badge.textContent = count;
+    badge.classList.toggle('hidden', count === 0);
+}
+
+function proposeDecision() {
+    const textEl = document.getElementById('decision-text');
+    const reasonEl = document.getElementById('decision-reason');
+    const text = (textEl.value || '').trim();
+    const reason = (reasonEl.value || '').trim();
+    if (!text) return;
+
+    ws.send(JSON.stringify({
+        type: 'decision_propose',
+        decision: text,
+        reason: reason,
+        owner: username,
+    }));
+    textEl.value = '';
+    reasonEl.value = '';
+}
+
+function toggleDecisionStatus(id) {
+    const d = decisions.find(d => d.id === id);
+    if (!d) return;
+
+    // Animate the pill
+    const card = document.querySelector(`.decision-card[data-id="${id}"]`);
+    const pill = card?.querySelector('.decision-pill');
+    if (pill) {
+        pill.classList.remove('just-toggled');
+        void pill.offsetWidth; // force reflow
+        pill.classList.add('just-toggled');
+    }
+
+    if (d.status === 'proposed') {
+        ws.send(JSON.stringify({ type: 'decision_approve', id }));
+    } else {
+        ws.send(JSON.stringify({ type: 'decision_unapprove', id }));
+    }
+}
+
+function editDecision(id) {
+    const d = decisions.find(d => d.id === id);
+    if (!d) return;
+
+    const card = document.querySelector(`.decision-card[data-id="${id}"]`);
+    if (!card || card.classList.contains('editing')) return;
+    card.classList.add('editing');
+
+    // Create inline edit fields
+    const editArea = document.createElement('div');
+    editArea.className = 'decision-edit-area';
+    editArea.innerHTML = `
+        <textarea class="decision-edit-field" maxlength="${DECISION_MAX_CHARS}" rows="1">${escapeHtml(d.decision)}</textarea>
+        <div class="char-counter">${(d.decision || '').length}/${DECISION_MAX_CHARS}</div>
+        <textarea class="decision-edit-field" maxlength="${DECISION_MAX_CHARS}" rows="1" placeholder="Reason (optional)">${escapeHtml(d.reason || '')}</textarea>
+        <div class="char-counter">${(d.reason || '').length}/${DECISION_MAX_CHARS}</div>
+        <div class="decision-edit-actions">
+            <button class="save-btn" onclick="saveDecisionEdit(${id})">Save</button>
+            <button class="cancel-btn" onclick="cancelDecisionEdit(${id})">Cancel</button>
+        </div>
+    `;
+    card.appendChild(editArea);
+
+    // Wire auto-grow + counters on edit fields
+    editArea.querySelectorAll('.decision-edit-field').forEach(ta => {
+        const counter = ta.nextElementSibling;
+        autoGrowTextarea(ta);
+        ta.addEventListener('input', () => {
+            autoGrowTextarea(ta);
+            if (counter && counter.classList.contains('char-counter')) {
+                counter.textContent = `${ta.value.length}/${DECISION_MAX_CHARS}`;
+                counter.classList.toggle('over', ta.value.length >= DECISION_MAX_CHARS);
+            }
+        });
+    });
+
+    // Focus the textarea, cursor at end
+    const firstField = editArea.querySelector('textarea');
+    firstField.focus();
+    firstField.selectionStart = firstField.selectionEnd = firstField.value.length;
+}
+
+function saveDecisionEdit(id) {
+    const card = document.querySelector(`.decision-card[data-id="${id}"]`);
+    if (!card) return;
+
+    const fields = card.querySelectorAll('.decision-edit-field');
+    const newText = fields[0].value.trim();
+    const newReason = fields[1].value.trim();
+
+    if (!newText) return;
+
+    ws.send(JSON.stringify({
+        type: 'decision_edit',
+        id,
+        decision: newText,
+        reason: newReason,
+    }));
+}
+
+function cancelDecisionEdit(id) {
+    const card = document.querySelector(`.decision-card[data-id="${id}"]`);
+    if (!card) return;
+    card.classList.remove('editing');
+    const editArea = card.querySelector('.decision-edit-area');
+    if (editArea) editArea.remove();
+}
+
+function startDeleteDecision(id) {
+    const card = document.querySelector(`.decision-card[data-id="${id}"]`);
+    if (!card) return;
+    const actions = card.querySelector('.decision-actions');
+    if (!actions || actions.dataset.confirming) return;
+    actions.dataset.confirming = '1';
+    actions.style.opacity = '1';
+    actions.innerHTML = `
+        <span style="font-size:11px;color:var(--error-color);white-space:nowrap">Delete?</span>
+        <button class="confirm-yes" style="background:var(--error-color);color:#fff;border:none;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit" onclick="deleteDecision(${id})">Yes</button>
+        <button class="confirm-no" style="background:transparent;color:var(--text-dim);border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit" onclick="cancelDeleteDecision(${id})">No</button>
+    `;
+}
+
+function deleteDecision(id) {
+    const d = decisions.find(d => d.id === id);
+    ws.send(JSON.stringify({ type: 'decision_delete', id }));
+
+    // Prefill a rejection message to the proposer
+    if (d && d.owner && d.owner.toLowerCase() !== username.toLowerCase()) {
+        const input = document.getElementById('input');
+        const reasonBit = d.reason ? ` (reason: ${d.reason})` : '';
+        input.value = `@${d.owner} Decision rejected: "${d.decision}"${reasonBit} — `;
+        input.focus();
+        // Move cursor to end
+        input.selectionStart = input.selectionEnd = input.value.length;
+        input.dispatchEvent(new Event('input'));
+    }
+}
+
+function cancelDeleteDecision(id) {
+    renderDecisionsPanel();
 }
 
 // --- Helpers ---

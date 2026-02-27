@@ -102,10 +102,15 @@ Type `/` in the input to open a Slack-style autocomplete menu. Available command
 ### Message deletion
 Click **del** on any message to enter delete mode. The timeline slides right to reveal radio buttons — click or drag to select multiple messages. A confirmation bar slides up with the count. Hit **Delete** to confirm or **Cancel** / **Escape** to back out. Deletes messages from storage and cleans up any attached images.
 
-### Pinned todos
-Hover any message and click the **pin** button on the right to pin it as a todo. Click again to mark it done, once more to unpin. The cycle: **not pinned → todo → done → cleared**. A colored strip on the left shows the state (purple = todo, green = done).
+### Decisions
+Lightweight project memory for keeping agents aligned. Agents propose decisions via MCP (`chat_decision(action='propose')`), humans approve or reject them in the web UI. Approved decisions act as authoritative guidance — agents read them at session start to understand agreed conventions, architecture choices, and workflow rules.
 
-Open the todos panel (checkbox icon in the header) to see all pinned items — open on top, done items below with strikethrough. Agents can manage todos via MCP tools too. Todos persist across server restarts.
+The decisions panel opens from the header (checkbox icon). Each decision shows a status pill (amber = proposed, purple = approved), the proposer's name, and the decision text. Click a status pill to toggle approval. Inline editing and deletion with optional rejection messages. Resizable sidebar with a drag grip. Max 30 decisions, 80 chars each.
+
+### Pinned messages
+Hover any message and click the **pin** button on the right to pin it. Click again to mark it done, once more to unpin. The cycle: **not pinned → todo → done → cleared**. A colored strip on the left shows the state (purple = todo, green = done).
+
+Open the pins panel (pin icon in the header) to see all pinned items — open on top, done items below with strikethrough. Pins persist across server restarts.
 
 ### Image sharing
 Paste or drag-and-drop images in the web UI, or agents can attach local images via MCP. Images render inline and open in a lightbox modal when clicked.
@@ -157,10 +162,10 @@ agentchattr is designed to keep coordination lightweight:
 - `chat_resync(sender=...)` gives an explicit full refresh when you actually need it
 - loop guard pauses long agent-to-agent chains and requires `/continue`
 - reply threading + targeted `@mentions` reduce irrelevant context fanout
-- only 5 MCP tools — minimizes system prompt overhead
+- only 6 MCP tools — minimizes system prompt overhead
 
 ### MCP tools
-Agents get 5 native chat tools: `chat_send`, `chat_read`, `chat_resync`, `chat_join`, `chat_who`. Todos are managed through the web UI only. Any MCP-compatible agent can participate — no special integration needed.
+Agents get 6 MCP tools: `chat_send`, `chat_read`, `chat_resync`, `chat_join`, `chat_who`, and `chat_decision`. Decisions can be listed and proposed via MCP — approval, editing, and deletion are human-only via the web UI. Pinned messages are managed through the web UI only. Any MCP-compatible agent can participate — no special integration needed.
 
 ## Advanced setup
 
@@ -281,6 +286,7 @@ port = 8200                 # MCP server port
 | `run.py` | Entry point — starts MCP + web server |
 | `app.py` | FastAPI WebSocket server, REST endpoints, security middleware |
 | `store.py` | JSONL message persistence with observer callbacks |
+| `decisions.py` | Decision store — JSON persistence, propose/approve/edit/delete |
 | `router.py` | @mention parsing, agent routing, loop guard |
 | `agents.py` | Writes trigger queue files for wrapper to pick up |
 | `mcp_bridge.py` | MCP tool definitions (`chat_send`, `chat_read`, etc.) |

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>agentchattr</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style.css?v=16">
     <link rel="icon" href="/static/favicon.ico">
 </head>
 <body>
@@ -17,10 +17,17 @@
             </div>
             <div class="header-right">
                 <div id="agent-status"></div>
-                <button class="settings-btn" id="pins-toggle" onclick="togglePinsPanel()" title="Todos">
+                <button class="settings-btn" id="decisions-toggle" onclick="toggleDecisionsPanel()" title="Decisions">
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                         <rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.2"/>
                         <path d="M5 8L7 10L11 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+                    </svg>
+                    <span class="decisions-badge hidden" id="decisions-badge">0</span>
+                </button>
+                <button class="settings-btn" id="pins-toggle" onclick="togglePinsPanel()" title="Pinned messages">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <path d="M6 2.5h4l.5 4.5H9.5L8 14L6.5 7H5.5Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+                        <line x1="4.5" y1="7" x2="11.5" y2="7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
                     </svg>
                 </button>
                 <button class="settings-btn" id="settings-toggle" onclick="toggleSettings()" title="Settings">
@@ -64,18 +71,43 @@
 
         <div id="pins-panel" class="hidden">
             <div class="pins-header">
-                <span>Todos</span>
+                <span>Pinned</span>
                 <button onclick="togglePinsPanel()" class="pins-close">&times;</button>
             </div>
             <div id="pins-list"></div>
         </div>
 
-        <main id="timeline">
-            <div id="messages"></div>
-            <div id="typing-indicator" class="hidden">
-                <span class="typing-name"></span> is thinking...
-            </div>
-        </main>
+        <div id="content-area">
+            <main id="timeline">
+                <div id="loading-indicator">
+                    <div class="loading-spinner"></div>
+                    <span>Loading messages...</span>
+                </div>
+                <div id="messages"></div>
+                <div id="typing-indicator" class="hidden">
+                    <span class="typing-name"></span> is thinking...
+                </div>
+            </main>
+            <aside id="decisions-panel" class="hidden">
+                <div class="decisions-grip" id="decisions-grip"></div>
+                <div class="decisions-header">
+                    <span>Decisions</span>
+                    <span class="decisions-info" data-tooltip="Lightweight project memory. Agents read these to stay aligned and can propose new ones for you to approve. Click a status pill to toggle.">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.2"/><circle cx="8" cy="5.5" r="0.8" fill="currentColor"/><path d="M8 7.5v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                    </span>
+                    <span class="decisions-counter" id="decisions-counter"></span>
+                    <button onclick="toggleDecisionsPanel()" class="decisions-close">&times;</button>
+                </div>
+                <div id="decisions-list"></div>
+                <div class="decisions-form">
+                    <textarea id="decision-text" placeholder="Propose a decision..." rows="1" maxlength="80"></textarea>
+                    <div class="char-counter" id="decision-text-counter">0/160</div>
+                    <textarea id="decision-reason" placeholder="Reason (optional)" rows="1" maxlength="80"></textarea>
+                    <div class="char-counter" id="decision-reason-counter">0/160</div>
+                    <button onclick="proposeDecision()">Propose</button>
+                </div>
+            </aside>
+        </div>
 
         <div id="scroll-anchor" class="hidden" onclick="scrollToBottom()"><span class="unread-badge">0</span><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8l5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
 
@@ -105,12 +137,14 @@
         </footer>
     </div>
 
+    <div id="decisions-tooltip" class="hidden"></div>
+
     <div id="dropzone" class="hidden">
         <div class="dropzone-inner">Drop image here</div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="/static/chat.js"></script>
+    <script src="/static/chat.js?v=14"></script>
 </body>
 </html>
 
