@@ -14,13 +14,14 @@ color = "#da7756"
 label = "Claude"
 resume_flag = "--resume"
 trigger_cooldown = 2.0
+strip_env = ["ANTHROPIC_API_KEY"]  # Use Claude Code's stored OAuth token, not the API key
 
 [agents.codex]
-command = "codex"
+command = "/opt/homebrew/bin/codex"
 cwd = ".."
 color = "#10a37f"
 label = "Codex"
-resume_flag = "exec resume"
+resume_flag = "resume --last"
 trigger_cooldown = 2.0
 
 [agents.gemini]
@@ -29,7 +30,7 @@ cwd = ".."
 color = "#4285f4"
 label = "Gemini"
 resume_flag = "--resume"
-trigger_cooldown = 10.0
+trigger_cooldown = 4.0
 
 [routing]
 # "none" = only route on explicit @mention. "all" = route to all agents by default.

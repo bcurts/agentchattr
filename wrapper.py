@@ -196,8 +196,11 @@ def main():
     project_dir = (ROOT / cwd).resolve()
     _ensure_mcp(project_dir, mcp_cfg)
 
-    # Strip CLAUDECODE to avoid "nested session" detection
-    env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+    # Strip CLAUDECODE to avoid "nested session" detection.
+    # Also strip any env vars listed in the agent's strip_env config
+    # (e.g. ANTHROPIC_API_KEY so Claude uses its stored OAuth credentials).
+    strip_vars = {"CLAUDECODE"} | set(agent_cfg.get("strip_env", []))
+    env = {k: v for k, v in os.environ.items() if k not in strip_vars}
 
     # Resolve command on PATH
     resolved = shutil.which(command)
@@ -254,6 +257,7 @@ def main():
         agent=agent,
         no_restart=args.no_restart,
         start_watcher=start_watcher,
+        strip_env=list(strip_vars),
     )
 
     print("  Wrapper stopped.")

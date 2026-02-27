@@ -36,6 +36,7 @@ def chat_send(sender: str, message: str, image_path: str = "", reply_to: int = -
     """Send a message to the agentchattr chat. Use your name as sender (claude/codex/ben).
     Optionally attach a local image by providing image_path (absolute path).
     Optionally reply to a message by providing reply_to (message ID)."""
+    log.info(f"chat_send: sender={sender}, message={message}, image_path={image_path}, reply_to={reply_to}")
     if not message.strip() and not image_path:
         return "Empty message, not sent."
 
@@ -98,6 +99,7 @@ def chat_read(sender: str = "", since_id: int = 0, limit: int = 20) -> str:
     - Subsequent calls with same sender: returns only NEW messages since last read.
     - Pass since_id to override and read from a specific point.
     - Omit sender to always get the last `limit` messages (no cursor)."""
+    log.info(f"chat_read: sender={sender}, since_id={since_id}, limit={limit}")
     if since_id:
         msgs = store.get_since(since_id)
     elif sender:
@@ -121,6 +123,7 @@ def chat_resync(sender: str, limit: int = 50) -> str:
     Returns the latest `limit` messages and resets the sender cursor
     to the latest returned message id.
     """
+    log.info(f"chat_resync: sender={sender}, limit={limit}")
     if not sender.strip():
         return "Error: sender is required for chat_resync."
     msgs = store.get_recent(limit)
@@ -130,6 +133,7 @@ def chat_resync(sender: str, limit: int = 50) -> str:
 
 def chat_join(name: str) -> str:
     """Announce that you've connected to agentchattr."""
+    log.info(f"chat_join: name={name}")
     with _presence_lock:
         _presence[name] = time.time()
     store.add(name, f"{name} connected", msg_type="join")
@@ -139,6 +143,7 @@ def chat_join(name: str) -> str:
 
 def chat_who() -> str:
     """Check who's currently online in agentchattr."""
+    log.info("chat_who: called")
     online = _get_online()
     return f"Online: {', '.join(online)}" if online else "Nobody online."
 
