@@ -63,6 +63,80 @@ def _save_settings():
     p.write_text(json.dumps(room_settings, indent=2), "utf-8")
 
 
+def _todo_path() -> Path:
+    return Path(__file__).with_name("TODO.md")
+
+
+def _parse_task_owner(owner_line: str) -> tuple[str, str]:
+    """Parse '- **Owner:** status - agent (notes)' into (status, agent)."""
+    statuses = ("Pending", "In Progress", "Review", "Done")
+    raw = owner_line.strip()
+    for status in statuses:
+        if not raw.startswith(status):
+            continue
+        owner = ""
+        prefix = f"{status} - "
+        if raw.startswith(prefix):
+            owner = raw[len(prefix):].strip()
+            # Stop at first separator: space, paren, or comma
+            for sep in (" (", ","):
+                idx = owner.find(sep)
+                if idx != -1:
+                    owner = owner[:idx].strip()
+                    break
+        return status, owner
+    return raw, ""
+
+
+def _parse_todo_tasks(text: str) -> list[dict[str, str]]:
+    """Parse TODO.md backlog section into JSON-ready list of task dicts."""
+    tasks: list[dict[str, str]] = []
+    lines = text.splitlines()
+    in_backlog = False
+    current: dict[str, str] | None = None
+
+    for line in lines:
+        stripped = line.strip()
+
+        if stripped == "## Backlog":
+            in_backlog = True
+            continue
+        if not in_backlog:
+            continue
+
+        # Stop at next H2
+        if stripped.startswith("## "):
+            break
+
+        # New task
+        if stripped.startswith("### "):
+            if current and current.get("title"):
+                tasks.append(current)
+            current = {
+                "title": stripped[4:].strip(),
+                "owner": "",
+                "status": "Pending",
+                "branch": "",
+            }
+            continue
+
+        if not current:
+            continue
+
+        if stripped.startswith("- **Owner:**"):
+            owner_line = stripped.removeprefix("- **Owner:**").strip()
+            status, owner = _parse_task_owner(owner_line)
+            current["status"] = status
+            current["owner"] = owner
+        elif stripped.startswith("- **Branch:**"):
+            current["branch"] = stripped.removeprefix("- **Branch:**").strip()
+
+    if current and current.get("title"):
+        tasks.append(current)
+
+    return tasks
+
+
 # --- Security middleware ---
 # Paths that don't require the session token (public assets).
 _PUBLIC_PREFIXES = ("/", "/static/")
@@ -537,6 +611,16 @@ async def get_messages(since_id: int = 0, limit: int = 50):
         return store.get_since(since_id)
     return store.get_recent(limit)
 
+
+@app.get("/api/tasks")
+async def get_tasks():
+    todo_path = _todo_path()
+    if not todo_path.exists():
+        return []
+    try:
+        return _parse_todo_tasks(todo_path.read_text("utf-8"))
+    except OSError:
+        return []
 
 
 @app.get("/api/status")
