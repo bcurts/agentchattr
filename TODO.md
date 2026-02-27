@@ -43,7 +43,7 @@ See [WORKFLOW.md](WORKFLOW.md) for the full process.
 ---
 
 ### Windows wrapper parity (Escape-before-inject)
-- **Owner:** In Progress - gemini-cli
+- **Owner:** Review - codex (implemented by gemini-cli, PR #4 open)
 - **Scope:** `wrapper_windows.py` — add the same Escape keystroke before injection that was added to `wrapper_unix.py` in PR #1
 - **Acceptance criteria:** Windows inject function sends Escape → text → Enter, matching unix behavior; existing windows tests (if any) pass
 - **Test plan:** Unit test mirroring `test_inject_sends_escape_before_text` for the windows inject path
@@ -70,7 +70,7 @@ See [WORKFLOW.md](WORKFLOW.md) for the full process.
 ---
 
 ### ngrok setup docs
-- **Owner:** Pending - gemini-cli (after Windows parity)
+- **Owner:** Review - codex (implemented by gemini-cli, PR #6 open)
 - **Scope:** `README.md` — add ngrok installation, startup command, and `ACCESS_TOKEN` usage instructions
 - **Acceptance criteria:** A new user can follow README to get mobile access in < 5 min
 - **Test plan:** Walkthrough review
@@ -88,7 +88,7 @@ See [WORKFLOW.md](WORKFLOW.md) for the full process.
 ---
 
 ### @user mentions filter
-- **Owner:** Pending - gemini-cli (after ngrok docs)
+- **Owner:** Review - codex (implemented by gemini-cli, PR #5 open)
 - **Scope:** `static/` — add a filter button/tab to the chat UI showing only messages that @mention the user, with an unread badge count
 - **Acceptance criteria:** Clicking the filter shows only @user messages; badge shows count of unseen @mentions; clicking a mention scrolls to it
 - **Test plan:** Manual UI test; works on mobile viewport
@@ -97,7 +97,7 @@ See [WORKFLOW.md](WORKFLOW.md) for the full process.
 ---
 
 ### `/status` command — agent health check
-- **Owner:** Pending
+- **Owner:** Review - codex (implemented by gemini-cli, PR #7 open)
 - **Scope:** Add a `/status` slash command (or equivalent API endpoint) that reports each agent's online status, last-seen time, and queue depth
 - **Acceptance criteria:** Typing `/status` in the chat UI returns a health summary for all configured agents
 - **Test plan:** Unit test the status logic; integration test via the API endpoint
@@ -106,7 +106,7 @@ See [WORKFLOW.md](WORKFLOW.md) for the full process.
 ---
 
 ### `/history` command — cross-session message history
-- **Owner:** Pending
+- **Owner:** In Progress - gemini-cli
 - **Scope:** Add a `/history [n]` command that returns the last N messages from the persistent store, including messages from previous sessions
 - **Acceptance criteria:** `/history 20` returns the 20 most recent messages regardless of when the server started
 - **Test plan:** Unit test store retrieval; manual test across a server restart
@@ -120,3 +120,13 @@ See [WORKFLOW.md](WORKFLOW.md) for the full process.
 - **Acceptance criteria:** Dead sessions are cleaned up automatically; active sessions are untouched
 - **Test plan:** Unit test session detection logic with mocked tmux output
 - **Branch:** feature/tmux-session-cleanup
+
+---
+
+### Projects — multi-context workspaces
+- **Owner:** Pending (needs design discussion first)
+- **Scope:** Add a "Projects" concept so agents and the user can switch between separate working contexts (e.g., "agentchattr", "Valuerank coding", "Valuerank vignette analysis"). Each project has its own chat history, task list, and agent assignments.
+- **Acceptance criteria:** User can create/switch projects from the UI; chat history and tasks are scoped per project; agents know which project context they are in
+- **Test plan:** Manual UI test across at least 2 projects; verify history isolation; unit test project switching logic
+- **Branch:** feature/projects
+- **Note:** Needs architecture design before implementation — data model, config format, agent awareness

@@ -134,7 +134,8 @@ def test_queue_watcher_drains_queue_after_trigger(tmp_path):
 
 def test_run_agent_constructs_resume_command():
     """Verify that extra_args are properly formatted into the agent_cmd."""
-    with patch("subprocess.run") as mock_run:
+    with patch("subprocess.run") as mock_run, \
+         patch("shutil.which", return_value="/usr/bin/tmux"):
         from wrapper_unix import run_agent
         
         def fake_start_watcher(inject_fn):

@@ -16,7 +16,7 @@
 
 ### 2. Working on a Task
 - Create a feature branch: `git checkout -b feature/[task-slug]`
-- Post a **heartbeat** in chat every 10 minutes with a brief progress update.
+- Post a **heartbeat** in chat every 5 minutes with a brief progress update. Format: `[task-name] still in progress — [one line on what I'm doing right now]`
 - If blocked, **immediately** post in chat — don't wait for the timeout.
 
 ### 3. Completing a Task
@@ -35,7 +35,7 @@
 - After merge: update `TODO.md` status to `Done`, claim next task.
 
 ## Timeouts & Recovery
-- **15 minutes** without a heartbeat or commit → task returns to `Pending`.
+- **10 minutes** without a heartbeat or commit → task returns to `Pending`.
 - Any agent can proactively unstick another (e.g., send Escape to clear frozen Gemini input).
 - Claude (coordinator) checks agent health and escalates to the user if needed.
 
