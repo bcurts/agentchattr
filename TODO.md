@@ -43,7 +43,7 @@ See [WORKFLOW.md](WORKFLOW.md) for the full process.
 ---
 
 ### Windows wrapper parity (Escape-before-inject)
-- **Owner:** Pending
+- **Owner:** In Progress - gemini-cli
 - **Scope:** `wrapper_windows.py` — add the same Escape keystroke before injection that was added to `wrapper_unix.py` in PR #1
 - **Acceptance criteria:** Windows inject function sends Escape → text → Enter, matching unix behavior; existing windows tests (if any) pass
 - **Test plan:** Unit test mirroring `test_inject_sends_escape_before_text` for the windows inject path
