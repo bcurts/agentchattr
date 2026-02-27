@@ -52,7 +52,7 @@ See [WORKFLOW.md](WORKFLOW.md) for the full process.
 ---
 
 ### "Working" indicator in chat UI
-- **Owner:** In Progress - codex
+- **Owner:** Review - claude (implemented by gemini-cli)
 - **Scope:** Show a `…` or "active" status next to an agent's name in the chat UI while they are processing a task
 - **Acceptance criteria:** Agent status pill shows activity when processing; returns to normal when idle
 - **Test plan:** Manual UI test; unit test for backend status endpoint if applicable

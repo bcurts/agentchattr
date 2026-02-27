@@ -130,6 +130,26 @@ function init() {
     setupScroll();
     setupSettingsKeys();
     setupKeyboardShortcuts();
+    startStatusPolling();
+}
+
+let statusPollingTimer = null;
+function startStatusPolling() {
+    if (statusPollingTimer) clearInterval(statusPollingTimer);
+    // Poll every 2s
+    statusPollingTimer = setInterval(async () => {
+        try {
+            const resp = await fetch('/api/status', {
+                headers: { 'X-Session-Token': SESSION_TOKEN }
+            });
+            if (resp.ok) {
+                const data = await resp.json();
+                updateStatus(data);
+            }
+        } catch (err) {
+            console.error('Status polling failed:', err);
+        }
+    }, 2000);
 }
 
 function renderMarkdown(text) {
@@ -522,12 +542,18 @@ function updateStatus(data) {
         if (!pill) continue;
 
         pill.classList.remove('available', 'busy', 'offline');
-        if (info.busy) {
+        const label = pill.querySelector('.status-label');
+        const baseLabel = info.label || name;
+
+        if (info.active) {
             pill.classList.add('busy');
+            label.textContent = baseLabel + '...';
         } else if (info.available) {
             pill.classList.add('available');
+            label.textContent = baseLabel;
         } else {
             pill.classList.add('offline');
+            label.textContent = baseLabel;
         }
 
         // Click to open session in terminal

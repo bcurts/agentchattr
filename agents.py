@@ -27,17 +27,18 @@ class AgentTrigger:
         return name in self._config
 
     def is_busy(self, name: str) -> bool:
-        return False  # Worker handles busy state
+        from mcp_bridge import is_busy
+        return is_busy(name)
 
     def get_status(self) -> dict:
         # Reload sessions in case worker updated them
         self._load_sessions()
         # Check MCP presence to determine if agent is actually online
-        from mcp_bridge import is_online
+        from mcp_bridge import is_online, is_busy
         return {
             name: {
                 "available": is_online(name),
-                "busy": False,
+                "active": is_busy(name),
                 "label": cfg.get("label", name),
                 "color": cfg.get("color", "#888"),
                 "session_id": self._sessions.get(name),

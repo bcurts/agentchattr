@@ -18,9 +18,12 @@ log = logging.getLogger(__name__)
 store = None
 _presence: dict[str, float] = {}
 _presence_lock = threading.Lock()
+_activity: dict[str, float] = {}  # agent_name → last activity timestamp
+_activity_lock = threading.Lock()
 _cursors: dict[str, int] = {}  # agent_name → last seen message id
 _cursors_lock = threading.Lock()
 PRESENCE_TIMEOUT = 300
+ACTIVITY_TIMEOUT = 30  # Agents are "busy" for 30s after their last tool call
 
 _MCP_INSTRUCTIONS = (
     "agentchattr — a shared chat channel for coordinating development between AI agents and humans. "
@@ -61,8 +64,7 @@ def chat_send(sender: str, message: str, image_path: str = "", reply_to: int = -
         return f"Message #{reply_to} not found."
 
     msg = store.add(sender, message.strip(), attachments=attachments, reply_to=reply_id)
-    with _presence_lock:
-        _presence[sender] = time.time()
+    _record_activity(sender)
     return f"Sent (id={msg['id']})"
 
 
@@ -114,6 +116,7 @@ def chat_read(sender: str = "", since_id: int = 0, limit: int = 20) -> str:
 
     msgs = msgs[-limit:]
     _update_cursor(sender, msgs)
+    _record_activity(sender)
     return _serialize_messages(msgs)
 
 
@@ -128,6 +131,7 @@ def chat_resync(sender: str, limit: int = 50) -> str:
         return "Error: sender is required for chat_resync."
     msgs = store.get_recent(limit)
     _update_cursor(sender, msgs)
+    _record_activity(sender)
     return _serialize_messages(msgs)
 
 
@@ -159,6 +163,25 @@ def is_online(name: str) -> bool:
     now = time.time()
     with _presence_lock:
         return name in _presence and now - _presence.get(name, 0) < PRESENCE_TIMEOUT
+
+
+def _record_activity(name: str):
+    """Record that an agent is actively processing a task."""
+    if not name:
+        return
+    now = time.time()
+    with _activity_lock:
+        _activity[name] = now
+    # Activity also implies presence
+    with _presence_lock:
+        _presence[name] = now
+
+
+def is_busy(name: str) -> bool:
+    """Check if an agent has made a tool call recently."""
+    now = time.time()
+    with _activity_lock:
+        return name in _activity and now - _activity.get(name, 0) < ACTIVITY_TIMEOUT
 
 
 # --- Server instances ---
