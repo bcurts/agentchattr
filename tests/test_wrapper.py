@@ -171,3 +171,31 @@ def test_run_agent_constructs_resume_command():
     assert "--resume" in agent_cmd
     assert "--approval-mode yolo" in agent_cmd
 
+
+def test_inject_windows_sends_escape_before_text():
+    """Verify windows inject path also sends Escape first."""
+    # We must patch sys.platform and WinDLL before importing wrapper_windows
+    with patch("sys.platform", "win32"), \
+         patch("ctypes.WinDLL", create=True), \
+         patch("ctypes.byref"):
+        
+        # In case it was already imported/failed
+        if "wrapper_windows" in sys.modules:
+            del sys.modules["wrapper_windows"]
+            
+        import wrapper_windows
+        
+        with patch("wrapper_windows._write_key") as mock_write:
+            wrapper_windows.inject("test")
+        
+            calls = mock_write.call_args_list
+            # First two calls to _write_key are for Escape (down/up)
+            assert calls[0][0][1] == "\x1b"
+            assert calls[0][0][2] is True  # key_down
+            assert calls[1][0][1] == "\x1b"
+            assert calls[1][0][2] is False # key_up
+            
+            # Check that "test" follows
+            assert calls[2][0][1] == "t"
+
+

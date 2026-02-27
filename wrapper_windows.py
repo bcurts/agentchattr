@@ -17,6 +17,7 @@ kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 STD_INPUT_HANDLE = -10
 KEY_EVENT = 0x0001
 VK_RETURN = 0x0D
+VK_ESCAPE = 0x1B
 
 
 class _CHAR_UNION(ctypes.Union):
@@ -58,6 +59,11 @@ def _write_key(handle, char: str, key_down: bool, vk: int = 0, scan: int = 0):
 def inject(text: str):
     """Inject text + Enter into the current console via WriteConsoleInput."""
     handle = kernel32.GetStdHandle(STD_INPUT_HANDLE)
+
+    # Send Escape first to clear any pending/stacked input in the TUI.
+    # Matches the unix fix for Gemini input stacking.
+    _write_key(handle, "\x1b", True, vk=VK_ESCAPE, scan=0x01)
+    _write_key(handle, "\x1b", False, vk=VK_ESCAPE, scan=0x01)
 
     for ch in text:
         _write_key(handle, ch, True)
