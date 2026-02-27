@@ -171,3 +171,34 @@ def test_run_agent_constructs_resume_command():
     assert "--resume" in agent_cmd
     assert "--approval-mode yolo" in agent_cmd
 
+
+# ---------------------------------------------------------------------------
+# Startup queue flushing
+# ---------------------------------------------------------------------------
+
+def test_wrapper_main_flushes_queue_file_on_startup(tmp_path):
+    """Ensure leftover trigger files from previous runs are deleted when wrapper starts."""
+    from wrapper import main
+    
+    # Setup dummy data dir and queue file
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    queue_file = data_dir / "claude_queue.jsonl"
+    queue_file.write_text("stale_data\n")
+    
+    # Write a dummy config.toml
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[agents.claude]\ncommand = "claude"\n[server]\ndata_dir = "data"\n')
+    
+    with patch("wrapper.ROOT", tmp_path), \
+         patch("sys.argv", ["wrapper.py", "claude"]), \
+         patch("shutil.which", return_value="/bin/claude"), \
+         patch("wrapper.threading.Thread"), \
+         patch("sys.platform", "linux"), \
+         patch("wrapper_unix.run_agent"):
+         
+        main()
+        
+    # Check if queue file was cleared
+    assert queue_file.read_text() == "", "Queue file should be flushed on wrapper startup"
+

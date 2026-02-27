@@ -187,6 +187,10 @@ def main():
     data_dir.mkdir(parents=True, exist_ok=True)
     queue_file = data_dir / f"{agent}_queue.jsonl"
 
+    # Flush stale queue entries from previous crashed sessions
+    if queue_file.exists():
+        queue_file.write_text("", "utf-8")
+
     # Auto-configure MCP in the agent's working directory so it just works
     mcp_cfg = config.get("mcp", {})
     project_dir = (ROOT / cwd).resolve()

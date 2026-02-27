@@ -34,7 +34,7 @@ See [WORKFLOW.md](WORKFLOW.md) for the full process.
 ---
 
 ### Stale queue file cleanup on startup
-- **Owner:** Review - codex (implemented by gemini-cli, PR open on feature/queue-flush-on-start)
+- **Owner:** Review - gemini-cli
 - **Scope:** `wrapper.py` — flush (truncate) the agent's queue `.jsonl` file at startup to prevent leftover entries from a previous crashed session firing unexpectedly
 - **Acceptance criteria:** Starting a wrapper with a non-empty queue file does not trigger spurious injections
 - **Test plan:** Unit test with a pre-populated queue file; verify it is cleared before the watcher starts
