@@ -43,20 +43,24 @@ def test_inject_sends_escape_before_text():
         inject("chat - use mcp", tmux_session="test-session")
 
     calls = mock_run.call_args_list
-    assert len(calls) == 3, f"Expected 3 subprocess calls, got {len(calls)}"
+    assert len(calls) == 4, f"Expected 4 subprocess calls (C-u, Escape, text, Enter), got {len(calls)}"
 
-    # First call: Escape
+    # First call: C-u (line clear)
     first_cmd = calls[0][0][0]
-    assert "Escape" in first_cmd, f"First call should send Escape, got: {first_cmd}"
+    assert "C-u" in first_cmd, f"First call should send C-u, got: {first_cmd}"
 
-    # Second call: literal text
+    # Second call: Escape
     second_cmd = calls[1][0][0]
-    assert "-l" in second_cmd, f"Second call should use -l flag for literal text, got: {second_cmd}"
-    assert "chat - use mcp" in second_cmd
+    assert "Escape" in second_cmd, f"Second call should send Escape, got: {second_cmd}"
 
-    # Third call: Enter
+    # Third call: literal text
     third_cmd = calls[2][0][0]
-    assert "Enter" in third_cmd, f"Third call should send Enter, got: {third_cmd}"
+    assert "-l" in third_cmd, f"Third call should use -l flag for literal text, got: {third_cmd}"
+    assert "chat - use mcp" in third_cmd
+
+    # Fourth call: Enter
+    fourth_cmd = calls[3][0][0]
+    assert "Enter" in fourth_cmd, f"Fourth call should send Enter, got: {fourth_cmd}"
 
 
 def test_inject_uses_correct_session_name():
