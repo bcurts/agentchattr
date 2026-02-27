@@ -123,18 +123,16 @@ Windows file paths in messages (e.g. `C:\Projects\myapp\output.png`) are automat
 Messages render GitHub-flavored markdown: **bold**, *italic*, `inline code`, code blocks with copy buttons, lists, blockquotes, tables, and more. @mentions show as color-coded pills.
 
 ### Web chat UI
-Dark-themed chat at `localhost:8300` with real-time updates:
+Modern React-based UI at `localhost:8300` with real-time WebSocket updates:
 
-- Slack-style colored @mention pills
+- Warm Mocha & Gold dark/light mode aesthetic
+- Integrated three-panel view: Agent roster, Chat view, and Live Debug Panel
+- Real-time `thinking` and `responding` visual status indicators
+- Slack-style colored @mention pills with auto-complete
 - Image paste/drop with lightbox viewer
-- Voice typing via mic button (Chrome/Edge)
-- Date dividers between different days
-- Scroll-to-bottom arrow with unread badge
-- Copy button on code blocks
-- Auto-linked URLs
-- Configurable name, room title, and font (mono/serif/sans)
-- Per-agent notification sounds (configurable in settings)
-- Agent status pills — click to open their terminal session
+- Code blocks with syntax highlighting and direct copy buttons
+- Configurable settings panel for tuning agent hops and fonts
+- Clickable Windows file paths to quickly reveal assets in Explorer
 
 ### Token cost
 
