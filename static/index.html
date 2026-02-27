@@ -17,6 +17,12 @@
             </div>
             <div class="header-right">
                 <div id="agent-status"></div>
+                <button class="settings-btn" id="mentions-toggle" onclick="toggleMentionsPanel()" title="Mentions">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zM8 4a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zM5.5 11c0-1.4 1.1-2.5 2.5-2.5s2.5 1.1 2.5 2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                    </svg>
+                    <span id="mentions-badge" class="badge hidden">0</span>
+                </button>
                 <button class="settings-btn" id="pins-toggle" onclick="togglePinsPanel()" title="Todos">
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                         <rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.2"/>
@@ -68,6 +74,17 @@
                 <button onclick="togglePinsPanel()" class="pins-close">&times;</button>
             </div>
             <div id="pins-list"></div>
+        </div>
+
+        <div id="mentions-panel" class="hidden">
+            <div class="mentions-header">
+                <div class="mentions-tabs">
+                    <button class="mention-tab active" data-tab="unresolved" onclick="setMentionTab('unresolved')">Unresolved</button>
+                    <button class="mention-tab" data-tab="all" onclick="setMentionTab('all')">All</button>
+                </div>
+                <button onclick="toggleMentionsPanel()" class="pins-close">&times;</button>
+            </div>
+            <div id="mentions-list"></div>
         </div>
 
         <main id="timeline">

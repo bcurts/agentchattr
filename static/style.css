@@ -156,7 +156,28 @@ header h1 {
     display: flex;
     align-items: center;
     transition: color 0.2s, border-color 0.2s;
+    position: relative;
 }
+
+.settings-btn .badge {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    background: var(--error-color);
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    min-width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 4px;
+    border: 2px solid var(--bg-header);
+}
+
+.settings-btn .badge.hidden { display: none; }
 
 .settings-btn:hover {
     color: var(--text);
@@ -288,6 +309,79 @@ header h1 {
 
 .settings-danger:hover {
     background: rgba(248, 113, 113, 0.15);
+}
+
+/* --- Mentions panel --- */
+
+#mentions-panel {
+    background: var(--bg-header);
+    border-bottom: 1px solid var(--border);
+    max-height: 400px;
+    overflow-y: auto;
+    flex-shrink: 0;
+}
+
+#mentions-panel.hidden { display: none; }
+
+.mentions-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 20px;
+    border-bottom: 1px solid var(--border);
+}
+
+.mentions-tabs {
+    display: flex;
+    gap: 16px;
+}
+
+.mention-tab {
+    background: none;
+    border: none;
+    padding: 12px 0;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-dim);
+    cursor: pointer;
+    position: relative;
+    border-bottom: 2px solid transparent;
+}
+
+.mention-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+}
+
+.mention-tab:hover:not(.active) {
+    color: var(--text);
+}
+
+.mention-item {
+    padding: 8px 20px;
+    font-size: 13px;
+    line-height: 1.5;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+    cursor: pointer;
+}
+
+.mention-item:hover { background: var(--bg-msg-hover); }
+
+.mention-item.resolved { opacity: 0.6; }
+
+.mention-item .msg-sender { font-weight: 700; font-size: 12px; }
+.mention-item .msg-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.mentions-empty {
+    padding: 20px;
+    color: var(--text-dim);
+    font-size: 13px;
+    font-style: italic;
+    text-align: center;
 }
 
 /* --- Timeline --- */

@@ -11,6 +11,8 @@ let reconnectTimer = null;
 let username = 'user';
 let agentConfig = {};  // { name: { color, label } } — populated from server
 let todos = {};  // { msg_id: "todo" | "done" }
+let mentions = {};  // { msg_id: { sender, text, resolved, time, timestamp } }
+let currentMentionTab = 'unresolved';
 let activeMentions = new Set();  // agent names with pre-@ toggled on
 let replyingTo = null;  // { id, sender, text } or null
 let unreadCount = 0;    // messages received while scrolled up
@@ -373,6 +375,23 @@ function appendMessage(msg) {
     }
 
     container.appendChild(el);
+
+    // Track @user mentions for the inbox
+    const mentionRegex = new RegExp(`@${username}\\b`, 'i');
+    if (mentionRegex.test(msg.text) && msg.sender.toLowerCase() !== username.toLowerCase()) {
+        mentions[msg.id] = {
+            id: msg.id,
+            sender: msg.sender,
+            text: msg.text,
+            time: msg.time,
+            timestamp: msg.timestamp || (Date.now() / 1000),
+            resolved: false
+        };
+        updateMentionsBadge();
+        if (!document.getElementById('mentions-panel').classList.contains('hidden')) {
+            renderMentionsPanel();
+        }
+    }
 
     if (autoScroll) {
         scrollToBottom();
@@ -789,6 +808,21 @@ function sendMessage() {
         ws.send(JSON.stringify(payload));
     }
 
+    // Auto-resolve pending mentions when user replies
+    let resolvedAny = false;
+    for (const id in mentions) {
+        if (!mentions[id].resolved) {
+            mentions[id].resolved = true;
+            resolvedAny = true;
+        }
+    }
+    if (resolvedAny) {
+        updateMentionsBadge();
+        if (!document.getElementById('mentions-panel').classList.contains('hidden')) {
+            renderMentionsPanel();
+        }
+    }
+
     input.value = '';
     input.style.height = 'auto';
     clearAttachments();
@@ -1201,8 +1235,11 @@ function handleDeleteBroadcast(ids) {
 
 function togglePinsPanel() {
     const panel = document.getElementById('pins-panel');
+    const mentionsPanel = document.getElementById('mentions-panel');
+
     panel.classList.toggle('hidden');
     if (!panel.classList.contains('hidden')) {
+        mentionsPanel.classList.add('hidden'); // Close other panel
         renderTodosPanel();
     }
 }
@@ -1241,6 +1278,73 @@ function renderTodosPanel() {
         const checkClass = status === 'done' ? 'todo-check done' : 'todo-check';
 
         item.innerHTML = `<button class="${checkClass}" onclick="todoToggle(${id})">${check}</button><span class="msg-time">${escapeHtml(time)}</span> <span class="msg-sender" style="color: ${senderColor}">${escapeHtml(sender)}</span> <span class="msg-text">${escapeHtml(text)}</span><button class="todo-remove-btn" onclick="todoRemove(${id})" title="Remove from todos">&times;</button>`;
+        list.appendChild(item);
+    }
+}
+
+// --- Mentions Panel (Inbox) ---
+
+function toggleMentionsPanel() {
+    const panel = document.getElementById('mentions-panel');
+    const pinsPanel = document.getElementById('pins-panel');
+    
+    panel.classList.toggle('hidden');
+    if (!panel.classList.contains('hidden')) {
+        pinsPanel.classList.add('hidden'); // Close other panel
+        renderMentionsPanel();
+    }
+}
+
+function setMentionTab(tab) {
+    currentMentionTab = tab;
+    document.querySelectorAll('.mention-tab').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tab);
+    });
+    renderMentionsPanel();
+}
+
+function updateMentionsBadge() {
+    const unresolved = Object.values(mentions).filter(m => !m.resolved).length;
+    const badge = document.getElementById('mentions-badge');
+    if (unresolved > 0) {
+        badge.textContent = unresolved;
+        badge.classList.remove('hidden');
+    } else {
+        badge.classList.add('hidden');
+    }
+}
+
+function renderMentionsPanel() {
+    const list = document.getElementById('mentions-list');
+    list.innerHTML = '';
+
+    const items = Object.values(mentions)
+        .filter(m => currentMentionTab === 'all' || !m.resolved)
+        .sort((a, b) => b.timestamp - a.timestamp);
+
+    if (items.length === 0) {
+        list.innerHTML = `<div class="mentions-empty">No ${currentMentionTab === 'unresolved' ? 'unresolved' : ''} mentions</div>`;
+        return;
+    }
+
+    for (const m of items) {
+        const item = document.createElement('div');
+        item.className = `mention-item ${m.resolved ? 'resolved' : ''}`;
+        item.onclick = () => {
+            scrollToMessage(m.id);
+            if (!m.resolved) {
+                m.resolved = true;
+                updateMentionsBadge();
+                renderMentionsPanel();
+            }
+        };
+
+        const color = getColor(m.sender);
+        item.innerHTML = `
+            <span class="msg-time">${m.time}</span>
+            <span class="msg-sender" style="color: ${color}">${escapeHtml(m.sender)}</span>
+            <span class="msg-text">${escapeHtml(m.text)}</span>
+        `;
         list.appendChild(item);
     }
 }
