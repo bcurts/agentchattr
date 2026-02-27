@@ -1,6 +1,7 @@
-"""Tests for TODO parsing and task endpoint."""
+"""Tests for TODO parsing, task endpoint, and access-token helpers."""
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -8,7 +9,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
-from app import _parse_todo_tasks, get_tasks  # noqa: E402
+from app import _access_token_valid, _load_access_token, _parse_todo_tasks, get_tasks  # noqa: E402
 
 
 def test_parse_todo_tasks_extracts_backlog_items():
@@ -83,3 +84,26 @@ def test_get_tasks_returns_empty_list_when_todo_missing(tmp_path):
         tasks = asyncio.run(get_tasks())
 
     assert tasks == []
+
+
+def test_load_access_token_reads_environment():
+    with patch.dict(os.environ, {"ACCESS_TOKEN": "secret-token"}, clear=False):
+        assert _load_access_token() == "secret-token"
+
+
+def test_access_token_allows_all_when_unset():
+    assert _access_token_valid("", "", "")
+
+
+def test_access_token_accepts_query_param():
+    assert _access_token_valid("secret-token", query_token="secret-token")
+
+
+def test_access_token_accepts_header():
+    assert _access_token_valid("secret-token", header_token="secret-token")
+
+
+def test_access_token_rejects_missing_or_wrong_tokens():
+    assert not _access_token_valid("secret-token")
+    assert not _access_token_valid("secret-token", query_token="wrong")
+    assert not _access_token_valid("secret-token", header_token="wrong")

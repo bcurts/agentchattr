@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import sys
 import threading
 import uuid
@@ -31,6 +32,7 @@ ws_clients: set[WebSocket] = set()
 
 # --- Security: session token (set by configure()) ---
 session_token: str = ""
+access_token: str = ""
 
 # Room settings (persisted to data/settings.json)
 room_settings: dict = {
@@ -142,10 +144,22 @@ def _parse_todo_tasks(text: str) -> list[dict[str, str]]:
 _PUBLIC_PREFIXES = ("/", "/static/")
 
 
-def _install_security_middleware(token: str, cfg: dict):
+def _load_access_token() -> str:
+    return os.environ.get("ACCESS_TOKEN", "").strip()
+
+
+def _access_token_valid(configured_token: str, query_token: str = "", header_token: str = "") -> bool:
+    """ACCESS_TOKEN is optional; when unset, all requests are allowed."""
+    if not configured_token:
+        return True
+    return query_token == configured_token or header_token == configured_token
+
+
+def _install_security_middleware(token: str, cfg: dict, ngrok_token: str = ""):
     """Add token validation and origin checking middleware to the app."""
     import app as _self
     _self.session_token = token
+    _self.access_token = ngrok_token
     port = cfg.get("server", {}).get("port", 8300)
     allowed_origins = {
         f"http://127.0.0.1:{port}",
@@ -156,11 +170,20 @@ def _install_security_middleware(token: str, cfg: dict):
         async def dispatch(self, request: Request, call_next):
             path = request.url.path
 
-            # Static assets, index page, and uploaded images are public.
-            # The index page injects the token client-side via same-origin script.
-            # Uploads use random filenames and have path-traversal protection.
-            if path == "/" or path.startswith(("/static/", "/uploads/")):
+            # Static assets and uploads remain public so the browser can load them
+            # normally after the initial authorized page request.
+            if path.startswith(("/static/", "/uploads/")):
                 return await call_next(request)
+
+            if not _access_token_valid(
+                _self.access_token,
+                request.query_params.get("token", ""),
+                request.headers.get("x-access-token", ""),
+            ):
+                return JSONResponse(
+                    {"error": "forbidden: invalid or missing access token"},
+                    status_code=403,
+                )
 
             # --- Origin check (blocks cross-origin / DNS-rebinding attacks) ---
             origin = request.headers.get("origin")
@@ -191,7 +214,7 @@ def configure(cfg: dict, session_token: str = ""):
     config = cfg
 
     # --- Security: store the session token and install middleware ---
-    _install_security_middleware(session_token, cfg)
+    _install_security_middleware(session_token, cfg, _load_access_token())
 
     data_dir = cfg.get("server", {}).get("data_dir", "./data")
     Path(data_dir).mkdir(parents=True, exist_ok=True)
@@ -725,4 +748,3 @@ async def serve_upload(filename: str):
     if filepath.exists():
         return FileResponse(filepath)
     return JSONResponse({"error": "not found"}, status_code=404)
-
