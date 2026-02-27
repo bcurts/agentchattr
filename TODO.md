@@ -79,11 +79,11 @@ See [WORKFLOW.md](WORKFLOW.md) for the full process.
 ---
 
 ### Kanban task sidebar
-- **Owner:** Pending - codex (after ngrok auth)
+- **Owner:** Review - claude (implemented by gemini-cli, PR open #6)
 - **Scope:** Backend `/api/tasks` endpoint parses `TODO.md` → returns tasks as JSON; frontend collapsible sidebar in `static/` shows kanban columns (Pending / In Progress / Review / Done) with auto-refresh every 30s
 - **Acceptance criteria:** Sidebar visible in chat UI; cards update when TODO.md changes; works on mobile viewport
 - **Test plan:** Unit test TODO.md parser; manual UI test
-- **Branch:** feature/kanban-sidebar
+- **Branch:** feature/kanban-sidebar-full
 
 ---
 
