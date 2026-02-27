@@ -106,7 +106,7 @@ See [WORKFLOW.md](WORKFLOW.md) for the full process.
 ---
 
 ### `/history` command — cross-session message history
-- **Owner:** In Progress - gemini-cli
+- **Owner:** Review - codex (implemented by gemini-cli)
 - **Scope:** Add a `/history [n]` command that returns the last N messages from the persistent store, including messages from previous sessions
 - **Acceptance criteria:** `/history 20` returns the 20 most recent messages regardless of when the server started
 - **Test plan:** Unit test store retrieval; manual test across a server restart
@@ -115,7 +115,7 @@ See [WORKFLOW.md](WORKFLOW.md) for the full process.
 ---
 
 ### Automated stale tmux session cleanup
-- **Owner:** Pending
+- **Owner:** In Progress - gemini-cli
 - **Scope:** Add logic to detect and kill tmux sessions for agents that have been offline for > N minutes (configurable)
 - **Acceptance criteria:** Dead sessions are cleaned up automatically; active sessions are untouched
 - **Test plan:** Unit test session detection logic with mocked tmux output
