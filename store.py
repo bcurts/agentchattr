@@ -16,6 +16,7 @@ class MessageStore:
         self._lock = threading.Lock()
         self._callbacks: list = []  # called on each new message
         self._todo_callbacks: list = []  # called on todo changes
+        self._delete_callbacks: list = []  # called on message deletion
         self._load()
         self._load_todos()
 
@@ -78,6 +79,57 @@ class MessageStore:
     def get_since(self, since_id: int = 0) -> list[dict]:
         with self._lock:
             return [m for m in self._messages if m["id"] > since_id]
+
+    def delete(self, msg_ids: list[int]) -> list[int]:
+        """Delete messages by ID. Returns list of IDs actually deleted."""
+        deleted = []
+        deleted_attachments = []
+        with self._lock:
+            for mid in msg_ids:
+                for i, m in enumerate(self._messages):
+                    if m["id"] == mid:
+                        # Collect attachment files for cleanup
+                        for att in m.get("attachments", []):
+                            url = att.get("url", "")
+                            if url.startswith("/uploads/"):
+                                deleted_attachments.append(url.split("/")[-1])
+                        # Remove any associated todo
+                        if mid in self._todos:
+                            del self._todos[mid]
+                        self._messages.pop(i)
+                        deleted.append(mid)
+                        break
+            if deleted:
+                self._rewrite_jsonl()
+                self._save_todos()
+
+        # Clean up uploaded images outside the lock
+        for filename in deleted_attachments:
+            filepath = Path("./uploads") / filename
+            if filepath.exists():
+                try:
+                    filepath.unlink()
+                except Exception:
+                    pass
+
+        # Fire callbacks
+        for cb in self._delete_callbacks:
+            try:
+                cb(deleted)
+            except Exception:
+                pass
+
+        return deleted
+
+    def on_delete(self, callback):
+        """Register a callback(ids) called when messages are deleted."""
+        self._delete_callbacks.append(callback)
+
+    def _rewrite_jsonl(self):
+        """Rewrite the JSONL file from current in-memory messages."""
+        with open(self._path, "w", encoding="utf-8") as f:
+            for m in self._messages:
+                f.write(json.dumps(m, ensure_ascii=False) + "\n")
 
     def clear(self):
         """Wipe all messages and truncate the log file."""

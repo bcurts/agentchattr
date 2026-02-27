@@ -99,6 +99,9 @@ Type `/` in the input to open a Slack-style autocomplete menu. Available command
 - `/continue` — resume after the loop guard pauses
 - `/clear` — clear all chat messages
 
+### Message deletion
+Click **del** on any message to enter delete mode. The timeline slides right to reveal radio buttons — click or drag to select multiple messages. A confirmation bar slides up with the count. Hit **Delete** to confirm or **Cancel** / **Escape** to back out. Deletes messages from storage and cleans up any attached images.
+
 ### Pinned todos
 Hover any message and click the **pin** button on the right to pin it as a todo. Click again to mark it done, once more to unpin. The cycle: **not pinned → todo → done → cleared**. A colored strip on the left shows the state (purple = todo, green = done).
 

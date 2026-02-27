@@ -143,51 +143,6 @@ def chat_who() -> str:
     return f"Online: {', '.join(online)}" if online else "Nobody online."
 
 
-def chat_todo(sender: str, action: str = "list", message: str = "", msg_id: int = 0, status: str = "") -> str:
-    """Manage todos. Actions: create, done, reopen, remove, list.
-    create: provide message text or msg_id to pin an existing message.
-    done/reopen/remove: provide msg_id. list: optionally filter by status ('todo'/'done')."""
-    action = action.lower().strip()
-
-    if action == "create":
-        if msg_id:
-            store.add_todo(msg_id)
-            return f"Added todo from message #{msg_id}"
-        if message.strip():
-            msg = store.add(sender, message.strip())
-            store.add_todo(msg["id"])
-            return f"Todo created (id={msg['id']})"
-        return "Provide msg_id or message text."
-
-    if action == "done":
-        if store.complete_todo(msg_id):
-            return f"Marked #{msg_id} as done"
-        return f"#{msg_id} is not a todo"
-
-    if action == "reopen":
-        if store.reopen_todo(msg_id):
-            return f"Reopened #{msg_id}"
-        return f"#{msg_id} is not a todo"
-
-    if action == "remove":
-        if store.remove_todo(msg_id):
-            return f"Removed #{msg_id} from todos"
-        return f"#{msg_id} is not a todo"
-
-    # Default: list
-    filt = status if status in ("todo", "done") else None
-    items = store.get_todo_messages(filt)
-    if not items:
-        return f"No {'open ' if filt == 'todo' else 'completed ' if filt == 'done' else ''}todos."
-    todos = store.get_todos()
-    out = []
-    for m in items:
-        s = todos.get(m["id"], "?")
-        mark = "[ ]" if s == "todo" else "[x]"
-        out.append(f"{mark} #{m['id']} [{m['time']}] {m['sender']}: {m['text']}")
-    return "\n".join(out)
-
-
 def _get_online() -> list[str]:
     now = time.time()
     with _presence_lock:

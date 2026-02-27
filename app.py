@@ -365,6 +365,21 @@ async def websocket_endpoint(websocket: WebSocket):
                     reply_to = int(reply_to)
                 store.add(sender, text, attachments=attachments, reply_to=reply_to)
 
+            elif event.get("type") == "delete":
+                ids = event.get("ids", [])
+                if ids:
+                    deleted = store.delete([int(i) for i in ids])
+                    if deleted:
+                        data = json.dumps({"type": "delete", "ids": deleted})
+                        dead = set()
+                        for client in ws_clients:
+                            try:
+                                await client.send_text(data)
+                            except Exception:
+                                dead.add(client)
+                        ws_clients.difference_update(dead)
+                continue
+
             elif event.get("type") == "todo_add":
                 msg_id = event.get("id")
                 if msg_id is not None:

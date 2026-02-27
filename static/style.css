@@ -436,6 +436,138 @@ main#timeline {
     color: var(--error-color);
 }
 
+/* --- Delete button (hover action) --- */
+
+.delete-btn {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 2px 6px;
+    color: var(--text-dim);
+    user-select: none;
+    background: none;
+    border: none;
+    font-family: inherit;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.delete-btn:hover {
+    color: var(--error-color);
+}
+
+/* --- Delete mode --- */
+
+#messages .message:not(.join-msg):not(.system-msg) {
+    transition: padding-left 0.2s ease;
+}
+
+#messages.delete-mode .message:not(.join-msg):not(.system-msg) {
+    padding-left: 40px;
+}
+
+#messages.delete-mode .msg-actions .delete-btn {
+    display: none;
+}
+
+@keyframes radio-in {
+    from { opacity: 0; transform: scale(0.5); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+.delete-radio {
+    position: absolute;
+    left: 10px;
+    top: 7px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid var(--border);
+    cursor: pointer;
+    transition: all 0.15s;
+    flex-shrink: 0;
+    z-index: 5;
+    animation: radio-in 0.15s ease-out;
+}
+
+.delete-radio:hover {
+    border-color: var(--error-color);
+}
+
+.delete-radio.selected {
+    border-color: var(--error-color);
+    background: var(--error-color);
+    box-shadow: inset 0 0 0 3px var(--bg);
+}
+
+/* --- Delete confirmation bar --- */
+
+@keyframes delete-bar-in {
+    from { transform: translateY(100%); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes delete-bar-out {
+    from { transform: translateY(0); opacity: 1; }
+    to { transform: translateY(100%); opacity: 0; }
+}
+
+#delete-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 10px 20px;
+    background: rgba(248, 113, 113, 0.08);
+    border-top: 1px solid var(--error-color);
+    z-index: 5;
+    animation: delete-bar-in 0.2s ease-out;
+}
+
+#delete-bar.hidden { display: none; }
+
+.delete-bar-count {
+    font-size: 13px;
+    color: var(--text-dim);
+    min-width: 100px;
+    text-align: center;
+}
+
+.delete-bar-cancel {
+    background: transparent;
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 20px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.delete-bar-cancel:hover {
+    color: var(--text);
+    border-color: var(--text-dim);
+}
+
+.delete-bar-confirm {
+    background: var(--error-color);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 20px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s;
+}
+
+.delete-bar-confirm:hover { opacity: 0.85; }
+.delete-bar-confirm:disabled { opacity: 0.4; cursor: default; }
+
 /* --- Reply quotes --- */
 
 .reply-quote {
@@ -844,9 +976,9 @@ main#timeline {
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    z-index: 10;
+    z-index: 60;
     box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-    transition: opacity 0.2s;
+    transition: opacity 0.2s, bottom 0.2s ease-out;
 }
 
 #scroll-anchor:hover { opacity: 0.85; }

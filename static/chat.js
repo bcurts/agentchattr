@@ -251,6 +251,8 @@ function connectWebSocket() {
             updateTyping(event.agent, event.active);
         } else if (event.type === 'settings') {
             applySettings(event.data);
+        } else if (event.type === 'delete') {
+            handleDeleteBroadcast(event.ids);
         } else if (event.type === 'clear') {
             document.getElementById('messages').innerHTML = '';
             lastMessageDate = null;
@@ -363,7 +365,7 @@ function appendMessage(msg) {
 
         const statusLabel = todoStatusLabel(todoStatus);
         el.dataset.rawText = msg.text;
-        el.innerHTML = `<div class="todo-strip"></div>${isSelf ? '' : avatarHtml}<div class="chat-bubble" style="--bubble-color: ${senderColor}">${replyHtml}<div class="bubble-header"><span class="msg-sender" style="color: ${senderColor}">${escapeHtml(msg.sender)}</span><span class="msg-time">${msg.time || ''}</span></div><div class="msg-text">${textHtml}</div>${attachmentsHtml}</div><div class="msg-actions"><button class="reply-btn" onclick="startReply(${msg.id}, event)">reply</button><button class="todo-hint" onclick="todoCycle(${msg.id}); event.stopPropagation();">${statusLabel}</button></div>`;
+        el.innerHTML = `<div class="todo-strip"></div>${isSelf ? '' : avatarHtml}<div class="chat-bubble" style="--bubble-color: ${senderColor}">${replyHtml}<div class="bubble-header"><span class="msg-sender" style="color: ${senderColor}">${escapeHtml(msg.sender)}</span><span class="msg-time">${msg.time || ''}</span></div><div class="msg-text">${textHtml}</div>${attachmentsHtml}</div><div class="msg-actions"><button class="reply-btn" onclick="startReply(${msg.id}, event)">reply</button><button class="todo-hint" onclick="todoCycle(${msg.id}); event.stopPropagation();">${statusLabel}</button><button class="delete-btn" onclick="deleteClick(${msg.id}, event)" title="Delete">del</button></div>`;
         if (todoStatus) el.classList.add('msg-todo', `msg-todo-${todoStatus}`);
 
         // Add copy buttons to code blocks
@@ -1027,6 +1029,174 @@ function updateTodoState(msgId, status) {
     // Update panel if open
     const panel = document.getElementById('pins-panel');
     if (!panel.classList.contains('hidden')) renderTodosPanel();
+}
+
+// --- Delete mode ---
+
+let deleteMode = false;
+let deleteSelected = new Set();
+let deleteDragging = false;
+
+function deleteClick(msgId, event) {
+    event.stopPropagation();
+    enterDeleteMode(msgId);
+}
+
+function enterDeleteMode(initialId) {
+    if (deleteMode) return;
+    deleteMode = true;
+    deleteSelected.clear();
+    if (initialId != null) deleteSelected.add(initialId);
+
+    // Add delete-mode class to timeline for CSS shift
+    document.getElementById('messages').classList.add('delete-mode');
+
+    // Add radio circles to all messages (not joins)
+    document.querySelectorAll('.message[data-id]').forEach(el => {
+        if (el.classList.contains('join-msg') || el.classList.contains('system-msg')) return;
+        const id = parseInt(el.dataset.id);
+        const circle = document.createElement('div');
+        circle.className = 'delete-radio' + (deleteSelected.has(id) ? ' selected' : '');
+        circle.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            toggleDeleteSelect(id);
+            deleteDragging = true;
+        });
+        circle.addEventListener('mouseenter', () => {
+            if (deleteDragging) toggleDeleteSelect(id, true);
+        });
+        el.prepend(circle);
+    });
+
+    // Show floating delete bar
+    showDeleteBar();
+    updateDeleteBar();
+    document.getElementById('scroll-anchor').style.bottom = '170px';
+}
+
+function toggleDeleteSelect(id, dragForceSelect) {
+    const el = document.querySelector(`.message[data-id="${id}"]`);
+    if (!el) return;
+    const circle = el.querySelector('.delete-radio');
+
+    if (dragForceSelect) {
+        deleteSelected.add(id);
+        if (circle) circle.classList.add('selected');
+    } else {
+        if (deleteSelected.has(id)) {
+            deleteSelected.delete(id);
+            if (circle) circle.classList.remove('selected');
+        } else {
+            deleteSelected.add(id);
+            if (circle) circle.classList.add('selected');
+        }
+    }
+    updateDeleteBar();
+}
+
+function showDeleteBar() {
+    let bar = document.getElementById('delete-bar');
+    if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'delete-bar';
+        bar.innerHTML = `<button class="delete-bar-cancel" onclick="exitDeleteMode()">Cancel</button><span class="delete-bar-count"></span><button class="delete-bar-confirm" onclick="confirmDelete()">Delete</button>`;
+        const footer = document.querySelector('footer');
+        footer.insertBefore(bar, footer.firstChild);
+    }
+    bar.classList.remove('hidden');
+}
+
+function updateDeleteBar() {
+    const count = deleteSelected.size;
+    const span = document.querySelector('.delete-bar-count');
+    if (span) span.textContent = count > 0 ? `${count} selected` : 'Select messages';
+    const btn = document.querySelector('.delete-bar-confirm');
+    if (btn) {
+        btn.textContent = count > 0 ? `Delete (${count})` : 'Delete';
+        btn.disabled = count === 0;
+    }
+}
+
+function confirmDelete() {
+    if (!ws || deleteSelected.size === 0) return;
+    ws.send(JSON.stringify({ type: 'delete', ids: [...deleteSelected] }));
+    exitDeleteMode();
+}
+
+function exitDeleteMode() {
+    deleteMode = false;
+    deleteSelected.clear();
+    deleteDragging = false;
+
+    // Animate messages back
+    document.getElementById('messages').classList.remove('delete-mode');
+
+    // Animate bar out
+    const bar = document.getElementById('delete-bar');
+    if (bar) {
+        bar.style.animation = 'delete-bar-out 0.2s ease-in forwards';
+        setTimeout(() => {
+            bar.classList.add('hidden');
+            bar.style.animation = '';
+        }, 200);
+    }
+
+    // Fade out radios then remove
+    document.querySelectorAll('.delete-radio').forEach(el => {
+        el.style.opacity = '0';
+        el.style.transition = 'opacity 0.2s';
+        setTimeout(() => el.remove(), 200);
+    });
+
+    document.getElementById('scroll-anchor').style.bottom = '120px';
+}
+
+// Auto-scroll while dragging near edges
+let deleteScrollInterval = null;
+document.addEventListener('mousemove', (e) => {
+    if (!deleteDragging) return;
+    const timeline = document.getElementById('timeline');
+    const rect = timeline.getBoundingClientRect();
+    const edgeZone = 60;
+
+    if (e.clientY < rect.top + edgeZone) {
+        // Near top — scroll up
+        if (!deleteScrollInterval) {
+            deleteScrollInterval = setInterval(() => timeline.scrollTop -= 8, 16);
+        }
+    } else if (e.clientY > rect.bottom - edgeZone) {
+        // Near bottom — scroll down
+        if (!deleteScrollInterval) {
+            deleteScrollInterval = setInterval(() => timeline.scrollTop += 8, 16);
+        }
+    } else if (deleteScrollInterval) {
+        clearInterval(deleteScrollInterval);
+        deleteScrollInterval = null;
+    }
+});
+
+// Stop drag on mouseup
+document.addEventListener('mouseup', () => {
+    deleteDragging = false;
+    if (deleteScrollInterval) {
+        clearInterval(deleteScrollInterval);
+        deleteScrollInterval = null;
+    }
+});
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && deleteMode) exitDeleteMode();
+});
+
+function handleDeleteBroadcast(ids) {
+    for (const id of ids) {
+        const el = document.querySelector(`.message[data-id="${id}"]`);
+        if (el) el.remove();
+        // Clean from todos
+        delete todos[id];
+    }
+    // Refresh todos panel if open
+    const panel = document.getElementById('pins-panel');
+    if (panel && !panel.classList.contains('hidden')) renderTodosPanel();
 }
 
 function togglePinsPanel() {
