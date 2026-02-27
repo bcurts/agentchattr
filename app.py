@@ -525,7 +525,8 @@ async def open_session(agent_name: str):
     resume_flag = agent_cfg.get("resume_flag", "--resume")
     resume_cmd = f"{cmd_name} {resume_flag} {session_id}"
 
-    import os, subprocess
+    import os
+    import subprocess
     clean_env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
 
     if sys.platform == "win32":

@@ -190,7 +190,7 @@ def main():
     resolved = shutil.which(command)
     if not resolved:
         print(f"  Error: '{command}' not found on PATH.")
-        print(f"  Install it first, then try again.")
+        print("  Install it first, then try again.")
         sys.exit(1)
     command = resolved
 

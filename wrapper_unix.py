@@ -70,11 +70,12 @@ def run_agent(command, extra_args, cwd, env, queue_file, agent, no_restart, star
     abs_cwd = str(Path(cwd).resolve())
 
     # Wire up injection with the tmux session name
-    inject_fn = lambda text: inject(text, tmux_session=session_name)
+    def inject_fn(text):
+        inject(text, tmux_session=session_name)
     start_watcher(inject_fn)
 
     print(f"  Using tmux session: {session_name}")
-    print(f"  Detach: Ctrl+B, D  (agent keeps running)")
+    print("  Detach: Ctrl+B, D  (agent keeps running)")
     print(f"  Reattach: tmux attach -t {session_name}\n")
 
     while True:
@@ -114,7 +115,7 @@ def run_agent(command, extra_args, cwd, env, queue_file, agent, no_restart, star
                 break
 
             print(f"\n  {agent.capitalize()} exited.")
-            print(f"  Restarting in 3s... (Ctrl+C to quit)")
+            print("  Restarting in 3s... (Ctrl+C to quit)")
             time.sleep(3)
         except KeyboardInterrupt:
             # Kill the tmux session on Ctrl+C
