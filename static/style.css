@@ -971,6 +971,7 @@ pre:hover .code-copy-btn { opacity: 1; }
 /* --- Footer / Input --- */
 
 footer {
+    position: relative;
     padding: 12px 20px;
     background: var(--bg-header);
     border-top: none;
@@ -1149,6 +1150,51 @@ footer {
     font-size: 11px;
     color: var(--text-dim);
     margin-top: 6px;
+}
+
+/* --- Slash command menu --- */
+
+#slash-menu {
+    position: absolute;
+    bottom: 100%;
+    left: 20px;
+    right: 20px;
+    max-height: 240px;
+    overflow-y: auto;
+    background: var(--bg-header);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.4);
+    margin-bottom: 8px;
+    z-index: 20;
+}
+
+#slash-menu.hidden { display: none; }
+
+.slash-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    cursor: pointer;
+    transition: background 0.1s;
+}
+
+.slash-item:hover,
+.slash-item.active {
+    background: rgba(124, 58, 237, 0.2);
+}
+
+.slash-cmd {
+    font-weight: 600;
+    color: var(--accent);
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.slash-desc {
+    color: var(--text-dim);
+    font-size: 12px;
 }
 
 /* --- Dropzone --- */

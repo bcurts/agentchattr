@@ -643,22 +643,112 @@ function setupKeyboardShortcuts() {
     });
 }
 
+// --- Slash command menu ---
+
+const SLASH_COMMANDS = [
+    { cmd: '/roastreview', desc: 'Get all agents to review and roast each other\'s work' },
+    { cmd: '/poetry haiku', desc: 'Agents write a haiku about the codebase' },
+    { cmd: '/poetry limerick', desc: 'Agents write a limerick about the codebase' },
+    { cmd: '/poetry sonnet', desc: 'Agents write a sonnet about the codebase' },
+    { cmd: '/continue', desc: 'Resume after loop guard pauses' },
+    { cmd: '/clear', desc: 'Clear all chat messages' },
+];
+
+let slashMenuIndex = 0;
+let slashMenuVisible = false;
+
+function updateSlashMenu(text) {
+    const menu = document.getElementById('slash-menu');
+    if (!text.startsWith('/') || text.includes(' ') && !text.startsWith('/poetry')) {
+        menu.classList.add('hidden');
+        slashMenuVisible = false;
+        return;
+    }
+
+    const query = text.toLowerCase();
+    const matches = SLASH_COMMANDS.filter(c => c.cmd.startsWith(query));
+
+    if (matches.length === 0 || (matches.length === 1 && matches[0].cmd === query)) {
+        menu.classList.add('hidden');
+        slashMenuVisible = false;
+        return;
+    }
+
+    menu.innerHTML = '';
+    slashMenuIndex = Math.min(slashMenuIndex, matches.length - 1);
+
+    matches.forEach((item, i) => {
+        const row = document.createElement('div');
+        row.className = 'slash-item' + (i === slashMenuIndex ? ' active' : '');
+        row.innerHTML = `<span class="slash-cmd">${escapeHtml(item.cmd)}</span><span class="slash-desc">${escapeHtml(item.desc)}</span>`;
+        row.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            selectSlashCommand(item.cmd);
+        });
+        row.addEventListener('mouseenter', () => {
+            slashMenuIndex = i;
+            menu.querySelectorAll('.slash-item').forEach((el, j) => el.classList.toggle('active', j === i));
+        });
+        menu.appendChild(row);
+    });
+
+    menu.classList.remove('hidden');
+    slashMenuVisible = true;
+}
+
+function selectSlashCommand(cmd) {
+    const input = document.getElementById('input');
+    input.value = cmd;
+    input.focus();
+    document.getElementById('slash-menu').classList.add('hidden');
+    slashMenuVisible = false;
+}
+
 // --- Input ---
 
 function setupInput() {
     const input = document.getElementById('input');
 
     input.addEventListener('keydown', (e) => {
+        if (slashMenuVisible) {
+            const menu = document.getElementById('slash-menu');
+            const items = menu.querySelectorAll('.slash-item');
+            if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                slashMenuIndex = (slashMenuIndex - 1 + items.length) % items.length;
+                items.forEach((el, i) => el.classList.toggle('active', i === slashMenuIndex));
+                return;
+            }
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                slashMenuIndex = (slashMenuIndex + 1) % items.length;
+                items.forEach((el, i) => el.classList.toggle('active', i === slashMenuIndex));
+                return;
+            }
+            if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+                e.preventDefault();
+                const active = items[slashMenuIndex];
+                if (active) selectSlashCommand(active.querySelector('.slash-cmd').textContent);
+                if (e.key === 'Enter') sendMessage();
+                return;
+            }
+            if (e.key === 'Escape') {
+                menu.classList.add('hidden');
+                slashMenuVisible = false;
+                return;
+            }
+        }
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             sendMessage();
         }
     });
 
-    // Auto-resize
+    // Auto-resize + slash menu
     input.addEventListener('input', () => {
         input.style.height = 'auto';
         input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+        updateSlashMenu(input.value);
     });
 }
 

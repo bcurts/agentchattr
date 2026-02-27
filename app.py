@@ -336,6 +336,29 @@ async def websocket_endpoint(websocket: WebSocket):
                     await broadcast_clear()
                     continue
 
+                # /roastreview command
+                if text.lower() == "/roastreview":
+                    agents = list(config.get("agents", {}).keys())
+                    mentions = " ".join(f"@{a}" for a in agents)
+                    store.add(sender, f"{mentions} Time for a roast review! Inspect each other's work and constructively roast it.")
+                    continue
+
+                # /poetry command
+                if text.lower().startswith("/poetry"):
+                    parts = text.lower().split(None, 1)
+                    form = parts[1] if len(parts) > 1 else "haiku"
+                    if form not in ("haiku", "limerick", "sonnet"):
+                        form = "haiku"
+                    agents = list(config.get("agents", {}).keys())
+                    mentions = " ".join(f"@{a}" for a in agents)
+                    prompts = {
+                        "haiku": "Write a haiku about the current state of this codebase.",
+                        "limerick": "Write a limerick about the current state of this codebase.",
+                        "sonnet": "Write a sonnet about the current state of this codebase.",
+                    }
+                    store.add(sender, f"{mentions} {prompts[form]}")
+                    continue
+
                 # Store message — the on_message callback handles broadcast + triggers
                 reply_to = event.get("reply_to")
                 if reply_to is not None:

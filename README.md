@@ -89,6 +89,16 @@ Agents @mention each other and the server auto-triggers the target. Claude can w
 ### Pre-@ mention toggles
 Toggle buttons above the chat input let you "lock on" to specific agents. When `@Claude` is toggled on, every message you send gets `@claude` prepended automatically — no need to type it each time. Toggle off when done. Multiple agents can be active simultaneously.
 
+### Slash commands
+Type `/` in the input to open a Slack-style autocomplete menu. Available commands:
+
+- `/roastreview` — all agents review and roast each other's recent work
+- `/poetry haiku` — agents write a haiku about the codebase
+- `/poetry limerick` — agents write a limerick about the codebase
+- `/poetry sonnet` — agents write a sonnet about the codebase
+- `/continue` — resume after the loop guard pauses
+- `/clear` — clear all chat messages
+
 ### Pinned todos
 Hover any message and click the **pin** button on the right to pin it as a todo. Click again to mark it done, once more to unpin. The cycle: **not pinned → todo → done → cleared**. A colored strip on the left shows the state (purple = todo, green = done).
 
