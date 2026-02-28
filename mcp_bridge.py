@@ -30,6 +30,19 @@ _MCP_INSTRUCTIONS = (
     "Use chat_join when you start a session to announce your presence. "
     "Use chat_decision to list or propose project decisions (humans approve via the web UI). "
     "Always use your own name as the sender — never impersonate other agents or humans.\n\n"
+    "CRITICAL — Sender Identity Rules:\n"
+    "Your sender name MUST match your canonical agent identity, regardless of what CLI tool you are running in:\n"
+    "  - All Anthropic products (Claude Code, claude-cli, etc.) → sender: \"claude\"\n"
+    "  - All OpenAI products (Codex CLI, codex, chatgpt-cli, etc.) → sender: \"codex\"\n"
+    "  - All Google products (Gemini CLI, gemini-cli, aistudio, etc.) → sender: \"gemini\"\n"
+    "  - Humans use their own name (e.g. \"ben\")\n"
+    "Do NOT use your CLI tool name (e.g. \"gemini-cli\", \"claude-code\") — use the canonical agent name above. "
+    "This applies to ALL tools: chat_send, chat_join, chat_read, chat_set_hat, chat_decision, etc.\n\n"
+    "CRITICAL — Always Respond In Chat:\n"
+    "When you are addressed in a chat message (@yourname or @all agents), you MUST respond using chat_send "
+    "in the same channel. NEVER respond only in your terminal/console output. The human and other agents "
+    "cannot see your terminal — only chat messages are visible to everyone. If you need to do work first, "
+    "do the work, then post your response/results in chat using chat_send.\n\n"
     "Decisions are lightweight project memory. They help agents stay aligned on agreed conventions, "
     "architecture choices, and workflow rules. At the start of a session, call chat_decision(action='list') "
     "to read existing approved decisions — treat approved decisions as authoritative guidance. "
@@ -65,7 +78,7 @@ def chat_send(sender: str, message: str, image_path: str = "", reply_to: int = -
         src = Path(image_path)
         if not src.exists():
             return f"Image not found: {image_path}"
-        if src.suffix.lower() not in ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'):
+        if src.suffix.lower() not in ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg'):
             return f"Unsupported image type: {src.suffix}"
         upload_dir = Path("./uploads")
         upload_dir.mkdir(parents=True, exist_ok=True)
@@ -100,7 +113,7 @@ def _serialize_messages(msgs: list[dict]) -> str:
         if m.get("reply_to") is not None:
             entry["reply_to"] = m["reply_to"]
         out.append(entry)
-    return json.dumps(out, indent=2, ensure_ascii=False) if out else "No new messages."
+    return json.dumps(out, ensure_ascii=False) if out else "No new messages."
 
 
 def migrate_cursors_rename(old_name: str, new_name: str):
@@ -176,10 +189,8 @@ def chat_resync(sender: str, limit: int = 50, channel: str = "") -> str:
 def chat_join(name: str, channel: str = "general") -> str:
     """Announce that you've connected to agentchattr."""
     _touch_presence(name)
-    # Post join in all channels so every agent sees it
-    channels = room_settings.get("channels", ["general"]) if room_settings else ["general"]
-    for ch in channels:
-        store.add(name, f"{name} connected", msg_type="join", channel=ch)
+    # Only post join to general — don't spam topic channels
+    store.add(name, f"{name} is online", msg_type="join", channel="general")
     online = _get_online()
     return f"Joined. Online: {', '.join(online)}"
 
@@ -225,7 +236,7 @@ def chat_decision(action: str, sender: str, decision: str = "", reason: str = ""
         items = decisions.list_all()
         if not items:
             return "No decisions yet."
-        return json.dumps(items, indent=2, ensure_ascii=False)
+        return json.dumps(items, ensure_ascii=False)
 
     if action == "propose":
         if not decision.strip():
@@ -245,6 +256,20 @@ def chat_decision(action: str, sender: str, decision: str = "", reason: str = ""
 
 # --- Server instances ---
 
+def chat_set_hat(sender: str, svg: str) -> str:
+    """Set your avatar hat. Pass an SVG string (viewBox "0 0 32 16", max 5KB).
+    The hat will appear above your avatar in chat. To remove, users can drag it to the trash.
+    Color context for design — chat bg is dark (#0f0f17), avatar colors: claude=#da7756 (coral), codex=#10a37f (green), gemini=#4285f4 (blue)."""
+    if not sender.strip():
+        return "Error: sender is required."
+    _touch_presence(sender)
+    import app
+    err = app.set_agent_hat(sender, svg)
+    if err:
+        return f"Error: {err}"
+    return f"Hat set for {sender}!"
+
+
 def chat_channels() -> str:
     """List all available channels. Returns a JSON array of channel names."""
     channels = room_settings.get("channels", ["general"]) if room_settings else ["general"]
@@ -252,7 +277,7 @@ def chat_channels() -> str:
 
 
 _ALL_TOOLS = [
-    chat_send, chat_read, chat_resync, chat_join, chat_who, chat_decision, chat_channels,
+    chat_send, chat_read, chat_resync, chat_join, chat_who, chat_decision, chat_channels, chat_set_hat,
 ]
 
 

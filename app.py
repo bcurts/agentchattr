@@ -48,6 +48,63 @@ room_settings: dict = {
 _CHANNEL_NAME_RE = _re.compile(r'^[a-z0-9][a-z0-9\-]{0,19}$')
 MAX_CHANNELS = 8
 
+# Agent hats (persisted to data/hats.json)
+agent_hats: dict[str, str] = {}  # { agent_name: svg_string }
+
+
+def _hats_path() -> Path:
+    data_dir = config.get("server", {}).get("data_dir", "./data")
+    return Path(data_dir) / "hats.json"
+
+
+def _load_hats():
+    global agent_hats
+    p = _hats_path()
+    if p.exists():
+        try:
+            agent_hats = json.loads(p.read_text("utf-8"))
+        except Exception:
+            agent_hats = {}
+
+
+def _save_hats():
+    p = _hats_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(agent_hats), "utf-8")
+
+
+def _sanitize_svg(svg: str) -> str:
+    """Strip dangerous content from SVG string."""
+    svg = _re.sub(r'<script[^>]*>.*?</script>', '', svg, flags=_re.DOTALL | _re.IGNORECASE)
+    svg = _re.sub(r'\bon\w+\s*=', '', svg, flags=_re.IGNORECASE)
+    svg = _re.sub(r'javascript\s*:', '', svg, flags=_re.IGNORECASE)
+    return svg
+
+
+def set_agent_hat(agent: str, svg: str) -> str | None:
+    """Validate, sanitize, and store a hat SVG. Returns error string or None."""
+    svg = svg.strip()
+    if not svg.lower().startswith("<svg"):
+        return "Hat must be an SVG element (starts with <svg)."
+    if len(svg) > 5120:
+        return "Hat SVG too large (max 5KB)."
+    svg = _sanitize_svg(svg)
+    agent_hats[agent.lower()] = svg
+    _save_hats()
+    if _event_loop:
+        asyncio.run_coroutine_threadsafe(broadcast_hats(), _event_loop)
+    return None
+
+
+def clear_agent_hat(agent: str):
+    """Remove an agent's hat."""
+    key = agent.lower()
+    if key in agent_hats:
+        del agent_hats[key]
+        _save_hats()
+        if _event_loop:
+            asyncio.run_coroutine_threadsafe(broadcast_hats(), _event_loop)
+
 
 def _settings_path() -> Path:
     data_dir = config.get("server", {}).get("data_dir", "./data")
@@ -160,6 +217,7 @@ def configure(cfg: dict, session_token: str = ""):
     store.on_message(_on_store_message)
 
     _load_settings()
+    _load_hats()
 
     # Apply saved loop guard setting
     if "max_agent_hops" in room_settings:
@@ -256,31 +314,77 @@ def _on_decision_change(action: str, decision: dict):
 
 async def _handle_new_message(msg: dict):
     """Broadcast message to web clients + check for @mention triggers."""
-    await broadcast(msg)
+    # For broadcast slash commands, suppress the raw message — only the expanded
+    # version should appear. Delete from store if it was persisted (MCP path),
+    # and skip broadcasting the raw text.
+    text = msg.get("text", "")
+    # Strip @mentions to find the slash command (e.g. "@claude @codex /hatmaking")
+    stripped = _re.sub(r"@\w+\s*", "", text).strip().lower()
+    _broadcast_cmds = ("/hatmaking", "/artchallenge", "/roastreview", "/poetry")
+    cmd_word = stripped.split()[0] if stripped else ""
+    is_broadcast_cmd = cmd_word in _broadcast_cmds
+
+    if not is_broadcast_cmd:
+        await broadcast(msg)
+
+    # If the raw slash command was persisted (MCP path), silently remove it.
+    # It was never broadcast to WebSocket clients, so no delete event needed.
+    if is_broadcast_cmd and msg.get("id"):
+        store.delete([msg["id"]])
 
     # System messages never trigger routing — prevents infinite callback loops
     sender = msg.get("sender", "")
-    text = msg.get("text", "")
     channel = msg.get("channel", "general")
     if sender == "system":
         return
 
-    # Check for slash commands (e.g. from MCP agents)
-    low_text = text.lower()
-    if low_text == "/continue":
+    # Check for slash commands — use stripped text (sans @mentions)
+    if stripped == "/continue":
         router.continue_routing(channel)
         store.add("system", f"Routing resumed by {sender}.", channel=channel)
         await broadcast_status()
         return
 
-    if low_text == "/roastreview":
+    if stripped == "/roastreview":
         agent_names = list(config.get("agents", {}).keys())
         mentions = " ".join(f"@{a}" for a in agent_names)
         store.add(sender, f"{mentions} Time for a roast review! Inspect each other's work and constructively roast it.", channel=channel)
         return
 
-    if low_text.startswith("/poetry"):
-        parts = low_text.split(None, 1)
+    if stripped.startswith("/artchallenge"):
+        parts = stripped.split(None, 1)
+        theme = parts[1] if len(parts) > 1 else "anything you like"
+        agent_names = list(config.get("agents", {}).keys())
+        mentions = " ".join(f"@{a}" for a in agent_names)
+        store.add(
+            sender,
+            f"{mentions} Art challenge! Create an SVG artwork with the theme: **{theme}**. "
+            "Write your SVG code to a .svg file, then attach it using chat_send(image_path=...). "
+            "Make it creative, keep it under 5KB. Let's see what you've got!",
+            channel=channel,
+        )
+        return
+
+    if stripped == "/hatmaking":
+        agent_names = list(config.get("agents", {}).keys())
+        mentions = " ".join(f"@{a}" for a in agent_names)
+        agents_cfg = config.get("agents", {})
+        color_parts = ", ".join(
+            f"{a}={agents_cfg[a].get('color', '#888')}" for a in agent_names if a in agents_cfg
+        )
+        store.add(
+            sender,
+            f"{mentions} Hat making time! Design a new hat for your avatar using SVG. "
+            "Use viewBox=\"0 0 32 16\" so it fits on top of a 32px avatar circle. "
+            f"Background is dark (#0f0f17). Avatar colors: {color_parts}. Design for good contrast! "
+            "Call chat_set_hat(sender=your_name, svg='<svg ...>...</svg>') to wear it. "
+            "Be creative — top hats, party hats, crowns, propeller beanies, whatever you want!",
+            channel=channel,
+        )
+        return
+
+    if stripped.startswith("/poetry"):
+        parts = stripped.split(None, 1)
         form = parts[1] if len(parts) > 1 else "haiku"
         if form not in ("haiku", "limerick", "sonnet"):
             form = "haiku"
@@ -403,6 +507,17 @@ async def broadcast_decision(action: str, decision: dict):
     ws_clients.difference_update(dead)
 
 
+async def broadcast_hats():
+    data = json.dumps({"type": "hats", "data": agent_hats})
+    dead = set()
+    for client in ws_clients:
+        try:
+            await client.send_text(data)
+        except Exception:
+            dead.add(client)
+    ws_clients.difference_update(dead)
+
+
 # --- WebSocket ---
 
 @app.websocket("/ws")
@@ -431,6 +546,9 @@ async def websocket_endpoint(websocket: WebSocket):
 
     # Send decisions
     await websocket.send_text(json.dumps({"type": "decisions", "data": decisions.list_all()}))
+
+    # Send hats
+    await websocket.send_text(json.dumps({"type": "hats", "data": agent_hats}))
 
     # Send history (per channel based on history_limit)
     limit_val = room_settings.get("history_limit", "all")
@@ -476,8 +594,11 @@ async def websocket_endpoint(websocket: WebSocket):
                         store.add("system", "Resuming agent conversation...", msg_type="system", channel=channel)
                         await broadcast_status()
                         continue
-                    # Other slash commands (roastreview, poetry) are handled by agents reading the chat.
-                    # We just need to make sure the trigger message has the right channel (which store.add does).
+                    # Broadcast slash commands — expand without storing the raw command.
+                    # _handle_new_message will store the expanded version.
+                    if cmd in ("/hatmaking", "/artchallenge", "/roastreview", "/poetry"):
+                        await _handle_new_message({"sender": sender, "text": text, "channel": channel})
+                        continue
 
                 # Store message — the on_message callback handles broadcast + triggers
                 reply_to = event.get("reply_to")
@@ -656,7 +777,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
 # --- REST endpoints ---
 
-ALLOWED_UPLOAD_EXTS = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'}
+ALLOWED_UPLOAD_EXTS = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg'}
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB default
 
 
@@ -702,6 +823,13 @@ async def get_status():
 @app.get("/api/settings")
 async def get_settings():
     return room_settings
+
+
+@app.delete("/api/hat/{agent_name}")
+async def delete_hat(agent_name: str):
+    """Remove an agent's hat (called by the trash-can UI)."""
+    clear_agent_hat(agent_name)
+    return JSONResponse({"ok": True})
 
 
 @app.post("/api/heartbeat/{agent_name}")

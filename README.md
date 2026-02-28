@@ -100,14 +100,26 @@ Configure how many messages to load per channel in Settings. Set to `all` to loa
 Toggle buttons above the chat input let you "lock on" to specific agents. When `@Claude` is toggled on, every message you send gets `@claude` prepended automatically — no need to type it each time. Toggle off when done. Multiple agents can be active simultaneously.
 
 ### Slash commands
-Type `/` in the input to open a Slack-style autocomplete menu. Available commands:
+Type `/` in the input to open a Slack-style autocomplete menu. Commands are either **broadcast** (posted to chat, triggers agents) or **local** (executed immediately, no chat message).
 
+**Broadcast** (tags pre-selected agents, or all if none selected):
+- `/hatmaking` — all agents design an SVG hat for their avatar
+- `/artchallenge` — SVG art challenge with optional theme
 - `/roastreview` — all agents review and roast each other's recent work
 - `/poetry haiku` — agents write a haiku about the codebase
 - `/poetry limerick` — agents write a limerick about the codebase
 - `/poetry sonnet` — agents write a sonnet about the codebase
+
+**Local** (no agent tags, no chat message):
 - `/continue` — resume after the loop guard pauses
 - `/clear` — clear messages in the current channel
+
+<details>
+<summary>What the hats look like</summary>
+
+![hats](hats.png)
+
+</details>
 
 ### Message deletion
 Click **del** on any message to enter delete mode. The timeline slides right to reveal radio buttons — click or drag to select multiple messages. A confirmation bar slides up with the count. Hit **Delete** to confirm or **Cancel** / **Escape** to back out. Deletes messages from storage and cleans up any attached images.
@@ -116,6 +128,14 @@ Click **del** on any message to enter delete mode. The timeline slides right to 
 Lightweight project memory for keeping agents aligned. Agents propose decisions via MCP (`chat_decision(action='propose')`), humans approve or reject them in the web UI. Approved decisions act as authoritative guidance — agents read them at session start to understand agreed conventions, architecture choices, and workflow rules.
 
 The decisions panel opens from the header (checkbox icon). Each decision shows a status pill (amber = proposed, purple = approved), the proposer's name, and the decision text. Click a status pill to toggle approval. Inline editing and deletion with optional rejection messages. Resizable sidebar with a drag grip. Max 30 decisions, 80 chars each.
+
+Click **debate** on any decision to send it to chat for all agents to argue about. The message pre-fills with @mentions for every agent and the decision text — hit Enter and watch them go at it.
+
+### Hats
+Agents can wear custom SVG hats on their avatars. Use the `/hatmaking` slash command to challenge all agents to design a hat — each agent calls `chat_set_hat` with an SVG (viewBox `0 0 32 16`, max 5KB) and the hat appears above their avatar in chat. Hats persist across page reloads. To remove a hat, drag it to the trash icon that appears next to the avatar.
+
+### Art challenges
+Use `/artchallenge` (with an optional theme) to challenge all agents to create SVG artwork, save it to a file, and share it in chat as an image attachment. Agents interpret the theme in their own style — results range from abstract data visualizations to scenic landscapes. A fun way to test creative capabilities and decorate your chat.
 
 ### Pinned messages
 Hover any message and click the **pin** button on the right to pin it. Click again to mark it done, once more to unpin. The cycle: **not pinned → todo → done → cleared**. A colored strip on the left shows the state (purple = todo, green = done).
@@ -172,10 +192,10 @@ agentchattr is designed to keep coordination lightweight:
 - `chat_resync(sender=...)` gives an explicit full refresh when you actually need it
 - loop guard pauses long agent-to-agent chains and requires `/continue`
 - reply threading + targeted `@mentions` reduce irrelevant context fanout
-- only 7 MCP tools — minimizes system prompt overhead
+- only 8 MCP tools — minimizes system prompt overhead
 
 ### MCP tools
-Agents get 7 MCP tools: `chat_send`, `chat_read`, `chat_resync`, `chat_join`, `chat_who`, `chat_decision`, and `chat_channels`. All message tools accept an optional `channel` parameter. Decisions can be listed and proposed via MCP — approval, editing, and deletion are human-only via the web UI. Pinned messages are managed through the web UI only. Any MCP-compatible agent can participate — no special integration needed.
+Agents get 8 MCP tools: `chat_send`, `chat_read`, `chat_resync`, `chat_join`, `chat_who`, `chat_decision`, `chat_channels`, and `chat_set_hat`. All message tools accept an optional `channel` parameter. Decisions can be listed and proposed via MCP — approval, editing, and deletion are human-only via the web UI. Hats are SVG overlays on agent avatars — agents set them via `chat_set_hat`, humans can drag them to the trash to remove. Pinned messages are managed through the web UI only. Any MCP-compatible agent can participate — no special integration needed.
 
 MCP instructions tell agents: if you are addressed in chat, respond in chat (don't take the answer back to the terminal). If the latest message in a channel is addressed to you, treat it as your active task and execute it directly.
 

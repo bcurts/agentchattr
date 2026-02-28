@@ -127,7 +127,7 @@ def _queue_watcher(queue_file: Path, agent_name: str, inject_fn):
                 if has_trigger:
                     # Small delay to let the TUI settle
                     time.sleep(0.5)
-                    inject_fn(f"mcp read #{channel}")
+                    inject_fn(f"mcp read #{channel} and if addressed respond in the chat")
         except Exception:
             pass  # Silently continue — monitor will restart if thread dies
 

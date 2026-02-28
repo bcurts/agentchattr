@@ -383,6 +383,12 @@ main#timeline {
 
 /* --- Avatar --- */
 
+.avatar-wrap {
+    position: relative;
+    width: 32px;
+    flex-shrink: 0;
+}
+
 .avatar {
     width: 32px;
     height: 32px;
@@ -392,12 +398,94 @@ main#timeline {
     align-items: center;
     justify-content: center;
     margin-top: 2px;
-    box-shadow: 0 0 8px color-mix(in srgb, var(--bubble-color, currentColor) 35%, transparent);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--bubble-color, currentColor) 12%, transparent);
 }
 
 .avatar svg {
     width: 18px;
     height: 18px;
+}
+
+/* --- Hat overlay --- */
+
+.hat-overlay {
+    position: absolute;
+    top: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 28px;
+    height: 14px;
+    pointer-events: auto;
+    cursor: grab;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.hat-overlay svg {
+    width: 100%;
+    height: 100%;
+}
+
+/* Hat drag ghost */
+.hat-drag-ghost {
+    position: fixed;
+    pointer-events: none;
+    z-index: 9999;
+    cursor: grabbing;
+    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.5));
+}
+
+.hat-drag-ghost svg {
+    width: 100%;
+    height: 100%;
+}
+
+/* Trash can */
+.hat-trash {
+    position: absolute;
+    left: -24px;
+    top: 4px;
+    width: 20px;
+    height: 20px;
+    color: var(--text-dim);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s, transform 0.15s;
+    z-index: 2;
+    cursor: default;
+}
+
+.hat-trash.visible {
+    opacity: 1;
+    pointer-events: auto;
+    animation: trash-bounce-in 0.25s ease-out;
+}
+
+.hat-trash.hover {
+    color: var(--error-color);
+    transform: scale(1.2);
+    filter: drop-shadow(0 0 6px rgba(248, 113, 113, 0.4));
+}
+
+.hat-trash.chomping {
+    animation: trash-chomp 0.5s ease-out forwards;
+}
+
+@keyframes trash-bounce-in {
+    0% { transform: scale(0.3); opacity: 0; }
+    60% { transform: scale(1.1); }
+    100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes trash-chomp {
+    0% { transform: scale(1.2); }
+    15% { transform: scale(1.2) translateX(-2px); }
+    30% { transform: scale(1.2) translateX(2px); }
+    45% { transform: scale(1.2) translateX(-1px); }
+    60% { transform: scale(1.1); opacity: 0.8; }
+    100% { transform: scale(0.8); opacity: 0; }
 }
 
 /* --- Chat bubble --- */
@@ -1295,6 +1383,11 @@ main#timeline {
     background: rgba(255, 255, 255, 0.06);
 }
 
+.decision-actions button.debate-btn {
+    font-size: 12px;
+    letter-spacing: 0.02em;
+}
+.decision-actions button.debate-btn:hover { color: #60a5fa; }
 .decision-actions button.approve-btn:hover { color: var(--accent); }
 .decision-actions button.edit-btn:hover { color: var(--text); }
 .decision-actions button.delete-btn:hover { color: var(--error-color); }
@@ -1991,7 +2084,7 @@ footer {
     bottom: 100%;
     left: 20px;
     right: 20px;
-    max-height: 240px;
+    max-height: 400px;
     overflow-y: auto;
     background: var(--bg-header);
     border: 1px solid var(--border);

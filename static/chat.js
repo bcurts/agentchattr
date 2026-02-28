@@ -21,6 +21,7 @@ let soundEnabled = false;  // suppress sounds during initial history load
 let activeChannel = localStorage.getItem('agentchattr-channel') || 'general';
 let channelList = ['general'];
 let channelUnread = {};  // { channelName: count }
+let agentHats = {};  // { agent_name: svg_string }
 
 // --- Notification sounds ---
 const SOUND_OPTIONS = [
@@ -279,6 +280,9 @@ function connectWebSocket() {
             updateDecisionsBadge();
         } else if (event.type === 'decision') {
             handleDecisionEvent(event.action, event.data);
+        } else if (event.type === 'hats') {
+            agentHats = event.data || {};
+            updateAllHats();
         } else if (event.type === 'channel_renamed') {
             // Migrate data-channel on existing DOM elements
             const container = document.getElementById('messages');
@@ -437,7 +441,10 @@ function appendMessage(msg) {
             }
         }
 
-        const avatarHtml = `<div class="avatar" style="background-color: ${senderColor}">${getAvatarSvg(msg.sender)}</div>`;
+        const agentKey = (resolveAgent(msg.sender.toLowerCase()) || msg.sender).toLowerCase();
+        const hatSvg = agentHats[agentKey] || '';
+        const hatHtml = hatSvg ? `<div class="hat-overlay" data-agent="${escapeHtml(agentKey)}">${hatSvg}</div>` : '';
+        const avatarHtml = `<div class="avatar-wrap" data-agent="${escapeHtml(agentKey)}"><div class="avatar" style="background-color: ${senderColor}">${getAvatarSvg(msg.sender)}</div>${hatHtml}</div>`;
 
         const statusLabel = todoStatusLabel(todoStatus);
         el.dataset.rawText = msg.text;
@@ -569,6 +576,157 @@ function recolorMessages() {
         }
     }
 }
+
+// --- Hats ---
+
+function updateAllHats() {
+    // Update hat overlays on all message avatars
+    document.querySelectorAll('.avatar-wrap[data-agent]').forEach(wrap => {
+        const agent = wrap.dataset.agent;
+        const svg = agentHats[agent] || '';
+        let overlay = wrap.querySelector('.hat-overlay');
+
+        if (svg) {
+            if (!overlay) {
+                overlay = document.createElement('div');
+                overlay.className = 'hat-overlay';
+                overlay.dataset.agent = agent;
+                wrap.appendChild(overlay);
+            }
+            overlay.innerHTML = svg;
+        } else {
+            if (overlay) overlay.remove();
+        }
+    });
+}
+
+// --- Hat drag-to-trash ---
+
+const TRASH_SVG = `<svg viewBox="0 0 20 20" fill="none" width="20" height="20"><rect x="4" y="6" width="12" height="12" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M3 6h14" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M8 3h4v3H8z" stroke="currentColor" stroke-width="1.2"/><rect class="trash-lid" x="3" y="4.5" width="14" height="2" rx="0.5" fill="currentColor" style="transform-origin: 10px 5.5px"/></svg>`;
+
+let hatDragState = null;  // { agent, ghostEl, originRect, trashEl, wrapEl }
+
+document.addEventListener('mousedown', (e) => {
+    const overlay = e.target.closest('.hat-overlay');
+    if (!overlay || hatDragState) return;
+    e.preventDefault();
+
+    const agent = overlay.dataset.agent;
+    const wrap = overlay.closest('.avatar-wrap');
+    if (!wrap) return;
+
+    const rect = overlay.getBoundingClientRect();
+
+    // Create drag ghost (fixed position, follows cursor)
+    const ghost = document.createElement('div');
+    ghost.className = 'hat-drag-ghost';
+    ghost.innerHTML = overlay.innerHTML;
+    ghost.style.width = rect.width + 'px';
+    ghost.style.height = rect.height + 'px';
+    ghost.style.left = rect.left + 'px';
+    ghost.style.top = rect.top + 'px';
+    document.body.appendChild(ghost);
+
+    // Hide original overlay
+    overlay.style.visibility = 'hidden';
+
+    // Create trash can to the left of the avatar-wrap
+    const trash = document.createElement('div');
+    trash.className = 'hat-trash';
+    trash.innerHTML = TRASH_SVG;
+    wrap.appendChild(trash);
+    // Force reflow then show
+    trash.offsetHeight;
+    trash.classList.add('visible');
+
+    hatDragState = { agent, ghostEl: ghost, originRect: rect, trashEl: trash, wrapEl: wrap, overlayEl: overlay };
+});
+
+document.addEventListener('mousemove', (e) => {
+    if (!hatDragState) return;
+    const { ghostEl, trashEl } = hatDragState;
+
+    // Move ghost to follow cursor (centered on cursor)
+    ghostEl.style.left = (e.clientX - ghostEl.offsetWidth / 2) + 'px';
+    ghostEl.style.top = (e.clientY - ghostEl.offsetHeight / 2) + 'px';
+
+    // Check proximity to trash for highlight
+    const trashRect = trashEl.getBoundingClientRect();
+    const ghostCX = e.clientX;
+    const ghostCY = e.clientY;
+    const overTrash = ghostCX >= trashRect.left - 12 && ghostCX <= trashRect.right + 12 &&
+                      ghostCY >= trashRect.top - 12 && ghostCY <= trashRect.bottom + 12;
+    trashEl.classList.toggle('hover', overTrash);
+});
+
+document.addEventListener('mouseup', (e) => {
+    if (!hatDragState) return;
+    const { agent, ghostEl, originRect, trashEl, wrapEl, overlayEl } = hatDragState;
+
+    // Check if dropped on trash
+    const trashRect = trashEl.getBoundingClientRect();
+    const overTrash = e.clientX >= trashRect.left - 12 && e.clientX <= trashRect.right + 12 &&
+                      e.clientY >= trashRect.top - 12 && e.clientY <= trashRect.bottom + 12;
+
+    if (overTrash) {
+        // Snap ghost to trash center, shrink, fade out
+        ghostEl.style.transition = 'all 0.25s ease-in';
+        ghostEl.style.left = (trashRect.left + trashRect.width / 2 - ghostEl.offsetWidth / 2) + 'px';
+        ghostEl.style.top = (trashRect.top + trashRect.height / 2 - ghostEl.offsetHeight / 2) + 'px';
+        ghostEl.style.transform = 'scale(0.2)';
+        ghostEl.style.opacity = '0';
+
+        // Chomp animation on trash
+        trashEl.classList.remove('hover');
+        trashEl.classList.add('chomping');
+
+        // Send DELETE to server
+        fetch(`/api/hat/${agent}`, {
+            method: 'DELETE',
+            headers: { 'X-Session-Token': SESSION_TOKEN },
+        }).catch(err => console.error('Hat delete failed:', err));
+
+        // Cleanup after animation
+        setTimeout(() => {
+            ghostEl.remove();
+            trashEl.remove();
+            if (overlayEl) overlayEl.remove();
+        }, 600);
+    } else {
+        // Return ghost to original position
+        ghostEl.style.transition = 'all 0.3s ease';
+        ghostEl.style.left = originRect.left + 'px';
+        ghostEl.style.top = originRect.top + 'px';
+
+        // Fade out trash
+        trashEl.classList.remove('hover', 'visible');
+
+        setTimeout(() => {
+            ghostEl.remove();
+            trashEl.remove();
+            overlayEl.style.visibility = '';
+        }, 300);
+    }
+
+    hatDragState = null;
+});
+
+// Cancel hat drag on Escape
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && hatDragState) {
+        const { ghostEl, originRect, trashEl, overlayEl } = hatDragState;
+        ghostEl.style.transition = 'all 0.3s ease';
+        ghostEl.style.left = originRect.left + 'px';
+        ghostEl.style.top = originRect.top + 'px';
+        trashEl.classList.remove('hover', 'visible');
+        setTimeout(() => {
+            ghostEl.remove();
+            trashEl.remove();
+            overlayEl.style.visibility = '';
+        }, 300);
+        hatDragState = null;
+    }
+});
 
 function buildStatusPills() {
     const container = document.getElementById('agent-status');
@@ -774,12 +932,14 @@ function setupKeyboardShortcuts() {
 // --- Slash command menu ---
 
 const SLASH_COMMANDS = [
-    { cmd: '/roastreview', desc: 'Get all agents to review and roast each other\'s work' },
-    { cmd: '/poetry haiku', desc: 'Agents write a haiku about the codebase' },
-    { cmd: '/poetry limerick', desc: 'Agents write a limerick about the codebase' },
-    { cmd: '/poetry sonnet', desc: 'Agents write a sonnet about the codebase' },
-    { cmd: '/continue', desc: 'Resume after loop guard pauses' },
-    { cmd: '/clear', desc: 'Clear messages in current channel' },
+    { cmd: '/artchallenge', desc: 'SVG art challenge — all agents create artwork (optional theme)', broadcast: true },
+    { cmd: '/hatmaking', desc: 'All agents design a hat to wear on their avatar', broadcast: true },
+    { cmd: '/roastreview', desc: 'Get all agents to review and roast each other\'s work', broadcast: true },
+    { cmd: '/poetry haiku', desc: 'Agents write a haiku about the codebase', broadcast: true },
+    { cmd: '/poetry limerick', desc: 'Agents write a limerick about the codebase', broadcast: true },
+    { cmd: '/poetry sonnet', desc: 'Agents write a sonnet about the codebase', broadcast: true },
+    { cmd: '/continue', desc: 'Resume after loop guard pauses', broadcast: false },
+    { cmd: '/clear', desc: 'Clear messages in current channel', broadcast: false },
 ];
 
 let slashMenuIndex = 0;
@@ -887,7 +1047,16 @@ function sendMessage() {
     if (!text && pendingAttachments.length === 0) return;
 
     // Prepend active mention toggles if the message doesn't already mention them
-    if (activeMentions.size > 0 && text) {
+    // Skip for non-broadcast slash commands (e.g. /clear, /continue)
+    let skipMentions = false;
+    if (text.startsWith('/')) {
+        const cmdWord = text.split(/\s/)[0].toLowerCase();
+        const matchedCmd = SLASH_COMMANDS.find(c => c.cmd.startsWith(cmdWord) || cmdWord.startsWith(c.cmd.split(/\s/)[0]));
+        if (matchedCmd && !matchedCmd.broadcast) {
+            skipMentions = true;
+        }
+    }
+    if (activeMentions.size > 0 && text && !skipMentions) {
         const prefix = [...activeMentions].map(n => `@${n}`).join(' ');
         // Only prepend if user didn't already @mention these agents
         const lower = text.toLowerCase();
@@ -1980,6 +2149,8 @@ function renderDecisionsPanel() {
             ? `<div class="decision-reason">${escapeHtml(d.reason)}</div>`
             : '';
 
+        const debateIcon = `<button class="debate-btn" onclick="debateDecision(${d.id})" title="Debate">debate</button>`;
+
         const editIcon = `<button class="edit-btn" onclick="editDecision(${d.id})" title="Edit"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M11.5 2.5l2 2L5 13H3v-2L11.5 2.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg></button>`;
 
         const trashIcon = `<button class="delete-btn" onclick="startDeleteDecision(${d.id})" title="Delete"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 4h10M6 4V3h4v1M5 4v8.5h6V4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
@@ -1994,7 +2165,7 @@ function renderDecisionsPanel() {
                 <span class="decision-pill ${d.status}" onclick="toggleDecisionStatus(${d.id})" title="Click to toggle status"><span class="decision-dot"></span>${d.status}</span>
                 <span class="decision-owner" style="color: ${ownerColor}">${escapeHtml(d.owner)}</span>
                 <div class="decision-actions">
-                    ${editIcon}${trashIcon}
+                    ${debateIcon}${editIcon}${trashIcon}
                 </div>
             </div>
             <div class="decision-text">${escapeHtml(d.decision)}</div>
@@ -2027,6 +2198,21 @@ function proposeDecision() {
     }));
     textEl.value = '';
     reasonEl.value = '';
+}
+
+function debateDecision(id) {
+    const d = decisions.find(d => d.id === id);
+    if (!d) return;
+    const agents = Object.keys(agentConfig);
+    const mentions = agents.map(a => `@${a}`).join(' ');
+    const input = document.getElementById('input');
+    input.value = `${mentions} Debate this decision: "${d.decision}"`;
+    input.focus();
+    // Close the decisions panel so the user can see the chat
+    const panel = document.getElementById('decisions-panel');
+    if (panel && !panel.classList.contains('hidden')) {
+        panel.classList.add('hidden');
+    }
 }
 
 function toggleDecisionStatus(id) {
