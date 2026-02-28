@@ -109,14 +109,17 @@ def _load_cursors():
 
 
 def _save_cursors():
-    """Persist cursor state to disk."""
+    """Persist cursor state to disk atomically (write temp + rename)."""
     if _CURSORS_FILE is None:
         return
     try:
         with _cursors_lock:
             snapshot = dict(_cursors)
         _CURSORS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        _CURSORS_FILE.write_text(json.dumps(snapshot), "utf-8")
+        tmp = _CURSORS_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(snapshot), "utf-8")
+        import os as _os
+        _os.replace(tmp, _CURSORS_FILE)  # atomic on POSIX
     except Exception:
         log.warning("Failed to save cursor state to %s", _CURSORS_FILE)
 

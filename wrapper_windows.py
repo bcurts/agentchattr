@@ -76,7 +76,7 @@ def inject(text: str):
     _write_key(handle, "\r", False, vk=VK_RETURN, scan=0x1C)
 
 
-def run_agent(command, extra_args, cwd, env, queue_file, agent, no_restart, start_watcher):
+def run_agent(command, extra_args, cwd, env, queue_file, agent, no_restart, start_watcher, strip_env=None):
     """Run agent as a direct subprocess, inject via Win32 console."""
     start_watcher(inject)
 

@@ -160,8 +160,9 @@ def _queue_watcher(queue_file: Path, agent_name: str, inject_fn, agent_cfg: dict
                         time.sleep(cooldown - elapsed)
                     # Small delay to let the TUI settle
                     time.sleep(0.5)
-                    inject_fn("chat - use mcp")
-                    state.record_inject()
+                    ok = inject_fn("chat - use mcp")
+                    if ok is not False:  # None (old callers) or True = success
+                        state.record_inject()
         except Exception as e:
             log.exception("queue watcher error (agent=%s): %s", agent_name, e)
 
@@ -179,8 +180,9 @@ def _task_monitor(queue_file: Path, inject_fn, state: MonitorState, timeout_minu
                 last_inject = state.get_last_inject()
                 if now - last_inject > timeout_seconds:
                     print(f"  [Monitor] Agent seems stuck (queue non-empty for >{timeout_minutes}m). Re-injecting...")
-                    inject_fn("chat - use mcp")
-                    state.record_inject()
+                    ok = inject_fn("chat - use mcp")
+                    if ok is not False:
+                        state.record_inject()
         except Exception:
             pass
 

@@ -87,8 +87,8 @@ def run_agent(command, extra_args, cwd, env, queue_file, agent, no_restart, star
     abs_cwd = str(Path(cwd).resolve())
 
     # Wire up injection with the tmux session name
-    def inject_fn(text):
-        inject(text, tmux_session=session_name)
+    def inject_fn(text) -> bool:
+        return inject(text, tmux_session=session_name)
     start_watcher(inject_fn)
 
     print(f"  Using tmux session: {session_name}")
