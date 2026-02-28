@@ -54,7 +54,6 @@ def inject(text: str, *, tmux_session: str):
  capture_output=True,
  )
 
-
 def get_activity_checker(session_name, trigger_flag=None):
  """Return a callable that detects tmux pane output by hashing content."""
  last_hash = [None]

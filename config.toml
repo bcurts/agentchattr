@@ -10,13 +10,11 @@ data_dir = "./data"
 [agents.claude]
 command = "claude"
 cwd = ".."
-color = "#a78bfa"
+color = "#da7756"
 label = "Claude"
-resume_flag = "--resume"
-
 [agents.codex]
 command = "codex"
-cwd = ".."
+cwd = "K:/GitHub/JMD-MyrientDownloader"
 color = "#10a37f"
 label = "Codex"
 resume_flag = "exec resume"
@@ -25,7 +23,7 @@ write_access = true
 
 [agents.gemini]
 command = "gemini"
-cwd = ".."
+cwd = "K:/GitHub/JMD-MyrientDownloader"
 color = "#4285f4"
 label = "Gemini"
 resume_flag = "--resume"

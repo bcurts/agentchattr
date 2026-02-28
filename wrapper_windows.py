@@ -1,13 +1,19 @@
 """Windows agent injection — uses Win32 WriteConsoleInput to type into the agent CLI.
 
+Optional: if pywinpty is installed and activity_url/token are set, runs the agent in a
+PTY and streams stdout to the chat UI via POST /api/agent-activity.
 Called by wrapper.py on Windows. Not imported on other platforms.
 """
 
 import ctypes
+import json
 from ctypes import wintypes
 import subprocess
 import sys
+import threading
 import time
+import urllib.request
+import urllib.error
 
 if sys.platform != "win32":
     raise ImportError("wrapper_windows only works on Windows")
@@ -143,7 +149,10 @@ def get_activity_checker(pid_holder, agent_name="unknown", trigger_flag=None):
     _is_active = [False]
 
     # Diagnostic log per agent
-    _debug_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), f"activity_debug_{agent_name}.log")
+    _debug_path = _os.path.join(
+        _os.path.dirname(_os.path.abspath(__file__)),
+        f"activity_debug_{agent_name}.log",
+    )
     _debug_file = open(_debug_path, "w")
     _poll_count = [0]
 
@@ -163,7 +172,9 @@ def get_activity_checker(pid_holder, agent_name="unknown", trigger_flag=None):
         if not kernel32.GetConsoleScreenBufferInfo(handle, ctypes.byref(csbi)):
             if triggered:
                 import time as _t
-                _debug_file.write(f"[{_t.strftime('%H:%M:%S')}] poll={_poll_count[0]} TRIGGERED active=True\n")
+                _debug_file.write(
+                    f"[{_t.strftime('%H:%M:%S')}] poll={_poll_count[0]} TRIGGERED active=True\n"
+                )
                 _debug_file.flush()
             return _is_active[0]
 
@@ -180,7 +191,10 @@ def get_activity_checker(pid_holder, agent_name="unknown", trigger_flag=None):
         char_info_array = (_CHAR_INFO * (width * height))()
 
         ok = kernel32.ReadConsoleOutputW(
-            handle, char_info_array, buffer_size, buffer_coord,
+            handle,
+            char_info_array,
+            buffer_size,
+            buffer_coord,
             ctypes.byref(read_rect),
         )
         if not ok:
@@ -198,7 +212,7 @@ def get_activity_checker(pid_holder, agent_name="unknown", trigger_flag=None):
         if prev is not None and len(prev) == len(char_data):
             if prev != char_data:  # fast path: skip counting if identical
                 for i in range(0, len(prev), 2):
-                    if prev[i:i+2] != char_data[i:i+2]:
+                    if prev[i:i + 2] != char_data[i:i + 2]:
                         n_changed += 1
         significant = n_changed >= MIN_CHANGED_CELLS
         last_chars[0] = char_data
@@ -229,19 +243,14 @@ def get_activity_checker(pid_holder, agent_name="unknown", trigger_flag=None):
     return check
 
 
-def run_agent(command, extra_args, cwd, env, queue_file, agent, no_restart, start_watcher, strip_env=None, pid_holder=None, session_name=None, inject_env=None):
-    """Run agent as a direct subprocess, inject via Win32 console."""
-    if inject_env:
-        env = {**env, **inject_env}
-    start_watcher(inject)
-
-    while True:
 def _post_activity(activity_url: str, activity_token: str, agent: str, chunk: str, done: bool = False):
     """POST a chunk of agent output to the server for live chat display."""
     if not activity_url or not activity_token:
         return
     try:
-        data = json.dumps({"agent": agent, "chunk": chunk, "done": done}).encode("utf-8")
+        data = json.dumps(
+            {"agent": agent, "chunk": chunk, "done": done}
+        ).encode("utf-8")
         req = urllib.request.Request(
             activity_url,
             data=data,
@@ -253,7 +262,8 @@ def _post_activity(activity_url: str, activity_token: str, agent: str, chunk: st
         )
         urllib.request.urlopen(req, timeout=5)
     except Exception:
-        pass  # Don't break wrapper if server is down
+        # Don't break wrapper if server is down
+        pass
 
 
 def run_agent(
@@ -265,19 +275,27 @@ def run_agent(
     agent,
     no_restart,
     start_watcher,
-    activity_url="",
-    activity_token="",
+    strip_env=None,
+    pid_holder=None,
+    session_name=None,
+    inject_env=None,
+    activity_url: str = "",
+    activity_token: str = "",
 ):
     """Run agent as a direct subprocess, inject via Win32 console.
+
     If activity_url and activity_token are set and pywinpty is available, runs in a PTY
-    and streams output to the chat UI."""
+    and streams output to the chat UI.
+    """
+    if inject_env:
+        env = {**env, **inject_env}
+
     use_pty = bool(activity_url and activity_token)
     pty_fallback = False  # True if we tried PTY but failed and fell back
     pty_process = None
     pty_inject_fn = None
 
     if use_pty:
->>>>>>> 8649694 (Add live agent output streaming, purge, LAN options, and mobile-friendly UI)
         try:
             from winpty import PtyProcess
         except ImportError:
@@ -304,7 +322,13 @@ def run_agent(
                         line = line.decode("utf-8", errors="replace")
                     line = line.rstrip("\r\n")
                     if line:
-                        _post_activity(activity_url, activity_token, agent, line + "\n", done=False)
+                        _post_activity(
+                            activity_url,
+                            activity_token,
+                            agent,
+                            line + "\n",
+                            done=False,
+                        )
                 except Exception:
                     break
             _post_activity(activity_url, activity_token, agent, "", done=True)
@@ -324,8 +348,10 @@ def run_agent(
                 if no_restart:
                     break
 
-                print(f"\n  {agent.capitalize()} exited (code {pty_process.exitstatus}).")
-                print(f"  Restarting in 3s... (Ctrl+C to quit)")
+                print(
+                    f"\n  {agent.capitalize()} exited (code {pty_process.exitstatus})."
+                )
+                print("  Restarting in 3s... (Ctrl+C to quit)")
                 time.sleep(3)
             except KeyboardInterrupt:
                 break
@@ -336,6 +362,7 @@ def run_agent(
                 use_pty = False
                 break
     else:
+        # Default console mode: inject via Win32 console and use screen hashing for activity.
         start_watcher(inject)
 
     if pty_fallback:
@@ -344,14 +371,25 @@ def run_agent(
     if not use_pty:
         while True:
             try:
-                proc = subprocess.Popen([command] + extra_args, cwd=cwd, env=env)
+                proc = subprocess.Popen(
+                    [command] + list(extra_args),
+                    cwd=cwd,
+                    env=env,
+                )
+                if pid_holder is not None:
+                    pid_holder[0] = proc.pid
                 proc.wait()
+                if pid_holder is not None:
+                    pid_holder[0] = None
 
                 if no_restart:
                     break
 
-                print(f"\n  {agent.capitalize()} exited (code {proc.returncode}).")
-                print(f"  Restarting in 3s... (Ctrl+C to quit)")
+                print(
+                    f"\n  {agent.capitalize()} exited (code {proc.returncode})."
+                )
+                print("  Restarting in 3s... (Ctrl+C to quit)")
                 time.sleep(3)
             except KeyboardInterrupt:
                 break
+
