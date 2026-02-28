@@ -1,6 +1,7 @@
 """Message routing based on @mentions with per-channel loop guard."""
 
 import re
+import threading
 
 
 class Router:
@@ -11,6 +12,7 @@ class Router:
         self.max_hops = max_hops
         # Per-channel state: { channel: { hop_count, paused, guard_emitted } }
         self._channels: dict[str, dict] = {}
+        self._lock = threading.Lock()
         self._build_pattern()
 
     def _get_ch(self, channel: str) -> dict:
@@ -43,48 +45,53 @@ class Router:
 
     def get_targets(self, sender: str, text: str, channel: str = "general") -> list[str]:
         """Determine which agents should receive this message."""
-        ch = self._get_ch(channel)
+        with self._lock:
+            ch = self._get_ch(channel)
 
-        if ch["paused"]:
-            return []
+            if ch["paused"]:
+                return []
 
-        mentions = self.parse_mentions(text)
+            mentions = self.parse_mentions(text)
 
-        if not self._is_agent(sender):
-            # Human message resets hop counter for this channel
-            ch["hop_count"] = 0
-            ch["paused"] = False
-            ch["guard_emitted"] = False
-            if not mentions:
-                if self.default_mention in ("both", "all"):
-                    return list(self.agent_names)
-                elif self.default_mention == "none":
+            if not self._is_agent(sender):
+                # Human message resets hop counter for this channel
+                ch["hop_count"] = 0
+                ch["paused"] = False
+                ch["guard_emitted"] = False
+                if not mentions:
+                    if self.default_mention in ("both", "all"):
+                        return list(self.agent_names)
+                    elif self.default_mention == "none":
+                        return []
+                    return [self.default_mention]
+                return mentions
+            else:
+                # Agent message: only route if explicit @mention
+                if not mentions:
                     return []
-                return [self.default_mention]
-            return mentions
-        else:
-            # Agent message: only route if explicit @mention
-            if not mentions:
-                return []
-            ch["hop_count"] += 1
-            if ch["hop_count"] > self.max_hops:
-                ch["paused"] = True
-                return []
-            # Don't route back to self
-            return [m for m in mentions if m != sender]
+                ch["hop_count"] += 1
+                if ch["hop_count"] > self.max_hops:
+                    ch["paused"] = True
+                    return []
+                # Don't route back to self
+                return [m for m in mentions if m != sender]
 
     def continue_routing(self, channel: str = "general"):
         """Resume after loop guard pause."""
-        ch = self._get_ch(channel)
-        ch["hop_count"] = 0
-        ch["paused"] = False
-        ch["guard_emitted"] = False
+        with self._lock:
+            ch = self._get_ch(channel)
+            ch["hop_count"] = 0
+            ch["paused"] = False
+            ch["guard_emitted"] = False
 
     def is_paused(self, channel: str = "general") -> bool:
-        return self._get_ch(channel)["paused"]
+        with self._lock:
+            return self._get_ch(channel)["paused"]
 
     def is_guard_emitted(self, channel: str = "general") -> bool:
-        return self._get_ch(channel)["guard_emitted"]
+        with self._lock:
+            return self._get_ch(channel)["guard_emitted"]
 
     def set_guard_emitted(self, channel: str = "general"):
-        self._get_ch(channel)["guard_emitted"] = True
+        with self._lock:
+            self._get_ch(channel)["guard_emitted"] = True
