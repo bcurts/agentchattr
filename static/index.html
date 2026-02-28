@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>agentchattr</title>
     <link rel="stylesheet" href="/static/style.css?v=34">
     <link rel="icon" href="/static/favicon.ico">
@@ -82,6 +82,9 @@
                 <div id="sound-settings"></div>
             </div>
             <a class="settings-support" href="https://buymeacoffee.com/bcurts" target="_blank" rel="noopener">&#9829; Support</a>
+            <span class="settings-spacer"></span>
+            <button class="settings-danger" onclick="clearChat()">Clear Chat</button>
+            <button class="settings-danger settings-purge" onclick="purgeMemory()" title="Clear chat + reset agent cursors. Restart Codex/Gemini to fully reset their memory.">Purge memory</button>
         </div>
 
         <div id="pins-panel" class="hidden">
@@ -104,7 +107,17 @@
                 </div>
                 <div id="messages"></div>
                 <div id="typing-indicator" class="hidden">
-                    <span class="typing-name"></span> is thinking...
+                    <span class="typing-text"><span class="typing-name"></span> is typing <span class="typing-dots"></span></span>
+                    <span class="typing-errors"></span>
+                </div>
+                <div id="agent-activity" class="hidden">
+                    <div class="agent-activity-header">
+                        <span class="agent-activity-title">Live output</span>
+                        <span class="agent-activity-agent"></span>
+                        <button type="button" class="agent-activity-copy" title="Copy">Copy</button>
+                        <button type="button" class="agent-activity-collapse" title="Collapse">−</button>
+                    </div>
+                    <pre class="agent-activity-body"></pre>
                 </div>
             </main>
             <aside id="decisions-panel" class="hidden">

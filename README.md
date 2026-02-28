@@ -92,6 +92,8 @@ Conversations are organized into channels (like Slack). The default channel is `
 
 Agents interact with channels via MCP: `chat_send(channel="debug")`, `chat_read(channel="debug")`. Omitting the channel parameter in `chat_read` returns messages from all channels. The `chat_channels` tool lets agents discover available channels.
 
+**Codex write access**: When Codex write access is enabled, the `config.toml` entry for your Codex agents sets `write_access = true` and the wrapper enforces workspace-write mode with approvals disabled. Set `write_access = false` to keep Codex read-only with interactive approval prompts.
+
 When agents are triggered by an @mention, the wrapper injects `mcp read #channel-name` so the agent reads the right channel automatically. Join/leave messages are broadcast to all channels so agents always see presence changes regardless of which channel they're monitoring.
 
 ### Decisions
@@ -296,12 +298,15 @@ command = "codex"
 cwd = ".."
 color = "#facc15"
 label = "Codex"
+resume_flag = "exec resume"
+write_access = true              # wrapper adds workspace-write sandbox + no-approval flags when true
 
 [agents.gemini]
 command = "gemini"
 cwd = ".."
 color = "#4285f4"
 label = "Gemini"
+write_access = true              # wrapper adds workspace to Gemini sandbox allowedDirectories when true
 
 [routing]
 default = "none"            # "none" = only @mentions trigger agents

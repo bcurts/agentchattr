@@ -1,6 +1,6 @@
 [server]
-port = 8300
 host = "127.0.0.1"
+port = 8300
 data_dir = "./data"
 
 # Add agents here. Each gets a status pill, @mention routing, and color.
@@ -9,24 +9,27 @@ data_dir = "./data"
 
 [agents.claude]
 command = "claude"
-cwd = ".."
+cwd = "K:/GitHub/JMD-MyrientDownloader"
 color = "#da7756"
 label = "Claude"
-
 [agents.codex]
 command = "codex"
-cwd = ".."
+cwd = "K:/GitHub/JMD-MyrientDownloader"
 color = "#10a37f"
 label = "Codex"
+resume_flag = "exec resume"
+extra_args = ["--sandbox", "workspace-write", "-a", "never", "-c", "windows.sandbox=unelevated"]
+write_access = true
 
 [agents.gemini]
 command = "gemini"
-cwd = ".."
+cwd = "K:/GitHub/JMD-MyrientDownloader"
 color = "#4285f4"
 label = "Gemini"
+resume_flag = "--resume"
+write_access = true
 
 [routing]
-# "none" = only route on explicit @mention. "all" = route to all agents by default.
 default = "none"
 max_agent_hops = 4
 

@@ -236,19 +236,122 @@ def run_agent(command, extra_args, cwd, env, queue_file, agent, no_restart, star
     start_watcher(inject)
 
     while True:
+def _post_activity(activity_url: str, activity_token: str, agent: str, chunk: str, done: bool = False):
+    """POST a chunk of agent output to the server for live chat display."""
+    if not activity_url or not activity_token:
+        return
+    try:
+        data = json.dumps({"agent": agent, "chunk": chunk, "done": done}).encode("utf-8")
+        req = urllib.request.Request(
+            activity_url,
+            data=data,
+            headers={
+                "Content-Type": "application/json",
+                "X-Session-Token": activity_token,
+            },
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=5)
+    except Exception:
+        pass  # Don't break wrapper if server is down
+
+
+def run_agent(
+    command,
+    extra_args,
+    cwd,
+    env,
+    queue_file,
+    agent,
+    no_restart,
+    start_watcher,
+    activity_url="",
+    activity_token="",
+):
+    """Run agent as a direct subprocess, inject via Win32 console.
+    If activity_url and activity_token are set and pywinpty is available, runs in a PTY
+    and streams output to the chat UI."""
+    use_pty = bool(activity_url and activity_token)
+    pty_fallback = False  # True if we tried PTY but failed and fell back
+    pty_process = None
+    pty_inject_fn = None
+
+    if use_pty:
+>>>>>>> 8649694 (Add live agent output streaming, purge, LAN options, and mobile-friendly UI)
         try:
-            proc = subprocess.Popen([command] + extra_args, cwd=cwd, env=env)
-            if pid_holder is not None:
-                pid_holder[0] = proc.pid
-            proc.wait()
-            if pid_holder is not None:
-                pid_holder[0] = None
+            from winpty import PtyProcess
+        except ImportError:
+            use_pty = False
 
-            if no_restart:
+    if use_pty:
+        def _pty_inject(text: str):
+            if pty_process and pty_process.isalive():
+                try:
+                    pty_process.write(text + "\r\n")
+                except Exception:
+                    pass
+
+        pty_inject_fn = _pty_inject
+        start_watcher(pty_inject_fn)
+
+        def _reader():
+            while pty_process and pty_process.isalive():
+                try:
+                    line = pty_process.readline()
+                    if line is None:
+                        break
+                    if isinstance(line, bytes):
+                        line = line.decode("utf-8", errors="replace")
+                    line = line.rstrip("\r\n")
+                    if line:
+                        _post_activity(activity_url, activity_token, agent, line + "\n", done=False)
+                except Exception:
+                    break
+            _post_activity(activity_url, activity_token, agent, "", done=True)
+
+        while True:
+            try:
+                pty_process = PtyProcess.spawn(
+                    [command] + list(extra_args),
+                    cwd=cwd,
+                    env=env or None,
+                )
+                reader_thread = threading.Thread(target=_reader, daemon=True)
+                reader_thread.start()
+                pty_process.wait()
+                reader_thread.join(timeout=2)
+
+                if no_restart:
+                    break
+
+                print(f"\n  {agent.capitalize()} exited (code {pty_process.exitstatus}).")
+                print(f"  Restarting in 3s... (Ctrl+C to quit)")
+                time.sleep(3)
+            except KeyboardInterrupt:
                 break
+            except Exception as e:
+                print(f"\n  PTY error: {e}")
+                print("  Falling back to console mode (no live stream).")
+                pty_fallback = True
+                use_pty = False
+                break
+    else:
+        start_watcher(inject)
 
-            print(f"\n  {agent.capitalize()} exited (code {proc.returncode}).")
-            print(f"  Restarting in 3s... (Ctrl+C to quit)")
-            time.sleep(3)
-        except KeyboardInterrupt:
-            break
+    if pty_fallback:
+        start_watcher(inject)
+
+    if not use_pty:
+        while True:
+            try:
+                proc = subprocess.Popen([command] + extra_args, cwd=cwd, env=env)
+                proc.wait()
+
+                if no_restart:
+                    break
+
+                print(f"\n  {agent.capitalize()} exited (code {proc.returncode}).")
+                print(f"  Restarting in 3s... (Ctrl+C to quit)")
+                time.sleep(3)
+            except KeyboardInterrupt:
+                break

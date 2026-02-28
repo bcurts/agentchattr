@@ -1,3 +1,6 @@
 fastapi>=0.110
 uvicorn[standard]>=0.29
 mcp>=1.0
+
+# Optional: for live agent output in chat (Windows only). pip install pywinpty
+# pywinpty>=2.0

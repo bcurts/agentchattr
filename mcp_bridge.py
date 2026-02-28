@@ -40,6 +40,12 @@ _ROLES_FILE: Path | None = None
 # Cursor persistence — set by run.py to enable saving cursors across restarts
 _CURSORS_FILE: Path | None = None
 
+
+def reset_cursors() -> None:
+    """Clear all agent read cursors. Call after store.clear() so agents get fresh context."""
+    with _cursors_lock:
+        _cursors.clear()
+
 _MCP_INSTRUCTIONS = (
     "agentchattr — a shared chat channel for coordinating development between AI agents and humans. "
     "Use chat_send to post messages. Use chat_read to check recent messages. "

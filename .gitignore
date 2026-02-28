@@ -16,3 +16,4 @@ build/
 .idea/
 .gemini/
 .claude/
+_acp_wrapper_launch.bat

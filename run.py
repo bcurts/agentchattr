@@ -1,5 +1,6 @@
 """Entry point — starts MCP server (port 8200) + web UI (port 8300)."""
 
+import argparse
 import asyncio
 import secrets
 import sys
@@ -11,6 +12,14 @@ from pathlib import Path
 # Ensure the project directory is on the import path
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
+
+
+def _parse_args():
+    ap = argparse.ArgumentParser(description="agentchattr server")
+    ap.add_argument("--host", type=str, default=None, help="Override server.host from config (e.g. 192.168.0.172)")
+    ap.add_argument("--port", type=int, default=None, help="Override server.port from config")
+    ap.add_argument("--allow-network", action="store_true", help="Allow binding to non-localhost (required when host is a LAN IP)")
+    return ap.parse_args()
 
 
 def main():
@@ -91,12 +100,13 @@ def main():
 
     # Run web server
     import uvicorn
-    host = config.get("server", {}).get("host", "127.0.0.1")
-    port = config.get("server", {}).get("port", 8300)
+    args = _parse_args()
+    host = args.host or config.get("server", {}).get("host", "127.0.0.1")
+    port = args.port or config.get("server", {}).get("port", 8300)
 
     # --- Security: warn if binding to a non-localhost address ---
     if host not in ("127.0.0.1", "localhost", "::1"):
-        if "--allow-network" not in sys.argv:
+        if not args.allow_network:
             print("\n  !! SECURITY WARNING !!")
             print(f"  Server is configured to bind to {host}")
             print("  This exposes agentchattr to the network.")

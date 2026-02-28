@@ -46,3 +46,15 @@ class AgentTrigger:
             f.write(json.dumps(entry) + "\n")
 
         log.info("Queued @%s trigger (ch=%s): %s", agent_name, channel, message[:80])
+
+    def trigger_purge(self):
+        """Write purge to each agent's queue so the wrapper injects /clear into the agent terminal."""
+        self._data_dir.mkdir(parents=True, exist_ok=True)
+        for name in self._config:
+            queue_file = self._data_dir / f"{name}_queue.jsonl"
+            try:
+                with open(queue_file, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"type": "purge"}) + "\n")
+                log.info("Queued purge for %s", name)
+            except Exception as e:
+                log.warning("Failed to queue purge for %s: %s", name, e)

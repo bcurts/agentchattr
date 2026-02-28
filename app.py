@@ -169,6 +169,14 @@ def _install_security_middleware(token: str, cfg: dict):
         f"http://localhost:{port}",
     }
 
+    # ACP_PATCH_ALLOWED_ORIGINS_BEGIN
+    _acp_host = cfg.get('server', {}).get('host', '127.0.0.1')
+    # If binding to a LAN IP, allow that Origin too
+    if _acp_host not in ('127.0.0.1', 'localhost', '::1', '0.0.0.0'):
+        allowed_origins.add(f"http://{_acp_host}:{port}")
+    # ACP_PATCH_ALLOWED_ORIGINS_END
+
+
     class SecurityMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
             path = request.url.path
@@ -219,7 +227,13 @@ def configure(cfg: dict, session_token: str = ""):
     _install_security_middleware(session_token, cfg)
 
     data_dir = cfg.get("server", {}).get("data_dir", "./data")
-    Path(data_dir).mkdir(parents=True, exist_ok=True)
+    _data_dir_path = Path(data_dir)
+    _data_dir_path.mkdir(parents=True, exist_ok=True)
+    if session_token:
+        try:
+            (_data_dir_path / "session_token.txt").write_text(session_token, encoding="utf-8")
+        except Exception:
+            pass  # Wrappers can still run; they just won't be able to POST agent-activity
 
     log_path = Path(data_dir) / "agentchattr_log.jsonl"
     legacy_log_path = Path(data_dir) / "room_log.jsonl"
@@ -615,8 +629,9 @@ async def broadcast_status():
     ws_clients.difference_update(dead)
 
 
-async def broadcast_typing(agent_name: str, is_typing: bool):
-    data = json.dumps({"type": "typing", "agent": agent_name, "active": is_typing})
+async def broadcast_agent_activity(agent_name: str, chunk: str, done: bool = False):
+    """Stream agent 'thinking' / live output to chat UI. Wrappers POST chunks here."""
+    data = json.dumps({"type": "agent_activity", "agent": agent_name, "chunk": chunk, "done": done})
     dead = set()
     for client in list(ws_clients):
         try:
@@ -627,7 +642,7 @@ async def broadcast_typing(agent_name: str, is_typing: bool):
 
 
 async def broadcast_clear(channel: str | None = None):
-    payload = {"type": "clear"}
+    payload: dict[str, object] = {"type": "clear"}
     if channel:
         payload["channel"] = channel
     data = json.dumps(payload)
@@ -794,15 +809,26 @@ async def websocket_endpoint(websocket: WebSocket):
                 if text.startswith("/"):
                     cmd_parts = text.split()
                     cmd = cmd_parts[0].lower()
+
                     if cmd == "/clear":
-                        store.clear(channel=channel)
-                        await broadcast_clear(channel=channel)
+                        # Distinguish between per-channel clear (Clear Chat) and global purge (Purge memory).
+                        if "channel" in event:
+                            store.clear(channel=channel)
+                            await broadcast_clear(channel=channel)
+                        else:
+                            store.clear()
+                            import mcp_bridge
+                            mcp_bridge.reset_cursors()
+                            agents.trigger_purge()
+                            await broadcast_clear()
                         continue
+
                     if cmd == "/continue":
                         router.continue_routing()
                         store.add("system", "Resuming agent conversation...", msg_type="system", channel=channel)
                         await broadcast_status()
                         continue
+
                     # Broadcast slash commands — expand without storing the raw command.
                     # _handle_new_message will store the expanded version.
                     if cmd in ("/hatmaking", "/artchallenge", "/roastreview", "/poetry"):
@@ -1331,13 +1357,95 @@ async def heartbeat(agent_name: str, request: Request):
     return resp
 
 
-# --- Open agent session in terminal ---
-
 @app.get("/api/platform")
 async def get_platform():
     """Return the server's platform so the web UI can match path formats."""
     import sys
     return JSONResponse({"platform": sys.platform})
+
+
+@app.post("/api/agent-activity")
+async def post_agent_activity(request: Request):
+    """Accept streaming activity from wrappers (Codex/Gemini CLI output). Requires session token."""
+    token = request.headers.get("x-session-token") or request.query_params.get("token", "")
+    if token != session_token:
+        return JSONResponse({"error": "forbidden: invalid or missing session token"}, status_code=403)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+    agent = body.get("agent")
+    chunk = body.get("chunk", "")
+    done = body.get("done", False)
+    if not agent or not isinstance(agent, str):
+        return JSONResponse({"error": "missing or invalid agent"}, status_code=400)
+
+    text_chunk = chunk if isinstance(chunk, str) else str(chunk)
+    await broadcast_agent_activity(agent, text_chunk, bool(done))
+
+    # Update activity status so status pills reflect live output.
+    try:
+        import mcp_bridge
+        mcp_bridge.set_active(agent, not bool(done))
+    except Exception:
+        pass
+
+    return JSONResponse({"ok": True})
+
+
+# --- Open agent session in terminal ---
+
+@app.post("/api/open-session/{agent_name}")
+async def open_session(agent_name: str):
+    """Spawn a terminal window with the agent's resume command."""
+    if agent_name not in config.get("agents", {}):
+        return JSONResponse({"error": f"Unknown agent: {agent_name}"}, status_code=404)
+
+    session_id = agents._sessions.get(agent_name)
+    if not session_id:
+        return JSONResponse({"error": f"No session for {agent_name} yet."}, status_code=404)
+
+    agent_cfg = config["agents"][agent_name]
+    cwd = agent_cfg.get("cwd", ".")
+    cmd_name = agent_cfg.get("command", agent_name)
+
+    # Build resume command from config, defaulting to --resume
+    resume_flag = agent_cfg.get("resume_flag", "--resume")
+    extra = agent_cfg.get("extra_args", [])
+    if isinstance(extra, str):
+        extra = [extra]
+    extra_str = " ".join(str(a) for a in extra) + " " if extra else ""
+    resume_cmd = f"{cmd_name} {extra_str}{resume_flag} {session_id}".strip()
+
+    import os, subprocess, sys
+    clean_env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+
+    if sys.platform == "win32":
+        try:
+            subprocess.Popen(
+                ["wt", "-d", cwd, "--", "cmd", "/k", resume_cmd],
+                env=clean_env,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+        except FileNotFoundError:
+            # Security: use argument list instead of shell=True to prevent injection.
+            subprocess.Popen(
+                ["cmd", "/k", f"cd /d {cwd} && {resume_cmd}"],
+                env=clean_env,
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
+            )
+    else:
+        for term_cmd in [
+            ["gnome-terminal", "--working-directory", cwd, "--", "bash", "-c", f"{resume_cmd}; exec bash"],
+            ["open", "-a", "Terminal", cwd],
+        ]:
+            try:
+                subprocess.Popen(term_cmd, env=clean_env)
+                break
+            except FileNotFoundError:
+                continue
+
+    return JSONResponse({"ok": True, "session_id": session_id, "command": resume_cmd})
 
 
 @app.post("/api/open-path")

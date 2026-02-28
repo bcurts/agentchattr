@@ -15,6 +15,12 @@ let todos = {};  // { msg_id: "todo" | "done" }
 let decisions = [];  // array of decision objects from server
 let activeMentions = new Set();  // agent names with pre-@ toggled on
 let replyingTo = null;  // { id, sender, text } or null
+let optimisticTypingAgents = new Set();  // agents we expect to respond (from @mentions)
+let typingErrors = new Set();  // agents that timed out / errored
+let serverTypingAgent = null;  // single agent from server typing events
+let optimisticTypingTimeouts = {};  // agent -> timeoutId for cleanup
+const OPTIMISTIC_TIMEOUT_MS = 30 * 60 * 1000;  // 30 min; reset when agent_activity received
+let agentActivityBuffer = {};  // agent -> string (live output)
 let unreadCount = 0;    // messages received while scrolled up
 let lastMessageDate = null;  // track date for dividers (general channel)
 let lastMessageDates = {};  // { channel: dateString } for per-channel dividers
@@ -166,6 +172,7 @@ function init() {
     setupKeyboardShortcuts();
     setupDecisionForm();
     setupDecisionGrip();
+    setupAgentActivityButtons();
 
     // Dismiss channel edit controls when clicking outside channel bar
     document.addEventListener('click', (e) => {
@@ -173,6 +180,30 @@ function init() {
             document.querySelectorAll('.channel-tab.editing').forEach(t => t.classList.remove('editing'));
         }
     });
+}
+
+function setupAgentActivityButtons() {
+    const container = document.getElementById('agent-activity');
+    const body = container?.querySelector('.agent-activity-body');
+    const copyBtn = container?.querySelector('.agent-activity-copy');
+    const collapseBtn = container?.querySelector('.agent-activity-collapse');
+    if (!container || !body) return;
+    if (copyBtn) {
+        copyBtn.addEventListener('click', () => {
+            const text = body.textContent || '';
+            if (!text) return;
+            navigator.clipboard.writeText(text).then(() => {
+                copyBtn.textContent = 'Copied';
+                setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
+            });
+        });
+    }
+    if (collapseBtn) {
+        collapseBtn.addEventListener('click', () => {
+            container.classList.toggle('collapsed');
+            body.style.display = container.classList.contains('collapsed') ? 'none' : '';
+        });
+    }
 }
 
 function renderMarkdown(text) {
@@ -377,6 +408,8 @@ function connectWebSocket() {
             }
         } else if (event.type === 'typing') {
             updateTyping(event.agent, event.active);
+        } else if (event.type === 'agent_activity') {
+            handleAgentActivity(event.agent, event.chunk || '', event.done === true);
         } else if (event.type === 'settings') {
             applySettings(event.data);
         } else if (event.type === 'delete') {
@@ -586,7 +619,17 @@ function appendMessage(msg) {
 
     container.appendChild(el);
 
-    if (msgChannel !== activeChannel) return;  // don't scroll for hidden messages
+    // Clear optimistic typing and activity buffer when we get a response from an agent
+    if (msg.type !== 'join' && msg.type !== 'leave' && msg.sender !== 'system') {
+        const agent = resolveAgent(msg.sender);
+        if (agent) {
+            clearOptimisticTyping(agent);
+            delete agentActivityBuffer[agent];
+        }
+    }
+
+    // Don't scroll for messages in background channels.
+    if (msgChannel !== activeChannel) return;
 
     if (autoScroll) {
         scrollToBottom();
@@ -1152,14 +1195,125 @@ function updateStatus(data) {
     }
 }
 
-function updateTyping(agent, active) {
+function parseMentionedAgents(text) {
+    const mentioned = new Set();
+    const matches = text.matchAll(/@(\w+)/gi);
+    for (const m of matches) {
+        const resolved = resolveAgent(m[1]);
+        if (resolved) mentioned.add(resolved);
+    }
+    return mentioned;
+}
+
+function formatAgentList(names, useLabels = true) {
+    const list = [...names].map(n => useLabels ? (agentConfig[n]?.label || n) : n);
+    if (list.length === 0) return '';
+    if (list.length === 1) return list[0];
+    if (list.length === 2) return list.join(' and ');
+    return list.slice(0, -1).join(', ') + ' and ' + list[list.length - 1];
+}
+
+function refreshTypingIndicator() {
     const indicator = document.getElementById('typing-indicator');
-    if (active) {
-        indicator.querySelector('.typing-name').textContent = agent;
+    const typingText = indicator?.querySelector('.typing-text');
+    const typingErrorsEl = indicator?.querySelector('.typing-errors');
+    if (!indicator || !typingText || !typingErrorsEl) return;
+
+    const typing = new Set(optimisticTypingAgents);
+    if (serverTypingAgent) typing.add(serverTypingAgent);
+    const errors = [...typingErrors];
+
+    if (errors.length > 0) {
+        const msg = errors.length === 1
+            ? `There was an error with ${formatAgentList(new Set(errors))}`
+            : `There were errors with ${formatAgentList(new Set(errors))}`;
+        typingErrorsEl.textContent = msg;
+        typingErrorsEl.style.display = '';
+    } else {
+        typingErrorsEl.textContent = '';
+        typingErrorsEl.style.display = 'none';
+    }
+
+    if (typing.size > 0) {
+        const verb = typing.size === 1 ? 'is' : 'are';
+        typingText.innerHTML = `${formatAgentList(typing)} ${verb} typing <span class="typing-dots"></span>`;
+        typingText.style.display = '';
+    } else {
+        typingText.textContent = '';
+        typingText.style.display = 'none';
+    }
+
+    if (typing.size > 0 || errors.length > 0) {
         indicator.classList.remove('hidden');
         if (autoScroll) scrollToBottom();
     } else {
         indicator.classList.add('hidden');
+    }
+}
+
+function updateTyping(agent, active) {
+    if (active) {
+        serverTypingAgent = agent;
+    } else {
+        serverTypingAgent = null;
+    }
+    refreshTypingIndicator();
+}
+
+function clearOptimisticTyping(agent) {
+    optimisticTypingAgents.delete(agent);
+    typingErrors.delete(agent);
+    if (optimisticTypingTimeouts[agent]) {
+        clearTimeout(optimisticTypingTimeouts[agent]);
+        delete optimisticTypingTimeouts[agent];
+    }
+    refreshTypingIndicator();
+}
+
+function addOptimisticTyping(agents) {
+    for (const a of agents) {
+        optimisticTypingAgents.add(a);
+        if (optimisticTypingTimeouts[a]) {
+            clearTimeout(optimisticTypingTimeouts[a]);
+        }
+        optimisticTypingTimeouts[a] = setTimeout(() => {
+            optimisticTypingAgents.delete(a);
+            typingErrors.add(a);
+            delete optimisticTypingTimeouts[a];
+            refreshTypingIndicator();
+        }, OPTIMISTIC_TIMEOUT_MS);
+    }
+    refreshTypingIndicator();
+}
+
+function resetOptimisticTypingTimeout(agent) {
+    if (!optimisticTypingAgents.has(agent)) return;
+    if (optimisticTypingTimeouts[agent]) {
+        clearTimeout(optimisticTypingTimeouts[agent]);
+    }
+    optimisticTypingTimeouts[agent] = setTimeout(() => {
+        optimisticTypingAgents.delete(agent);
+        typingErrors.add(agent);
+        delete optimisticTypingTimeouts[agent];
+        refreshTypingIndicator();
+    }, OPTIMISTIC_TIMEOUT_MS);
+}
+
+function handleAgentActivity(agent, chunk, done) {
+    resetOptimisticTypingTimeout(agent);
+    if (!agentActivityBuffer[agent]) agentActivityBuffer[agent] = '';
+    agentActivityBuffer[agent] += chunk;
+    const container = document.getElementById('agent-activity');
+    const body = container?.querySelector('.agent-activity-body');
+    const agentLabel = container?.querySelector('.agent-activity-agent');
+    if (!container || !body) return;
+    body.textContent = agentActivityBuffer[agent];
+    if (agentLabel) agentLabel.textContent = agent ? `${agent}` : '';
+    container.classList.remove('hidden');
+    if (container.classList.contains('collapsed')) body.style.display = 'none';
+    if (autoScroll) scrollToBottom();
+    if (done) {
+        setTimeout(() => { delete agentActivityBuffer[agent]; }, 100);
     }
 }
 
@@ -1223,6 +1377,16 @@ function clearChat() {
     if (!confirm(`Clear all messages in #${activeChannel}? This cannot be undone.`)) return;
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'message', text: '/clear', sender: username, channel: activeChannel }));
+    }
+    document.getElementById('settings-bar').classList.add('hidden');
+}
+
+function purgeMemory() {
+    const msg = 'Purge memory? This will clear the chat and reset agent read cursors. ' +
+        'Agent memory (e.g. Codex session) may persist until you restart Codex/Gemini. Continue?';
+    if (!confirm(msg)) return;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'message', text: '/clear', sender: username }));
     }
     document.getElementById('settings-bar').classList.add('hidden');
 }
@@ -1547,13 +1711,23 @@ function setupInput() {
         }
     });
 
-    // Auto-resize + slash menu + mention menu
+    // Auto-resize + slash menu (max ~50% viewport on mobile)
+    // Reset height to 0 first so scrollHeight reflects content when shrinking
+    function resizeInput() {
+        const minH = 48;
+        const maxH = window.innerWidth < 640 ? Math.floor(window.innerHeight * 0.5) : 120;
+        input.style.height = '0';
+        input.style.overflow = 'hidden';
+        const h = Math.max(minH, Math.min(input.scrollHeight, maxH));
+        input.style.height = h + 'px';
+        input.style.overflow = '';
+    }
     input.addEventListener('input', () => {
-        input.style.height = 'auto';
-        input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+        resizeInput();
         updateSlashMenu(input.value);
         updateMentionMenu();
     });
+    input.addEventListener('paste', () => setTimeout(resizeInput, 0));
 }
 
 function sendMessage() {
@@ -1612,8 +1786,18 @@ function sendMessage() {
         ws.send(JSON.stringify(payload));
     }
 
+    // Optimistic typing: show "X is typing..." for @mentioned agents
+    const mentioned = parseMentionedAgents(text);
+    if (mentioned.size > 0) {
+        addOptimisticTyping(mentioned);
+    }
+
     input.value = '';
-    input.style.height = 'auto';
+    const inputEl = document.getElementById('input');
+    if (inputEl) {
+        inputEl.style.height = '0';
+        inputEl.style.height = '48px';
+    }
     clearAttachments();
     cancelReply();
     input.focus();
@@ -1898,6 +2082,7 @@ function enterDeleteMode(initialId) {
 
     // Add delete-mode class — children transform right (no layout reflow)
     document.getElementById('messages').classList.add('delete-mode');
+    document.body.classList.add('delete-mode');
 
     // Add radio circles to all messages (not joins)
     document.querySelectorAll('.message[data-id]').forEach(el => {
@@ -1992,7 +2177,8 @@ function exitDeleteMode() {
         setTimeout(() => el.remove(), 200);
     });
 
-    document.getElementById('scroll-anchor').style.bottom = '';
+    document.body.classList.remove('delete-mode');
+    document.getElementById('scroll-anchor').style.bottom = '120px';
 }
 
 // Auto-scroll while dragging near edges
