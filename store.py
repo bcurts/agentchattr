@@ -11,14 +11,17 @@ class MessageStore:
         self._path = Path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._todos_path = self._path.parent / "todos.json"
+        self._reactions_path = self._path.parent / "reactions.json"
         self._messages: list[dict] = []
         self._todos: dict[int, str] = {}  # msg_id → "todo" | "done"
+        self._reactions: dict[int, dict[str, list[str]]] = {}
         self._lock = threading.Lock()
         self._callbacks: list = []  # called on each new message
         self._todo_callbacks: list = []  # called on todo changes
         self._delete_callbacks: list = []  # called on message deletion
         self._load()
         self._load_todos()
+        self._load_reactions()
 
     def _load(self):
         if not self._path.exists():
@@ -56,29 +59,30 @@ class MessageStore:
             self._messages.append(msg)
             with open(self._path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(msg, ensure_ascii=False) + "\n")
+            result = self._with_reactions(msg)
 
         # Fire callbacks outside the lock
         for cb in self._callbacks:
             try:
-                cb(msg)
+                cb(result)
             except Exception:
                 pass
 
-        return msg
+        return result
 
     def get_by_id(self, msg_id: int) -> dict | None:
         with self._lock:
             if 0 <= msg_id < len(self._messages):
-                return self._messages[msg_id]
+                return self._with_reactions(self._messages[msg_id])
             return None
 
     def get_recent(self, count: int = 50) -> list[dict]:
         with self._lock:
-            return list(self._messages[-count:])
+            return [self._with_reactions(m) for m in self._messages[-count:]]
 
     def get_since(self, since_id: int = 0) -> list[dict]:
         with self._lock:
-            return [m for m in self._messages if m["id"] > since_id]
+            return [self._with_reactions(m) for m in self._messages if m["id"] > since_id]
 
     def delete(self, msg_ids: list[int]) -> list[int]:
         """Delete messages by ID. Returns list of IDs actually deleted."""
@@ -96,12 +100,15 @@ class MessageStore:
                         # Remove any associated todo
                         if mid in self._todos:
                             del self._todos[mid]
+                        if mid in self._reactions:
+                            del self._reactions[mid]
                         self._messages.pop(i)
                         deleted.append(mid)
                         break
             if deleted:
                 self._rewrite_jsonl()
                 self._save_todos()
+                self._save_reactions()
 
         # Clean up uploaded images outside the lock
         for filename in deleted_attachments:
@@ -135,8 +142,10 @@ class MessageStore:
         """Wipe all messages and truncate the log file."""
         with self._lock:
             self._messages.clear()
+            self._reactions.clear()
             with open(self._path, "w", encoding="utf-8") as f:
                 f.truncate(0)
+            self._save_reactions()
 
     # --- Todos ---
 
@@ -165,6 +174,58 @@ class MessageStore:
             json.dumps({str(k): v for k, v in self._todos.items()}, indent=2),
             "utf-8"
         )
+
+    # --- Reactions ---
+
+    def _load_reactions(self):
+        if self._reactions_path.exists():
+            try:
+                raw = json.loads(self._reactions_path.read_text("utf-8"))
+                self._reactions = {
+                    int(msg_id): {
+                        str(emoji): [str(sender) for sender in senders]
+                        for emoji, senders in reactions.items()
+                        if isinstance(senders, list)
+                    }
+                    for msg_id, reactions in raw.items()
+                    if isinstance(reactions, dict)
+                }
+            except Exception:
+                self._reactions = {}
+
+    def _save_reactions(self):
+        self._reactions_path.write_text(
+            json.dumps({str(k): v for k, v in self._reactions.items()}, indent=2, ensure_ascii=False),
+            "utf-8",
+        )
+
+    def _with_reactions(self, msg: dict) -> dict:
+        out = dict(msg)
+        reactions = self._reactions.get(msg["id"], {})
+        out["reactions"] = {emoji: list(senders) for emoji, senders in reactions.items()}
+        return out
+
+    def toggle_reaction(self, msg_id: int, emoji: str, sender: str) -> dict[str, list[str]] | None:
+        with self._lock:
+            if msg_id < 0 or msg_id >= len(self._messages):
+                return None
+
+            reactions = self._reactions.setdefault(msg_id, {})
+            senders = reactions.setdefault(emoji, [])
+
+            if sender in senders:
+                senders.remove(sender)
+            else:
+                senders.append(sender)
+
+            if not senders:
+                del reactions[emoji]
+            if not reactions:
+                self._reactions.pop(msg_id, None)
+
+            self._save_reactions()
+            current = self._reactions.get(msg_id, {})
+            return {key: list(value) for key, value in current.items()}
 
     def on_todo(self, callback):
         """Register a callback(msg_id, status) called on todo changes.

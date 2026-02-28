@@ -24,6 +24,7 @@ let taskLoadError = '';
 let taskUpdatedAt = '';
 
 const TASK_COLUMNS = ['Pending', 'In Progress', 'Review', 'Done'];
+const REACTION_EMOJIS = ['👍', '❤️', '🎉', '👀'];
 
 // --- Notification sounds ---
 const SOUND_OPTIONS = [
@@ -345,6 +346,8 @@ function connectWebSocket() {
                 todos[d.id] = d.status;
             }
             updateTodoState(d.id, d.status);
+        } else if (event.type === 'reaction_update') {
+            updateReactions(event.data.id, event.data.reactions || {});
         } else if (event.type === 'status') {
             updateStatus(event.data);
             // Status is the last event sent on connect — enable sounds after history
@@ -466,8 +469,9 @@ function appendMessage(msg) {
         const avatarHtml = `<div class="avatar" style="background-color: ${senderColor}">${getAvatarSvg(msg.sender)}</div>`;
 
         const statusLabel = todoStatusLabel(todoStatus);
+        const reactions = msg.reactions || {};
         el.dataset.rawText = msg.text;
-        el.innerHTML = `<div class="todo-strip"></div>${isSelf ? '' : avatarHtml}<div class="chat-bubble" style="--bubble-color: ${senderColor}">${replyHtml}<div class="bubble-header"><span class="msg-sender" style="color: ${senderColor}">${escapeHtml(msg.sender)}</span><span class="msg-time">${msg.time || ''}</span></div><div class="msg-text">${textHtml}</div>${attachmentsHtml}</div><div class="msg-actions"><button class="reply-btn" onclick="startReply(${msg.id}, event)">reply</button><button class="todo-hint" onclick="todoCycle(${msg.id}); event.stopPropagation();">${statusLabel}</button><button class="delete-btn" onclick="deleteClick(${msg.id}, event)" title="Delete">del</button></div>`;
+        el.innerHTML = `<div class="todo-strip"></div>${isSelf ? '' : avatarHtml}<div class="chat-bubble" style="--bubble-color: ${senderColor}">${replyHtml}<div class="bubble-header"><span class="msg-sender" style="color: ${senderColor}">${escapeHtml(msg.sender)}</span><span class="msg-time">${msg.time || ''}</span></div><div class="msg-text">${textHtml}</div>${attachmentsHtml}<div class="msg-reactions">${renderReactionPills(msg.id, reactions)}</div></div><div class="msg-actions"><button class="reply-btn" onclick="startReply(${msg.id}, event)">reply</button><button class="todo-hint" onclick="todoCycle(${msg.id}); event.stopPropagation();">${statusLabel}</button><button class="delete-btn" onclick="deleteClick(${msg.id}, event)" title="Delete">del</button></div>`;
         if (todoStatus) el.classList.add('msg-todo', `msg-todo-${todoStatus}`);
 
         // Add copy buttons to code blocks
@@ -499,6 +503,49 @@ function appendMessage(msg) {
         unreadCount++;
         updateScrollAnchor();
     }
+}
+
+function renderReactionPills(msgId, reactions) {
+    return REACTION_EMOJIS.map((emoji) => {
+        const senders = reactions[emoji] || [];
+        const active = senders.includes(username);
+        const count = senders.length;
+        const countHtml = count ? `<span class="reaction-count">${count}</span>` : '';
+        const activeClass = active ? ' active' : '';
+        return `<button class="reaction-pill${activeClass}" onclick="toggleReaction(${msgId}, '${emoji}', event)"><span>${emoji}</span>${countHtml}</button>`;
+    }).join('');
+}
+
+async function toggleReaction(msgId, emoji, event) {
+    if (event) event.stopPropagation();
+    try {
+        const resp = await fetch('/api/reactions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Session-Token': SESSION_TOKEN,
+            },
+            body: JSON.stringify({
+                message_id: msgId,
+                emoji,
+                sender: username,
+            }),
+        });
+        if (!resp.ok) {
+            console.error('Reaction toggle failed:', await resp.text());
+            return;
+        }
+        const data = await resp.json();
+        updateReactions(data.message_id, data.reactions || {});
+    } catch (err) {
+        console.error('Reaction toggle failed:', err);
+    }
+}
+
+function updateReactions(msgId, reactions) {
+    const el = document.querySelector(`.message[data-id="${msgId}"] .msg-reactions`);
+    if (!el) return;
+    el.innerHTML = renderReactionPills(msgId, reactions || {});
 }
 
 function getSenderClass(sender) {

@@ -394,6 +394,17 @@ async def broadcast_todo_update(msg_id: int, status: str | None):
     ws_clients.difference_update(dead)
 
 
+async def broadcast_reaction_update(msg_id: int, reactions: dict[str, list[str]]):
+    data = json.dumps({"type": "reaction_update", "data": {"id": msg_id, "reactions": reactions}})
+    dead = set()
+    for client in ws_clients:
+        try:
+            await client.send_text(data)
+        except Exception:
+            dead.add(client)
+    ws_clients.difference_update(dead)
+
+
 async def broadcast_settings():
     data = json.dumps({"type": "settings", "data": room_settings})
     dead = set()
@@ -668,6 +679,26 @@ async def get_messages(since_id: int = 0, limit: int = 50):
     if since_id:
         return store.get_since(since_id)
     return store.get_recent(limit)
+
+
+@app.post("/api/reactions")
+async def add_reaction(body: dict):
+    try:
+        msg_id = int(body.get("message_id"))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "invalid message_id"}, status_code=400)
+
+    emoji = str(body.get("emoji", "")).strip()
+    sender = str(body.get("sender", "")).strip()
+    if not emoji or not sender:
+        return JSONResponse({"error": "emoji and sender are required"}, status_code=400)
+
+    reactions = store.toggle_reaction(msg_id, emoji, sender)
+    if reactions is None:
+        return JSONResponse({"error": "message not found"}, status_code=404)
+
+    await broadcast_reaction_update(msg_id, reactions)
+    return JSONResponse({"message_id": msg_id, "reactions": reactions})
 
 
 @app.get("/api/tasks")

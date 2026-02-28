@@ -1,15 +1,17 @@
 """Tests for TODO parsing, task endpoint, and access-token helpers."""
 
 import asyncio
+import json
 import os
 import sys
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
-from app import _access_token_valid, _load_access_token, _parse_todo_tasks, get_tasks  # noqa: E402
+import app  # noqa: E402
+from app import _access_token_valid, _load_access_token, _parse_todo_tasks, add_reaction, get_tasks  # noqa: E402
 
 
 def test_parse_todo_tasks_extracts_backlog_items():
@@ -107,3 +109,34 @@ def test_access_token_rejects_missing_or_wrong_tokens():
     assert not _access_token_valid("secret-token")
     assert not _access_token_valid("secret-token", query_token="wrong")
     assert not _access_token_valid("secret-token", header_token="wrong")
+
+
+def test_add_reaction_toggles_and_returns_payload():
+    fake_store = MagicMock()
+    fake_store.toggle_reaction.return_value = {"👍": ["alice"]}
+
+    with patch.object(app, "store", fake_store), \
+         patch.object(app, "broadcast_reaction_update", new=AsyncMock()) as mock_broadcast:
+        response = asyncio.run(add_reaction({"message_id": 3, "emoji": "👍", "sender": "alice"}))
+
+    assert response.status_code == 200
+    assert json.loads(response.body) == {"message_id": 3, "reactions": {"👍": ["alice"]}}
+    fake_store.toggle_reaction.assert_called_once_with(3, "👍", "alice")
+    mock_broadcast.assert_awaited_once_with(3, {"👍": ["alice"]})
+
+
+def test_add_reaction_rejects_invalid_payload():
+    response = asyncio.run(add_reaction({"message_id": "bad", "emoji": "", "sender": ""}))
+    assert response.status_code == 400
+
+
+def test_add_reaction_returns_404_when_message_missing():
+    fake_store = MagicMock()
+    fake_store.toggle_reaction.return_value = None
+
+    with patch.object(app, "store", fake_store), \
+         patch.object(app, "broadcast_reaction_update", new=AsyncMock()) as mock_broadcast:
+        response = asyncio.run(add_reaction({"message_id": 99, "emoji": "👍", "sender": "alice"}))
+
+    assert response.status_code == 404
+    mock_broadcast.assert_not_awaited()
