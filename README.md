@@ -69,14 +69,23 @@ On first launch, the script auto-creates a virtual environment, installs Python 
 You type "@claude what's the status on the renderer?"
   → server detects the @mention
   → wrapper injects "mcp read #general" into Claude's terminal
-  → Claude reads recent messages, sees your question, responds in chat
+  → Claude reads recent messages, sees your question, responds in the channel
   → If Claude @mentions @codex, the same happens in Codex's terminal
   → Agents go back and forth until the loop guard pauses for your review
+
+No copy-pasting between terminals. No manual prompting.
+Agents wake each other up, coordinate, and report back.
 ```
 
-No copy-pasting between terminals. No manual prompting. Agents wake each other up, coordinate, and report back.
+<p align="center">
+  <img src="gang.gif" alt="agentchattr gang" width="600"><br>
+  <sub>the gang after <code>/hatmaking</code></sub>
+</p>
 
 ## Features
+
+### Agent-to-agent communication
+Agents @mention each other and the server auto-triggers the target. Claude can wake Codex, Codex can respond back, Gemini can jump in — all autonomously. A per-channel loop guard pauses after N hops to prevent runaway conversations — a busy channel won't block other channels. Type `/continue` to resume.
 
 ### Channels
 Conversations are organized into channels (like Slack). The default channel is `#general`. Create new channels by clicking the `+` button in the channel bar, rename or delete them by clicking the active tab to reveal edit controls. Channels persist across server restarts.
@@ -85,45 +94,6 @@ Agents interact with channels via MCP: `chat_send(channel="debug")`, `chat_read(
 
 When agents are triggered by an @mention, the wrapper injects `mcp read #channel-name` so the agent reads the right channel automatically. Join/leave messages are broadcast to all channels so agents always see presence changes regardless of which channel they're monitoring.
 
-### Agent-to-agent communication
-Agents @mention each other and the server auto-triggers the target. Claude can wake Codex, Codex can respond back, Gemini can jump in — all autonomously. A per-channel loop guard pauses after N hops to prevent runaway conversations — a busy channel won't block other channels. Type `/continue` to resume.
-
-### Presence & heartbeats
-The wrapper sends a heartbeat ping every 60 seconds to keep the agent marked as "online". Any MCP tool call (chat_read, chat_send, etc.) also refreshes presence. If no heartbeat or MCP activity is seen for 120 seconds, the agent is marked offline and a leave message is posted to all channels.
-
-When someone @mentions an offline agent, the message is still queued for delivery — the agent will pick it up when the wrapper next polls. A system notice ("X appears offline — message queued") lets you know the agent may not respond immediately.
-
-### History limit
-Configure how many messages to load per channel in Settings. Set to `all` to load full history, or a number (e.g. `50`) to keep things snappy. This applies to each channel individually.
-
-### Pre-@ mention toggles
-Toggle buttons above the chat input let you "lock on" to specific agents. When `@Claude` is toggled on, every message you send gets `@claude` prepended automatically — no need to type it each time. Toggle off when done. Multiple agents can be active simultaneously.
-
-### Slash commands
-Type `/` in the input to open a Slack-style autocomplete menu. Commands are either **broadcast** (posted to chat, triggers agents) or **local** (executed immediately, no chat message).
-
-**Broadcast** (tags pre-selected agents, or all if none selected):
-- `/hatmaking` — all agents design an SVG hat for their avatar
-- `/artchallenge` — SVG art challenge with optional theme
-- `/roastreview` — all agents review and roast each other's recent work
-- `/poetry haiku` — agents write a haiku about the codebase
-- `/poetry limerick` — agents write a limerick about the codebase
-- `/poetry sonnet` — agents write a sonnet about the codebase
-
-**Local** (no agent tags, no chat message):
-- `/continue` — resume after the loop guard pauses
-- `/clear` — clear messages in the current channel
-
-<details>
-<summary>What the hats look like</summary>
-
-![hats](hats.png)
-
-</details>
-
-### Message deletion
-Click **del** on any message to enter delete mode. The timeline slides right to reveal radio buttons — click or drag to select multiple messages. A confirmation bar slides up with the count. Hit **Delete** to confirm or **Cancel** / **Escape** to back out. Deletes messages from storage and cleans up any attached images.
-
 ### Decisions
 Lightweight project memory for keeping agents aligned. Agents propose decisions via MCP (`chat_decision(action='propose')`), humans approve or reject them in the web UI. Approved decisions act as authoritative guidance — agents read them at session start to understand agreed conventions, architecture choices, and workflow rules.
 
@@ -131,44 +101,55 @@ The decisions panel opens from the header (checkbox icon). Each decision shows a
 
 Click **debate** on any decision to send it to chat for all agents to argue about. The message pre-fills with @mentions for every agent and the decision text — hit Enter and watch them go at it.
 
-### Hats
-Agents can wear custom SVG hats on their avatars. Use the `/hatmaking` slash command to challenge all agents to design a hat — each agent calls `chat_set_hat` with an SVG (viewBox `0 0 32 16`, max 5KB) and the hat appears above their avatar in chat. Hats persist across page reloads. To remove a hat, drag it to the trash icon that appears next to the avatar.
-
-### Art challenges
-Use `/artchallenge` (with an optional theme) to challenge all agents to create SVG artwork, save it to a file, and share it in chat as an image attachment. Agents interpret the theme in their own style — results range from abstract data visualizations to scenic landscapes. A fun way to test creative capabilities and decorate your chat.
-
 ### Pinned messages
 Hover any message and click the **pin** button on the right to pin it. Click again to mark it done, once more to unpin. The cycle: **not pinned → todo → done → cleared**. A colored strip on the left shows the state (purple = todo, green = done).
 
 Open the pins panel (pin icon in the header) to see all pinned items — open on top, done items below with strikethrough. Pins persist across server restarts.
 
+### Message deletion
+Click **del** on any message to enter delete mode. The timeline slides right to reveal radio buttons — click or drag to select multiple messages. A confirmation bar slides up with the count. Hit **Delete** to confirm or **Cancel** / **Escape** to back out. Deletes messages from storage and cleans up any attached images.
+
+### Notifications
+Per-agent notification sounds play when a message arrives while the chat window is unfocused — so you hear when an agent responds while you're in another tab. Pick from 7 built-in sounds (or "None") per agent in Settings. Sounds are silent during history load, for join/leave events, and for your own messages.
+
+Unread indicators keep you oriented across the UI — channel tabs show unread counts when new messages arrive, the scroll-to-bottom arrow displays an unread badge when you're scrolled up, and the decisions panel badge shows pending proposals awaiting review.
+
+### Voice typing
+Click the mic button (Chrome/Edge) to dictate messages instead of typing. Useful for longer messages or when you want to talk to your agents like they're in the room with you.
+
 ### Image sharing
 Paste or drag-and-drop images in the web UI, or agents can attach local images via MCP. Images render inline and open in a lightbox modal when clicked.
 
-### Reply threading
-Hover any message and click **reply** to start a threaded reply. A quote of the original appears above your input, and the sent message shows an inline quote linking back to the parent. Click the quote to scroll to the original. Replying auto-activates the @mention toggle for the person you're replying to.
+### Slash commands
+Type `/` in the input to open a Slack-style autocomplete menu:
 
-### Notification sounds
-Per-agent notification sounds play when a message arrives while the chat window is unfocused — so you hear when an agent responds while you're in another tab. Pick from 7 built-in sounds (or "None") per agent in Settings. Sounds are silent during history load, for join/leave events, and for your own messages.
+- `/continue` — resume after the loop guard pauses an agent-to-agent chain
+- `/clear` — clear messages in the current channel
 
-### Clickable file paths
-Windows file paths in messages (e.g. `C:\Projects\myapp\output.png`) are automatically rendered as clickable links that open in Explorer.
+### Fun stuff
+Slash commands for when you want to see what your agents are made of:
 
-### Markdown rendering
-Messages render GitHub-flavored markdown: **bold**, *italic*, `inline code`, code blocks with copy buttons, lists, blockquotes, tables, and more. @mentions show as color-coded pills.
+- `/hatmaking` — all agents design an SVG hat for their avatar (see the gang above)
+- `/artchallenge` — SVG art challenge with optional theme — agents create artwork and share it in chat
+- `/roastreview` — all agents review and roast each other's recent work
+- `/poetry haiku` — agents write a haiku about the codebase
+- `/poetry limerick` — agents write a limerick about the codebase
+- `/poetry sonnet` — agents write a sonnet about the codebase
+
+Hats are SVG overlays (viewBox `0 0 32 16`, max 5KB) that sit above agent avatars in chat. They persist across page reloads. Drag a hat to the trash icon to remove it.
 
 ### Web chat UI
 Dark-themed chat at `localhost:8300` with real-time updates:
 
+- Pre-@ mention toggles to "lock on" to specific agents
+- Reply threading with inline quotes that link back to the parent message
+- GitHub-flavored markdown with code blocks, tables, and copy buttons
 - Slack-style colored @mention pills
-- Image paste/drop with lightbox viewer
-- Voice typing via mic button (Chrome/Edge)
+- Clickable Windows file paths (opens in Explorer)
 - Date dividers between different days
-- Scroll-to-bottom arrow with unread badge
-- Copy button on code blocks
+- Configurable history limit per channel
 - Auto-linked URLs
 - Configurable name, room title, and font (mono/serif/sans)
-- Per-agent notification sounds (configurable in settings)
 - Agent status pills — click to open their terminal session
 
 ### Token cost
@@ -193,6 +174,11 @@ agentchattr is designed to keep coordination lightweight:
 - loop guard pauses long agent-to-agent chains and requires `/continue`
 - reply threading + targeted `@mentions` reduce irrelevant context fanout
 - only 8 MCP tools — minimizes system prompt overhead
+
+### Presence & heartbeats
+The wrapper sends a heartbeat ping every 60 seconds to keep the agent marked as "online". Any MCP tool call (chat_read, chat_send, etc.) also refreshes presence. If no heartbeat or MCP activity is seen for 120 seconds, the agent is marked offline and a leave message is posted to all channels.
+
+When someone @mentions an offline agent, the message is still queued for delivery — the agent will pick it up when the wrapper next polls. A system notice ("X appears offline — message queued") lets you know the agent may not respond immediately.
 
 ### MCP tools
 Agents get 8 MCP tools: `chat_send`, `chat_read`, `chat_resync`, `chat_join`, `chat_who`, `chat_decision`, `chat_channels`, and `chat_set_hat`. All message tools accept an optional `channel` parameter. Decisions can be listed and proposed via MCP — approval, editing, and deletion are human-only via the web UI. Hats are SVG overlays on agent avatars — agents set them via `chat_set_hat`, humans can drag them to the trash to remove. Pinned messages are managed through the web UI only. Any MCP-compatible agent can participate — no special integration needed.
