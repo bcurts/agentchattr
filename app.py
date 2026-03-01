@@ -549,7 +549,11 @@ async def websocket_endpoint(websocket: WebSocket):
 
     # Send agent config (names, colors, labels) so UI can build pills + color mentions
     agent_cfg = {
-        name: {"color": cfg.get("color", "#888"), "label": cfg.get("label", name)}
+        name: {
+            "color": cfg.get("color", "#888"),
+            "label": cfg.get("label", name),
+            "command": cfg.get("command", ""),
+        }
         for name, cfg in config.get("agents", {}).items()
     }
     await websocket.send_text(json.dumps({"type": "agents", "data": agent_cfg}))

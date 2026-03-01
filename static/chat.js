@@ -421,7 +421,8 @@ function appendMessage(msg) {
     if (msg.type === 'join' || msg.type === 'leave') {
         el.classList.add('join-msg');
         const color = getColor(msg.sender);
-        el.innerHTML = `<span class="join-dot" style="background: ${color}"></span><span class="join-text"><strong style="color: ${color}">${escapeHtml(msg.sender)}</strong> ${msg.type === 'join' ? 'joined' : 'left'}</span>`;
+        const displayName = getDisplayName(msg.sender);
+        el.innerHTML = `<span class="join-dot" style="background: ${color}"></span><span class="join-text"><strong style="color: ${color}">${escapeHtml(displayName)}</strong> ${msg.type === 'join' ? 'joined' : 'left'}</span>`;
     } else if (msg.type === 'system' || msg.sender === 'system') {
         el.classList.add('system-msg');
         el.innerHTML = `<span class="msg-text">${escapeHtml(msg.text)}</span>`;
@@ -432,6 +433,7 @@ function appendMessage(msg) {
         let textHtml = renderMarkdown(msg.text);
 
         const senderColor = getColor(msg.sender);
+        const displayName = getDisplayName(msg.sender);
         const isSelf = msg.sender.toLowerCase() === username.toLowerCase();
         el.classList.add(isSelf ? 'self' : 'other');
 
@@ -466,7 +468,7 @@ function appendMessage(msg) {
 
         const statusLabel = todoStatusLabel(todoStatus);
         el.dataset.rawText = msg.text;
-        el.innerHTML = `<div class="todo-strip"></div>${isSelf ? '' : avatarHtml}<div class="chat-bubble" style="--bubble-color: ${senderColor}">${replyHtml}<div class="bubble-header"><span class="msg-sender" style="color: ${senderColor}">${escapeHtml(msg.sender)}</span><span class="msg-time">${msg.time || ''}</span></div><div class="msg-text">${textHtml}</div>${attachmentsHtml}</div><div class="msg-actions"><button class="reply-btn" onclick="startReply(${msg.id}, event)">reply</button><button class="todo-hint" onclick="todoCycle(${msg.id}); event.stopPropagation();">${statusLabel}</button><button class="delete-btn" onclick="deleteClick(${msg.id}, event)" title="Delete">del</button></div>`;
+        el.innerHTML = `<div class="todo-strip"></div>${isSelf ? '' : avatarHtml}<div class="chat-bubble" style="--bubble-color: ${senderColor}">${replyHtml}<div class="bubble-header"><span class="msg-sender" style="color: ${senderColor}">${escapeHtml(displayName)}</span><span class="msg-time">${msg.time || ''}</span></div><div class="msg-text">${textHtml}</div>${attachmentsHtml}</div><div class="msg-actions"><button class="reply-btn" onclick="startReply(${msg.id}, event)">reply</button><button class="todo-hint" onclick="todoCycle(${msg.id}); event.stopPropagation();">${statusLabel}</button><button class="delete-btn" onclick="deleteClick(${msg.id}, event)" title="Delete">del</button></div>`;
         if (todoStatus) el.classList.add('msg-todo', `msg-todo-${todoStatus}`);
 
         // Add copy buttons to code blocks
@@ -505,11 +507,21 @@ function getSenderClass(sender) {
 function resolveAgent(name) {
     const s = name.toLowerCase();
     if (s in agentConfig) return s;
+    // Match by configured command (codex/claude/gemini)
+    for (const [key, cfg] of Object.entries(agentConfig)) {
+        if (cfg.command && s.startsWith(cfg.command.toLowerCase())) return key;
+    }
     // Try prefix match: "gemini-cli" → "gemini"
     for (const key of Object.keys(agentConfig)) {
         if (s.startsWith(key)) return key;
     }
     return null;
+}
+
+function getDisplayName(sender) {
+    const resolved = resolveAgent(sender.toLowerCase());
+    if (resolved && agentConfig[resolved] && agentConfig[resolved].label) return agentConfig[resolved].label;
+    return sender;
 }
 
 function getColor(sender) {
