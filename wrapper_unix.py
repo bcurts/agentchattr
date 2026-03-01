@@ -38,6 +38,8 @@ def inject(text: str, *, tmux_session: str):
         ["tmux", "send-keys", "-t", tmux_session, "-l", text],
         capture_output=True,
     )
+    # Let TUI process the text before sending Enter (matches Windows wrapper)
+    time.sleep(0.3)
     subprocess.run(
         ["tmux", "send-keys", "-t", tmux_session, "Enter"],
         capture_output=True,
