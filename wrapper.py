@@ -156,7 +156,8 @@ def main():
     agent = args.agent
     agent_cfg = config.get("agents", {}).get(agent, {})
     cwd = agent_cfg.get("cwd", ".")
-    command = agent_cfg.get("command", agent)
+    command_name = agent_cfg.get("command", agent)
+    command = command_name
     data_dir = ROOT / config.get("server", {}).get("data_dir", "./data")
     data_dir.mkdir(parents=True, exist_ok=True)
     queue_file = data_dir / f"{agent}_queue.jsonl"
@@ -190,14 +191,19 @@ def main():
 
     # Heartbeat — ping the server every 60s to keep presence alive
     server_port = config.get("server", {}).get("port", 8300)
+    heartbeat_names = [agent]
+    cmd_lower = (command_name or "").lower()
+    if cmd_lower in ("codex", "claude", "gemini") and cmd_lower not in heartbeat_names:
+        heartbeat_names.append(cmd_lower)
 
     def _heartbeat():
         import urllib.request
-        url = f"http://127.0.0.1:{server_port}/api/heartbeat/{agent}"
         while True:
             try:
-                req = urllib.request.Request(url, method="POST", data=b"")
-                urllib.request.urlopen(req, timeout=5)
+                for name in heartbeat_names:
+                    url = f"http://127.0.0.1:{server_port}/api/heartbeat/{name}"
+                    req = urllib.request.Request(url, method="POST", data=b"")
+                    urllib.request.urlopen(req, timeout=5)
             except Exception:
                 pass
             time.sleep(60)

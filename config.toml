@@ -7,23 +7,23 @@ data_dir = "./data"
 # "cwd" is the working directory for the agent's terminal session.
 # "command" is the CLI command (must be on PATH).
 
-[agents.claude]
-command = "claude"
-cwd = ".."
-color = "#da7756"
-label = "Claude"
-
-[agents.codex]
+[agents.meera]
 command = "codex"
-cwd = ".."
+cwd = "C:/Users/shiva/Documents/NinjaTrader 8/bin/Custom/Strategies/.agent/meera"
 color = "#10a37f"
-label = "Codex"
+label = "Meera"
 
-[agents.gemini]
+[agents.ishika]
+command = "claude"
+cwd = "C:/Users/shiva/Documents/NinjaTrader 8/bin/Custom/Strategies/.agent/ishika"
+color = "#da7756"
+label = "Ishika"
+
+[agents.rashmika]
 command = "gemini"
-cwd = ".."
+cwd = "C:/Users/shiva/Documents/NinjaTrader 8/bin/Custom/Strategies/.agent/rashmika"
 color = "#4285f4"
-label = "Gemini"
+label = "Rashmika"
 
 [routing]
 # "none" = only route on explicit @mention. "all" = route to all agents by default.
