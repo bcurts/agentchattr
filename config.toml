@@ -10,8 +10,10 @@ data_dir = "./data"
 [agents.claude]
 command = "claude"
 cwd = ".."
-color = "#da7756"
+color = "#a78bfa"
 label = "Claude"
+resume_flag = "--resume"
+
 [agents.codex]
 command = "codex"
 cwd = "K:/GitHub/JMD-MyrientDownloader"
