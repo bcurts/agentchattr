@@ -76,7 +76,7 @@ def main():
             "</head>",
             f'<script>window.__SESSION_TOKEN__="{session_token}";</script>\n</head>',
         )
-        return HTMLResponse(injected)
+        return HTMLResponse(injected, headers={"Cache-Control": "no-store"})
 
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
