@@ -4,6 +4,7 @@ Usage:
     python wrapper.py claude
     python wrapper.py codex
     python wrapper.py gemini
+    python wrapper.py qwen
 
 Cross-platform:
   - Windows: injects keystrokes via Win32 WriteConsoleInput (wrapper_windows.py)
@@ -34,10 +35,13 @@ SERVER_NAME = "agentchattr"
 # ---------------------------------------------------------------------------
 
 def _write_json_mcp_settings(config_file: Path, url: str, transport: str = "http",
-                              *, token: str = "") -> Path:
+                              *, token: str = "", url_key: str | None = None) -> Path:
     """Write/merge a settings-style JSON file with nested mcpServers config.
 
-    Preserves existing servers in the file — only updates the agentchattr entry."""
+    Preserves existing servers in the file — only updates the agentchattr entry.
+
+    url_key: when None (default) writes the standard {"type": transport, "url": url}
+             entry; when set (e.g. "httpUrl" for Qwen Code CLI) writes {url_key: url}."""
     config_file.parent.mkdir(parents=True, exist_ok=True)
     # Read existing file to preserve other servers
     existing: dict = {}
@@ -47,7 +51,7 @@ def _write_json_mcp_settings(config_file: Path, url: str, transport: str = "http
         except Exception:
             pass
     servers = existing.get("mcpServers", {})
-    entry: dict = {"type": transport, "url": url}
+    entry: dict = {url_key: url} if url_key else {"type": transport, "url": url}
     if token:
         entry["headers"] = {"Authorization": f"Bearer {token}"}
     servers[SERVER_NAME] = entry
@@ -180,7 +184,8 @@ def _apply_mcp_inject(
             base = Path(project_dir) if project_dir else Path.cwd()
             target = base / target
         settings_path = _write_json_mcp_settings(target, server_url,
-                                                  transport=transport, token=token)
+                                                  transport=transport, token=token,
+                                                  url_key=inject_cfg.get("mcp_url_key"))
         # Optionally set an env var pointing to the settings file
         env_var = inject_cfg.get("mcp_env_var")
         if env_var:
@@ -194,6 +199,7 @@ def _apply_mcp_inject(
         settings_path = _write_json_mcp_settings(
             config_dir / f"{instance_name}-settings.json",
             server_url, transport=transport, token=token,
+            url_key=inject_cfg.get("mcp_url_key"),
         )
         inject_env[env_var] = str(settings_path)
 
@@ -336,7 +342,8 @@ def _report_rule_sync(server_port: int, agent_name: str, epoch: int, token: str 
 
 
 def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = False, trigger_flag=None,
-                   server_port: int = 8300, agent_name: str = "", get_token_fn=None):
+                   server_port: int = 8300, agent_name: str = "", get_token_fn=None,
+                   trigger_suffix: str = ""):
     """Poll queue file and inject an MCP read task when triggered."""
     first_mention = True
     last_rules_epoch = 0  # 0 = unknown/cold start — will inject on first trigger
@@ -390,8 +397,12 @@ def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = Fals
                         prompt = custom_prompt
                     elif job_id:
                         prompt = f"mcp read job_id={job_id} - you were mentioned in a job thread, take appropriate action"
+                        if trigger_suffix:
+                            prompt += f" {trigger_suffix}"
                     else:
                         prompt = f"mcp read #{channel} - you were mentioned, take appropriate action"
+                        if trigger_suffix:
+                            prompt += f" {trigger_suffix}"
 
                     # Use current identity (may have changed via rename)
                     current_name, _ = get_identity_fn()
@@ -635,6 +646,7 @@ def main():
     _watcher_thread = None
     _is_multi_instance = registration.get("slot", 1) > 1
     _trigger_flag = [False]  # shared: queue watcher sets True, activity checker reads
+    _trigger_suffix = agent_cfg.get("trigger_suffix", "")
 
     def start_watcher(inject_fn):
         nonlocal _watcher_inject_fn, _watcher_thread
@@ -644,7 +656,7 @@ def main():
             args=(get_identity, inject_fn),
             kwargs={"is_multi_instance": _is_multi_instance, "trigger_flag": _trigger_flag,
                     "server_port": server_port, "agent_name": assigned_name,
-                    "get_token_fn": get_token},
+                    "get_token_fn": get_token, "trigger_suffix": _trigger_suffix},
             daemon=True,
         )
         _watcher_thread.start()
@@ -659,7 +671,7 @@ def main():
                     args=(get_identity, _watcher_inject_fn),
                     kwargs={"is_multi_instance": _is_multi_instance, "trigger_flag": _trigger_flag,
                             "server_port": server_port, "agent_name": assigned_name,
-                            "get_token_fn": get_token},
+                            "get_token_fn": get_token, "trigger_suffix": _trigger_suffix},
                     daemon=True,
                 )
                 _watcher_thread.start()
@@ -754,6 +766,7 @@ def main():
         strip_env=list(strip_vars),
         pid_holder=_agent_pid,
         inject_env=inject_env,
+        inject_delay=agent_cfg.get("inject_delay", 0.3),
     )
     if sys.platform != "win32":
         run_kwargs["session_name"] = unix_session_name

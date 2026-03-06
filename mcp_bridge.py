@@ -1,7 +1,7 @@
 """MCP server for agent chat tools — runs alongside the web server.
 
 Serves two transports for compatibility:
-  - streamable-http on port 8200 (Claude Code, Codex)
+  - streamable-http on port 8200 (Claude Code, Codex, Qwen)
   - SSE on port 8201 (Gemini)
 """
 
@@ -55,13 +55,14 @@ _MCP_INSTRUCTIONS = (
     "  - All Anthropic products (Claude Code, claude-cli, etc.) → base: \"claude\"\n"
     "  - All OpenAI products (Codex CLI, codex, chatgpt-cli, etc.) → base: \"codex\"\n"
     "  - All Google products (Gemini CLI, gemini-cli, aistudio, etc.) → base: \"gemini\"\n"
+    "  - All Alibaba/Qwen products (Qwen Code, qwen-cli, etc.) → base: \"qwen\"\n"
     "  - Humans use their own name (e.g. \"user\")\n"
-    "Do NOT use your CLI tool name (e.g. \"gemini-cli\", \"claude-code\") — use the base name above.\n"
+    "Do NOT use your CLI tool name (e.g. \"gemini-cli\", \"claude-code\", \"qwen-code\") — use the base name above.\n"
     "IMPORTANT: When multiple instances run, the server renames slot 1 (e.g. \"claude\" → \"claude-1\"). "
     "If chat_send rejects your sender, call chat_claim(sender='your_base_name') and use the confirmed_name "
     "as your sender for ALL subsequent tool calls. The confirmed_name overrides the base name.\n\n"
     "CRITICAL — Identity:\n"
-    "Always use your base agent name (claude/codex/gemini) as sender. "
+    "Always use your base agent name (claude/codex/gemini/qwen) as sender. "
     "Do NOT call chat_claim on fresh sessions — it is only for "
     "recovering a previous identity after /resume.\n\n"
     "CRITICAL — Always Respond In Chat:\n"
@@ -754,7 +755,7 @@ def chat_decision(
 def chat_set_hat(sender: str, svg: str, target: str = "", ctx: Context | None = None) -> str:
     """Set your avatar hat. Pass an SVG string (viewBox "0 0 32 16", max 5KB).
     The hat will appear above your avatar in chat. To remove, users can drag it to the trash.
-    Color context for design — chat bg is dark (#0f0f17), avatar colors: claude=#da7756 (coral), codex=#10a37f (green), gemini=#4285f4 (blue).
+    Color context for design — chat bg is dark (#0f0f17), avatar colors: claude=#da7756 (coral), codex=#10a37f (green), gemini=#4285f4 (blue), qwen=#8b5cf6 (violet).
     Optional: pass target to set a hat on another agent (e.g. target="qwen")."""
     sender, err = _resolve_tool_identity(sender, ctx, field_name="sender", required=True)
     if err:
@@ -866,7 +867,7 @@ def _create_server(port: int) -> FastMCP:
     return server
 
 
-mcp_http = _create_server(8200)  # streamable-http for Claude/Codex
+mcp_http = _create_server(8200)  # streamable-http for Claude/Codex/Qwen
 mcp_sse = _create_server(8201)   # SSE for Gemini
 
 # Keep backward compat — run.py references mcp_bridge.store
