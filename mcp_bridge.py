@@ -110,7 +110,10 @@ _MCP_INSTRUCTIONS = (
     "This prevents over-use of the jobs feature for vague requests.\n\n"
     "To post a suggestion (Accept/Dismiss card) in a job, prefix your message with [suggestion]: "
     "chat_send(job_id=N, message='[suggestion] I recommend we refactor the auth module'). "
-    "The human can Accept (triggers you with context) or Dismiss."
+    "The human can Accept (triggers you with context) or Dismiss.\n\n"
+    "Use chat_ask when you need explicit human input (yes/no, multiple choice). "
+    "Example: chat_ask(question='Want me to build it?', choices=['Yes, build it', 'No', 'Tell me more']). "
+    "The human sees clickable buttons and their choice is sent back as a chat message.\n\n"
 )
 
 # --- Tool implementations (shared between both servers) ---
@@ -224,7 +227,8 @@ def chat_send(
         # Handle image attachment for job messages
         job_attachments = None
         if image_path:
-            import shutil, uuid
+            import shutil
+            import uuid
             src = Path(image_path)
             if not src.exists():
                 return f"Image not found: {image_path}"
@@ -275,7 +279,6 @@ def chat_send(
     if image_path:
         import shutil
         import uuid
-        from pathlib import Path
         src = Path(image_path)
         if not src.exists():
             return f"Image not found: {image_path}"
@@ -339,6 +342,51 @@ def chat_propose_job(
     with _presence_lock:
         _presence[sender] = time.time()
     return f"Proposed job (msg_id={msg['id']}): {title}"
+
+
+def chat_ask(
+    sender: str,
+    question: str,
+    choices: list[str],
+    context: str = "",
+    channel: str = "general",
+    ctx: Context | None = None,
+) -> str:
+    """Ask the human a multiple-choice question. Posts a decision card in the timeline
+    with clickable buttons. Use when you need explicit yes/no or structured feedback
+    (e.g. "Want me to build it?" → choices: ["Yes, build it", "No", "Tell me more"]).
+
+    Args:
+        question: The question text (markdown supported)
+        choices: List of choice strings (e.g. ["Yes", "No", "Tell me more"])
+        context: Optional extra context shown with the question
+        channel: Channel to post in (default: general)
+    """
+    sender, err = _resolve_tool_identity(sender, ctx, field_name="sender", required=True)
+    if err:
+        return err
+    if registry and registry.is_pending(sender):
+        return "Error: identity not confirmed. Call chat_claim(sender=your_base_name) to get your identity."
+    if not question.strip():
+        return "Error: question is required."
+    if not choices or not isinstance(choices, list):
+        return "Error: choices must be a non-empty list of strings."
+    choices = [str(c).strip() for c in choices if str(c).strip()][:10]
+    if not choices:
+        return "Error: at least one choice is required."
+    text = question.strip()[:500]
+    if context.strip():
+        text = f"{text}\n\n{context.strip()[:200]}"
+    msg = store.add(
+        sender, text,
+        msg_type="decision",
+        channel=channel,
+        metadata={"question": question.strip(), "choices": choices, "status": "pending"},
+    )
+    _update_cursor(sender, [msg], channel)
+    with _presence_lock:
+        _presence[sender] = time.time()
+    return f"Asked (msg_id={msg['id']}): {question[:60]}..."
 
 
 def _resolve_attachments(attachments: list[dict]) -> list[dict]:
@@ -847,9 +895,41 @@ def chat_summary(
     return f"Unknown action: {action}. Valid actions: read, write."
 
 
+_spawn_fn = None  # set by app.configure() → _spawn_agent
+
+
+def chat_spawn(
+    agent: str,
+    guidance: str = "",
+    label: str = "",
+    ctx: Context | None = None,
+) -> str:
+    """Spawn a new instance of an agent, optionally with initial guidance.
+
+    Args:
+        agent: base agent name to spawn (e.g. "gemini", "claude", "codex")
+        guidance: first prompt injected into the new instance's queue
+        label: optional custom display label for the new instance
+
+    Returns the assigned name (e.g. "gemini-2") on success, or an error string.
+    This call blocks up to ~12 seconds while waiting for the instance to register.
+    """
+    if _spawn_fn is None:
+        return "Error: spawn is not available in this environment."
+    result = _spawn_fn(agent, guidance, label)
+    if "error" in result:
+        return f"Error: {result['error']}"
+    name = result.get("name", "?")
+    if guidance:
+        snippet = guidance[:80] + ("…" if len(guidance) > 80 else "")
+        return f"Spawned {name}. Guidance injected: '{snippet}'"
+    return f"Spawned {name}."
+
+
 _ALL_TOOLS = [
     chat_send, chat_read, chat_resync, chat_join, chat_who, chat_rules, chat_decision,
-    chat_channels, chat_set_hat, chat_claim, chat_summary, chat_propose_job,
+    chat_channels, chat_set_hat, chat_claim, chat_summary, chat_propose_job, chat_ask,
+    chat_spawn,
 ]
 
 

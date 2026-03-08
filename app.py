@@ -2,11 +2,13 @@
 
 import asyncio
 import json
+import logging
+import os
 import re as _re
+import subprocess
 import sys
 import threading
 import uuid
-import logging
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File
@@ -18,6 +20,7 @@ from store import MessageStore
 from rules import RuleStore
 from summaries import SummaryStore
 from jobs import JobStore
+from schedules import ScheduleStore, parse_schedule_spec
 from router import Router
 from agents import AgentTrigger
 from registry import RuntimeRegistry
@@ -33,6 +36,7 @@ store: MessageStore | None = None
 rules: RuleStore | None = None
 summaries: SummaryStore | None = None
 jobs: JobStore | None = None
+schedules: ScheduleStore | None = None
 router: Router | None = None
 agents: AgentTrigger | None = None
 registry: RuntimeRegistry | None = None
@@ -51,7 +55,11 @@ room_settings: dict = {
     "font": "sans",
     "channels": ["general"],
     "history_limit": "all",
+    "custom_roles": [],
     "contrast": "normal",
+    "routing_default": "none",
+    "project_dir": "",
+    "auto_approve": False,
 }
 
 # Channel validation
@@ -60,6 +68,73 @@ MAX_CHANNELS = 8
 
 # Agent hats (persisted to data/hats.json)
 agent_hats: dict[str, str] = {}  # { agent_name: svg_string }
+
+
+# ---------------------------------------------------------------------------
+# Auto-trust helpers — called whenever project_dir is set in settings
+# ---------------------------------------------------------------------------
+
+def _tmux_rename_session(old: str, new: str) -> None:
+    """Rename tmux session agentchattr-{old} → agentchattr-{new} (no-op on Windows or if not found)."""
+    if sys.platform == "win32":
+        return
+    try:
+        subprocess.run(
+            ["tmux", "rename-session", "-t", f"agentchattr-{old}", f"agentchattr-{new}"],
+            capture_output=True, timeout=2,
+        )
+    except Exception:
+        pass
+
+
+def _gemini_trust_folder(folder: Path) -> None:
+    """Write TRUST_FOLDER for *folder* into ~/.gemini/trustedFolders.json.
+
+    Gemini CLI blocks ALL MCPs (even system-settings ones) for untrusted
+    folders.  A more-specific TRUST_FOLDER entry overrides any parent
+    DO_NOT_TRUST rule, so we always write the exact path we're working in.
+    Respects the GEMINI_CLI_TRUSTED_FOLDERS_PATH env override if set.
+    """
+    trusted_path_env = os.environ.get("GEMINI_CLI_TRUSTED_FOLDERS_PATH", "")
+    trusted_file = Path(trusted_path_env) if trusted_path_env else Path.home() / ".gemini" / "trustedFolders.json"
+    try:
+        data: dict = {}
+        if trusted_file.exists():
+            try:
+                data = json.loads(trusted_file.read_text("utf-8"))
+            except Exception:
+                data = {}
+        folder_key = str(folder.resolve())
+        if data.get(folder_key) == "TRUST_FOLDER":
+            return
+        data[folder_key] = "TRUST_FOLDER"
+        trusted_file.parent.mkdir(parents=True, exist_ok=True)
+        trusted_file.write_text(json.dumps(data, indent=2) + "\n", "utf-8")
+        logging.getLogger(__name__).info("Gemini: trusted folder %s", folder_key)
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not update Gemini trusted folders: %s", exc)
+
+
+def _auto_trust_project_dir(project_dir_str: str) -> None:
+    """Trust *project_dir_str* for every agent that requires explicit folder trust.
+
+    Currently handles:
+      - Gemini CLI  → ~/.gemini/trustedFolders.json
+    Add additional agents here as needed.
+    """
+    if not project_dir_str:
+        return
+    folder = Path(project_dir_str)
+    if not folder.is_dir():
+        return
+
+    # Gemini: always trust — MCPs are blocked for untrusted folders
+    agents_cfg = config.get("agents", {})
+    for agent_name, agent_cfg in agents_cfg.items():
+        cmd = agent_cfg.get("command", agent_name)
+        if cmd == "gemini" or agent_name == "gemini" or agent_cfg.get("mcp_inject") == "env":
+            _gemini_trust_folder(folder)
+            break  # only need to write once per directory
 
 
 def _hats_path() -> Path:
@@ -135,6 +210,8 @@ def _load_settings():
         room_settings["channels"] = ["general"]
     elif "general" not in room_settings["channels"]:
         room_settings["channels"].insert(0, "general")
+    # Re-apply folder trust on startup so agents always launch into a trusted dir
+    _auto_trust_project_dir(room_settings.get("project_dir", ""))
 
 
 def _save_settings():
@@ -184,7 +261,7 @@ def _install_security_middleware(token: str, cfg: dict):
             if path == "/" or path.startswith(("/static/", "/uploads/", "/api/roles")):
                 return await call_next(request)
 
-            # Agent registration/heartbeat: loopback only (no remote agent minting).
+            # Agent registration/heartbeat/settings: loopback only (wrappers need settings at startup).
             if path.startswith(("/api/register", "/api/deregister/", "/api/heartbeat/")):
                 client_ip = request.client.host if request.client else ""
                 if client_ip not in ("127.0.0.1", "::1", "localhost"):
@@ -193,6 +270,10 @@ def _install_security_middleware(token: str, cfg: dict):
                         status_code=403,
                     )
                 return await call_next(request)
+            if path == "/api/settings" and request.method == "GET":
+                client_ip = request.client.host if request.client else ""
+                if client_ip in ("127.0.0.1", "::1", "localhost"):
+                    return await call_next(request)
 
             # --- Origin check (blocks cross-origin / DNS-rebinding attacks) ---
             origin = request.headers.get("origin")
@@ -227,7 +308,7 @@ def _install_security_middleware(token: str, cfg: dict):
 
 
 def configure(cfg: dict, session_token: str = ""):
-    global store, rules, summaries, jobs, router, agents, registry, session_store, session_engine, config
+    global store, rules, summaries, jobs, schedules, router, agents, registry, session_store, session_engine, config
     config = cfg
     # --- Security: store the session token and install middleware ---
     _install_security_middleware(session_token, cfg)
@@ -265,6 +346,9 @@ def configure(cfg: dict, session_token: str = ""):
     jobs = JobStore(str(jobs_path))
     jobs.on_change(_on_job_change)
 
+    schedules = ScheduleStore(str(Path(data_dir) / "schedules.json"))
+    schedules.on_change(_on_schedule_change)
+
     max_hops = cfg.get("routing", {}).get("max_agent_hops", 4)
 
     # Registry: single source of truth for all live agent state
@@ -298,9 +382,15 @@ def configure(cfg: dict, session_token: str = ""):
     _load_settings()
     _load_hats()
 
+    # Wire spawn function into mcp_bridge so agents can call chat_spawn
+    import mcp_bridge as _mb
+    _mb._spawn_fn = _spawn_agent
+
     # Apply saved loop guard setting
     if "max_agent_hops" in room_settings:
         router.max_hops = room_settings["max_agent_hops"]
+    if "routing_default" in room_settings:
+        router.default_mention = room_settings["routing_default"]
 
     # Background thread: check for wrapper recovery flag files
     _data_dir = Path(data_dir)
@@ -313,6 +403,8 @@ def configure(cfg: dict, session_token: str = ""):
     def _background_checks():
         import time as _time
         import mcp_bridge
+
+        nonlocal _posted_leave, _known_online, _known_active
 
         while True:
             _time.sleep(3)
@@ -359,6 +451,13 @@ def configure(cfg: dict, session_token: str = ""):
                     with mcp_bridge._presence_lock:
                         last_seen = mcp_bridge._presence.get(name, 0)
                     if last_seen > 0 and now - last_seen > _CRASH_TIMEOUT:
+                        # Re-check under lock to avoid TOCTOU: a heartbeat could have
+                        # arrived between read and deregister, which would incorrectly
+                        # kill a live agent.
+                        with mcp_bridge._presence_lock:
+                            last_seen = mcp_bridge._presence.get(name, 0)
+                        if last_seen <= 0 or now - last_seen <= _CRASH_TIMEOUT:
+                            continue
                         log.info(f"Crash timeout: deregistering {name} (no heartbeat for {_CRASH_TIMEOUT}s)")
                         result = registry.deregister(name)
                         if result:
@@ -368,6 +467,7 @@ def configure(cfg: dict, session_token: str = ""):
                             if renamed:
                                 mcp_bridge.migrate_identity(renamed["old"], renamed["new"])
                                 store.rename_sender(renamed["old"], renamed["new"])
+                                _tmux_rename_session(renamed["old"], renamed["new"])
                                 if _event_loop:
                                     rename_event = json.dumps({
                                         "type": "agent_renamed",
@@ -443,14 +543,53 @@ def configure(cfg: dict, session_token: str = ""):
                 _known_online.clear()
                 _known_online.update(currently_online)
             except Exception:
-                pass
+                log.exception("background check error")
 
     threading.Thread(target=_background_checks, daemon=True).start()
+
+    def _schedule_runner():
+        import time as _time
+        while True:
+            _time.sleep(30)
+            try:
+                if not schedules:
+                    continue
+                due = schedules.run_due()
+                for s in due:
+                    prompt = s.get("prompt", "")
+                    targets = s.get("targets", [])
+                    channel = s.get("channel", "general")
+                    if not prompt or not targets:
+                        schedules.mark_run(s["id"])
+                        continue
+                    # Add system message so timeline shows the scheduled run
+                    mention_str = " ".join(f"@{t}" for t in targets)
+                    store.add(
+                        "system",
+                        f"Scheduled: {mention_str} — {prompt[:80]}{'…' if len(prompt) > 80 else ''}",
+                        msg_type="system",
+                        channel=channel,
+                    )
+                    for name in targets:
+                        if registry and registry.is_registered(name):
+                            agents.trigger_sync(name, f"user: {prompt}", channel=channel)
+                        else:
+                            # Trigger anyway — queue file will be picked up when agent starts
+                            agents.trigger_sync(name, f"user: {prompt}", channel=channel)
+                    schedules.mark_run(s["id"])
+            except Exception:
+                log.exception("schedule runner error")
+
+    threading.Thread(target=_schedule_runner, daemon=True).start()
 
 
 # --- Store → WebSocket bridge ---
 
 _event_loop = None  # set by run.py after starting the event loop
+
+# Per-family spawn cooldown: {base_name: last_spawn_timestamp}
+_spawn_last: dict[str, float] = {}
+_SPAWN_COOLDOWN = 10.0  # seconds between spawns of the same agent family
 
 
 def set_event_loop(loop):
@@ -500,6 +639,20 @@ def _on_job_change(action: str, data: dict):
     except RuntimeError:
         pass
     asyncio.run_coroutine_threadsafe(broadcast_job(action, data), _event_loop)
+
+
+def _on_schedule_change(action: str, schedule: dict):
+    """Called from any thread when a schedule changes."""
+    if _event_loop is None:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+        if loop is _event_loop:
+            asyncio.ensure_future(broadcast_schedule(action, schedule))
+            return
+    except RuntimeError:
+        pass
+    asyncio.run_coroutine_threadsafe(broadcast_schedule(action, schedule), _event_loop)
 
 
 def _on_session_change(action: str, session: dict):
@@ -897,6 +1050,17 @@ async def broadcast_session(action: str, session: dict):
     ws_clients.difference_update(dead)
 
 
+async def broadcast_schedule(action: str, schedule: dict):
+    payload = json.dumps({"type": "schedule", "action": action, "data": schedule})
+    dead = set()
+    for client in list(ws_clients):
+        try:
+            await client.send_text(payload)
+        except Exception:
+            dead.add(client)
+    ws_clients.difference_update(dead)
+
+
 async def broadcast_hats():
     data = json.dumps({"type": "hats", "data": agent_hats})
     dead = set()
@@ -961,8 +1125,14 @@ async def websocket_endpoint(websocket: WebSocket):
 
     # Send base agent colors (used for message coloring, no pills)
     base_colors = {}
+    srv_max = config.get("server", {}).get("max_instances", 3)
     for name, cfg in config.get("agents", {}).items():
-        base_colors[name] = {"color": cfg.get("color", "#888"), "label": cfg.get("label", name)}
+        base_colors[name] = {
+            "color": cfg.get("color", "#888"),
+            "label": cfg.get("label", name),
+            "spawnable": bool(cfg.get("command") and cfg.get("type") != "api"),
+            "max_instances": int(cfg.get("max_instances", srv_max)),
+        }
     await websocket.send_text(json.dumps({"type": "base_colors", "data": base_colors}))
 
     # Send todos {msg_id: status}
@@ -976,6 +1146,9 @@ async def websocket_endpoint(websocket: WebSocket):
 
     # Send jobs
     await websocket.send_text(json.dumps({"type": "jobs", "data": jobs.list_all()}))
+
+    # Send schedules
+    await websocket.send_text(json.dumps({"type": "schedules", "data": schedules.list_all()}))
 
     # Send pending instances (so late-connecting browsers still see the naming lightbox)
     if registry:
@@ -1032,6 +1205,46 @@ async def websocket_endpoint(websocket: WebSocket):
                         router.continue_routing()
                         store.add("system", "Resuming agent conversation...", msg_type="system", channel=channel)
                         await broadcast_status()
+                        continue
+                    if cmd == "/schedules":
+                        # Client will open Schedules panel; send full list
+                        await websocket.send_text(json.dumps({"type": "schedules", "data": schedules.list_all()}))
+                        continue
+                    if cmd == "/schedule":
+                        # Parse: /schedule @claude "prompt" every 1h
+                        prompt_match = _re.search(r'"([^"]*)"', text)
+                        spec_match = _re.search(
+                            r'(every\s+\d+\s*(?:m|min|h|hr|d|day)s?|daily\s+at\s+\d{1,2}:\d{2})',
+                            text, _re.IGNORECASE
+                        )
+                        targets = router.parse_mentions(text) if router else []
+                        if not targets:
+                            targets = list(registry.get_all_names()) if registry else []
+                        prompt = prompt_match.group(1).strip() if prompt_match else ""
+                        spec = spec_match.group(1).strip() if spec_match else ""
+                        if not prompt or not spec:
+                            store.add("system", "Usage: /schedule @agent \"prompt\" every 1h (or daily at 09:00)", msg_type="system", channel=channel)
+                        else:
+                            interval_sec, daily_at = parse_schedule_spec(spec)
+                            if interval_sec is None and daily_at is None:
+                                store.add("system", f"Invalid schedule spec: {spec}", msg_type="system", channel=channel)
+                            else:
+                                schedules.create(
+                                    prompt=prompt, targets=targets, channel=channel,
+                                    interval_seconds=interval_sec, daily_at=daily_at,
+                                )
+                                store.add("system", f"Scheduled: {' '.join('@'+t for t in targets)} \"{prompt}\" ({spec})", msg_type="system", channel=channel)
+                        continue
+                    if cmd == "/unschedule":
+                        sid = cmd_parts[1] if len(cmd_parts) > 1 else ""
+                        if not sid:
+                            store.add("system", "Usage: /unschedule <id> (get id from Schedules panel)", msg_type="system", channel=channel)
+                        else:
+                            removed = schedules.delete(sid)
+                            if removed:
+                                store.add("system", f"Cancelled schedule {sid}", msg_type="system", channel=channel)
+                            else:
+                                store.add("system", f"Schedule {sid} not found", msg_type="system", channel=channel)
                         continue
                     # Broadcast slash commands — expand without storing the raw command.
                     # _handle_new_message will store the expanded version.
@@ -1191,6 +1404,19 @@ async def websocket_endpoint(websocket: WebSocket):
                             room_settings["history_limit"] = max(1, min(val_int, 10000))
                         except (ValueError, TypeError):
                             pass
+                if "routing_default" in new and new["routing_default"] in ("none", "all"):
+                    room_settings["routing_default"] = new["routing_default"]
+                    router.default_mention = new["routing_default"]
+                if "project_dir" in new and isinstance(new["project_dir"], str):
+                    room_settings["project_dir"] = new["project_dir"].strip()
+                    _auto_trust_project_dir(room_settings["project_dir"])
+                if "auto_approve" in new:
+                    room_settings["auto_approve"] = bool(new["auto_approve"])
+                if "custom_roles" in new and isinstance(new["custom_roles"], list):
+                    room_settings["custom_roles"] = [
+                        str(r).strip() for r in new["custom_roles"]
+                        if isinstance(r, str) and r.strip()
+                    ][:20]
                 _save_settings()
                 await broadcast_settings()
 
@@ -1402,6 +1628,345 @@ async def get_settings():
     return room_settings
 
 
+@app.get("/api/terminal/{agent_name}")
+async def get_terminal(agent_name: str, lines: int = 50):
+    """Capture tmux pane output for an agent's terminal. Mac/Linux only.
+
+    Query param `lines` controls how many lines back to capture (default 50,
+    max 500). Scrollback is cleared on each agent registration so only content
+    from the *current* session is ever returned.
+    """
+    if sys.platform == "win32":
+        return {"available": False}
+    session_name = f"agentchattr-{agent_name}"
+    history = max(1, min(int(lines), 500))
+    try:
+        result = subprocess.run(
+            ["tmux", "capture-pane", "-t", session_name, "-p", "-S", f"-{history}"],
+            capture_output=True,
+            timeout=2,
+        )
+        if result.returncode != 0:
+            return {"available": False}
+        raw = result.stdout.decode("utf-8", errors="replace")
+        out_lines = raw.strip().split("\n")
+        return {"available": True, "lines": out_lines, "raw": raw}
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return {"available": False}
+
+
+@app.post("/api/terminal/{agent_name}/input")
+async def send_terminal_input(agent_name: str, request: Request):
+    """Send keystrokes to an agent's tmux session. Mac/Linux only."""
+    if sys.platform == "win32":
+        return JSONResponse({"error": "not supported on Windows"}, status_code=400)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+    text = body.get("text", "")
+    enter = body.get("enter", True)
+    session_name = f"agentchattr-{agent_name}"
+    try:
+        if text:
+            subprocess.run(
+                ["tmux", "send-keys", "-t", session_name, "-l", text],
+                capture_output=True,
+                timeout=2,
+            )
+        if enter:
+            subprocess.run(
+                ["tmux", "send-keys", "-t", session_name, "Enter"],
+                capture_output=True,
+                timeout=2,
+            )
+        return {"ok": True}
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+def _browse_roots() -> list[dict]:
+    """Return platform-specific root entries for directory browser."""
+    roots = []
+    if sys.platform == "darwin":
+        for name, p in [("Users", "/Users"), ("Volumes", "/Volumes")]:
+            if Path(p).exists():
+                roots.append({"name": name, "path": p})
+    elif sys.platform == "win32":
+        import string
+        for letter in string.ascii_uppercase:
+            p = f"{letter}:\\"
+            if Path(p).exists():
+                roots.append({"name": p, "path": p})
+    else:
+        for name, p in [("home", "/home"), ("mnt", "/mnt"), ("root", "/")]:
+            if Path(p).exists():
+                roots.append({"name": name, "path": p})
+    return roots
+
+
+@app.get("/api/browse")
+async def browse_directories(path: str = ""):
+    """List directories for folder picker. path='' returns roots."""
+    if not path or path in ("/", "\\"):
+        return {"path": "", "directories": _browse_roots(), "parent": None}
+    try:
+        p = Path(path).resolve()
+        if not p.is_dir():
+            return JSONResponse({"error": "not a directory"}, status_code=400)
+        parent = str(p.parent) if p.parent != p else None
+        dirs = []
+        for child in sorted(p.iterdir()):
+            if child.is_dir() and not child.name.startswith("."):
+                dirs.append({"name": child.name, "path": str(child.resolve())})
+        return {"path": str(p), "directories": dirs, "parent": parent}
+    except (OSError, PermissionError) as e:
+        return JSONResponse({"error": str(e)}, status_code=403)
+
+
+@app.post("/api/agents/start")
+async def start_all_agents():
+    """Launch all CLI agents in separate Terminal windows (server must already be running)."""
+    ROOT = Path(__file__).parent
+    start_script = ROOT / "macos-linux" / "start_all.sh"
+    if not start_script.exists():
+        return JSONResponse({"error": "start_all.sh not found"}, status_code=500)
+    try:
+        agents_cfg = config.get("agents", {})
+        cli_agents = [k for k, v in agents_cfg.items() if v.get("command") and v.get("type") != "api"]
+        subprocess.Popen(
+            ["sh", str(start_script)],
+            cwd=str(ROOT),
+            start_new_session=True,
+        )
+        return JSONResponse({"started": cli_agents, "message": "Launching agents in Terminal windows..."})
+    except Exception as e:
+        log.warning("Failed to start agents: %s", e)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/api/agents/stop")
+async def stop_all_agents():
+    """Kill all agent tmux sessions and wrapper processes (does not stop the server).
+
+    On Mac/Linux, kills agentchattr-* tmux sessions first — this terminates the
+    agent CLIs (claude, codex, gemini, etc.) inside them. Then kills wrapper.py
+    processes. Without killing tmux sessions, agent processes would linger as
+    orphans in Activity Monitor.
+    """
+    try:
+        sessions_killed = 0
+        if sys.platform != "win32":
+            try:
+                r = subprocess.run(
+                    ["tmux", "list-sessions", "-F", "#{session_name}"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if r.returncode == 0 and r.stdout:
+                    for line in r.stdout.strip().splitlines():
+                        name = line.strip()
+                        if name.startswith("agentchattr-"):
+                            subprocess.run(
+                                ["tmux", "kill-session", "-t", name],
+                                capture_output=True, timeout=2,
+                            )
+                            sessions_killed += 1
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass
+
+        import psutil
+        wrappers_killed = 0
+        my_pid = os.getpid()
+        for proc in psutil.process_iter(["pid", "cmdline", "name"]):
+            try:
+                if proc.info["pid"] == my_pid:
+                    continue
+                cmdline = proc.info.get("cmdline") or []
+                cmdstr = " ".join(str(c) for c in cmdline)
+                if "wrapper.py" in cmdstr and "run.py" not in cmdstr:
+                    proc.kill()
+                    wrappers_killed += 1
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+
+        total = sessions_killed + wrappers_killed
+        return JSONResponse({"ok": True, "message": f"Stopped {total} agent(s)"})
+    except ImportError:
+        return JSONResponse({"error": "psutil not installed"}, status_code=500)
+    except Exception as e:
+        log.warning("Failed to stop agents: %s", e)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+def _spawn_agent(agent: str, guidance: str = "", label: str = "") -> dict:
+    """Spawn a new wrapper instance for *agent*.  Runs synchronously (blocks up to 12s).
+
+    Launches wrapper.py headlessly: tmux attach-session silently fails without a
+    tty, so the wrapper enters its monitor loop and stays alive until the agent
+    tmux session is killed.  Returns {ok, name} or {error}.
+    """
+    import time as _time
+
+    ROOT = Path(__file__).parent
+    agents_cfg = config.get("agents", {})
+
+    if agent not in agents_cfg:
+        return {"error": f"unknown agent: {agent}"}
+    cfg = agents_cfg[agent]
+    if cfg.get("type") == "api":
+        return {"error": f"'{agent}' is an API agent and cannot be spawned"}
+    if not cfg.get("command"):
+        return {"error": f"'{agent}' has no command configured"}
+
+    # --- Instance cap ---
+    max_instances = int(cfg.get("max_instances", config.get("server", {}).get("max_instances", 3)))
+    if registry:
+        current = registry.get_instances_for(agent)
+        if len(current) >= max_instances:
+            return {"error": f"max instances reached for '{agent}' ({max_instances}). Kill one first."}
+
+    # --- Spawn cooldown (prevents agents from firing chat_spawn in a tight loop) ---
+    now_ts = _time.time()
+    last = _spawn_last.get(agent, 0.0)
+    if now_ts - last < _SPAWN_COOLDOWN:
+        wait = round(_SPAWN_COOLDOWN - (now_ts - last), 1)
+        return {"error": f"spawn cooldown active for '{agent}' — wait {wait}s"}
+    _spawn_last[agent] = now_ts
+
+    before = set(registry.get_all_names()) if registry else set()
+
+    spawn_log = ROOT / config.get("server", {}).get("data_dir", "data") / f"spawn-{agent}.log"
+    spawn_log.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(spawn_log, "a", encoding="utf-8") as log_f:
+            subprocess.Popen(
+                [sys.executable, str(ROOT / "wrapper.py"), agent] + (["--label", label] if label else []),
+                cwd=str(ROOT),
+                start_new_session=True,
+                stdin=subprocess.DEVNULL,
+                stdout=log_f,
+                stderr=subprocess.STDOUT,
+            )
+    except Exception as exc:
+        return {"error": f"failed to start wrapper: {exc}"}
+
+    # Poll registry until the new instance appears (max 12 s)
+    deadline = _time.time() + 12
+    new_name = None
+    while _time.time() < deadline:
+        if registry:
+            new_names = [
+                n for n in set(registry.get_all_names()) - before
+                if (inst := registry.get_instance(n)) and inst.get("base") == agent
+            ]
+            if new_names:
+                new_name = new_names[0]
+                break
+        _time.sleep(0.3)
+
+    if not new_name:
+        return {"error": "timed out waiting for agent to register — check spawn log"}
+
+    if guidance and guidance.strip():
+        data_dir = ROOT / config.get("server", {}).get("data_dir", "data")
+        queue_file = data_dir / f"{new_name}_queue.jsonl"
+        try:
+            queue_file.write_text(json.dumps({"prompt": guidance.strip()}) + "\n", "utf-8")
+        except Exception as exc:
+            log.warning("Could not write guidance for %s: %s", new_name, exc)
+
+    return {"ok": True, "name": new_name}
+
+
+@app.post("/api/agents/{agent}/spawn")
+async def spawn_agent(agent: str, request: Request):
+    """Spawn a new instance of *agent*.  Body: {guidance?, label?}."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    guidance = (body.get("guidance") or "").strip()
+    raw_label = (body.get("label") or "").strip()
+    # Reject labels that look like auto-generated slot IDs (e.g. "codex-3") to
+    # prevent agents from passing their own name as a label and creating confusing
+    # lowercase-hyphenated pills.  A valid custom label must contain a space or
+    # have at least one uppercase letter (e.g. "Code Reviewer", "Backend").
+    import re as _re
+    _slot_id_pattern = _re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$")
+    label = "" if _slot_id_pattern.match(raw_label) else raw_label[:64]
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, _spawn_agent, agent, guidance, label)
+    if "error" in result:
+        return JSONResponse(result, status_code=400)
+    return JSONResponse(result)
+
+
+@app.post("/api/agents/{name}/kill")
+async def kill_agent(name: str):
+    """Kill a specific agent instance by its canonical name.
+
+    Kills the agent's tmux session, immediately deregisters the instance
+    (clearing the grace-period reservation so the slot is reusable right
+    away), and broadcasts the change.  The wrapper will also call
+    /api/deregister on its own but that call will be a harmless no-op.
+    """
+    if not registry or not registry.is_registered(name):
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    # Kill tmux sessions
+    killed_sessions = []
+    if sys.platform != "win32":
+        main_session = f"agentchattr-{name}"
+        for session in [main_session, f"agentchattr-wrapper-{name}"]:
+            r = subprocess.run(["tmux", "kill-session", "-t", session],
+                               capture_output=True, timeout=3)
+            if r.returncode == 0:
+                killed_sessions.append(session)
+        # Confirm main session is actually dead before deregistering
+        try:
+            check = subprocess.run(
+                ["tmux", "has-session", "-t", main_session],
+                capture_output=True, timeout=1,
+            )
+            if check.returncode == 0:
+                return JSONResponse(
+                    {"error": "session still alive after kill — retry"},
+                    status_code=500,
+                )
+        except subprocess.TimeoutExpired:
+            return JSONResponse(
+                {"error": "tmux unresponsive — retry later"},
+                status_code=500,
+            )
+
+    # Eagerly deregister so the slot is freed immediately (wrapper's own
+    # deregister call will be a harmless not-found after this).
+    import mcp_bridge as _mb
+    result = registry.deregister(name)
+    if result:
+        _mb.purge_identity(name)
+        registry.clean_renames_for(name)
+        # Release the grace-period reservation so the next spawn reuses the slot.
+        registry.release_slot(name)
+        # Handle rename-back (e.g. codex-2 killed → codex-1 renamed to codex).
+        renamed = result.get("_renamed_back")
+        if renamed:
+            _mb.migrate_identity(renamed["old"], renamed["new"])
+            store.rename_sender(renamed["old"], renamed["new"])
+            _tmux_rename_session(renamed["old"], renamed["new"])
+            if _event_loop:
+                asyncio.run_coroutine_threadsafe(
+                    _broadcast(json.dumps({
+                        "type": "agent_renamed",
+                        "old_name": renamed["old"],
+                        "new_name": renamed["new"],
+                    })),
+                    _event_loop,
+                )
+
+    return JSONResponse({"ok": True, "name": name, "sessions_killed": killed_sessions})
+
+
 @app.delete("/api/hat/{agent_name}")
 async def delete_hat(agent_name: str):
     """Remove an agent's hat (called by the trash-can UI)."""
@@ -1514,6 +2079,46 @@ async def resolve_rule_proposal(msg_id: int, request: Request):
     updated = store.update_message(msg_id, {"metadata": meta})
     if updated:
         # Broadcast the updated message so all clients re-render the card
+        payload = json.dumps({"type": "edit", "message": updated})
+        dead = set()
+        for client in list(ws_clients):
+            try:
+                await client.send_text(payload)
+            except Exception:
+                dead.add(client)
+        ws_clients.difference_update(dead)
+    return updated or {"ok": True}
+
+
+@app.patch("/api/messages/{msg_id}/resolve")
+async def resolve_decision(msg_id: int, request: Request):
+    """Resolve a decision message with the chosen option. Sends the choice as a chat message."""
+    msg = store.get_by_id(msg_id)
+    if not msg:
+        return JSONResponse({"error": "message not found"}, status_code=404)
+    if msg.get("type") != "decision":
+        return JSONResponse({"error": "not a decision message"}, status_code=400)
+    meta = msg.get("metadata", {})
+    if meta.get("status") == "resolved":
+        return JSONResponse({"error": "already resolved"}, status_code=400)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    choice = body.get("choice", "").strip()
+    if not choice:
+        return JSONResponse({"error": "choice required"}, status_code=400)
+    choices = meta.get("choices", [])
+    if choice not in choices:
+        return JSONResponse({"error": "invalid choice"}, status_code=400)
+    meta["status"] = "resolved"
+    meta["resolved_choice"] = choice
+    updated = store.update_message(msg_id, {"metadata": meta})
+    if updated:
+        # Send the choice as a normal chat message so agents see it
+        channel = msg.get("channel", "general")
+        sender = room_settings.get("username", "user")
+        store.add(sender, choice, channel=channel, reply_to=msg_id)
         payload = json.dumps({"type": "edit", "message": updated})
         dead = set()
         for client in list(ws_clients):
@@ -1696,7 +2301,6 @@ async def post_job_message(job_id: int, request: Request):
                 targets.append(t)
         targets = list(dict.fromkeys(targets))
 
-        import mcp_bridge
         chat_msg = f"{sender}: {text}" if text else ""
         for target in targets:
             if registry:
@@ -1754,6 +2358,59 @@ async def delete_job(job_id: int, request: Request):
         result = jobs.delete(job_id)
     else:
         result = jobs.update_status(job_id, "archived")
+    if result is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return result
+
+
+# --- Schedules API ---
+
+@app.get("/api/schedules")
+async def get_schedules():
+    """List all schedules."""
+    return schedules.list_all()
+
+
+@app.post("/api/schedules")
+async def create_schedule(request: Request):
+    """Create a new schedule."""
+    body = await request.json()
+    prompt = (body.get("prompt") or "").strip()
+    targets = body.get("targets", [])
+    channel = (body.get("channel") or "general").strip()
+    interval_seconds = body.get("interval_seconds")
+    daily_at = body.get("daily_at")
+    if not prompt:
+        return JSONResponse({"error": "prompt required"}, status_code=400)
+    if not isinstance(targets, list):
+        targets = []
+    targets = [str(t).strip().lstrip("@") for t in targets if t]
+    if not targets:
+        targets = list(registry.get_all_names()) if registry else []
+    if interval_seconds is None and not daily_at:
+        interval_seconds = 3600
+    if daily_at:
+        interval_seconds = 86400
+    s = schedules.create(
+        prompt=prompt, targets=targets, channel=channel,
+        interval_seconds=interval_seconds, daily_at=daily_at,
+    )
+    return s
+
+
+@app.delete("/api/schedules/{schedule_id}")
+async def delete_schedule(schedule_id: str):
+    """Cancel/delete a schedule."""
+    result = schedules.delete(schedule_id)
+    if result is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return {"ok": True, "deleted": result}
+
+
+@app.patch("/api/schedules/{schedule_id}/toggle")
+async def toggle_schedule(schedule_id: str):
+    """Pause or resume a schedule."""
+    result = schedules.toggle(schedule_id)
     if result is None:
         return JSONResponse({"error": "not found"}, status_code=404)
     return result
@@ -1852,6 +2509,8 @@ async def register_agent(request: Request):
     if renamed:
         mcp_bridge.migrate_identity(renamed["old"], renamed["new"])
         store.rename_sender(renamed["old"], renamed["new"])
+        # Keep the tmux session name in sync so the terminal webcam can find it.
+        _tmux_rename_session(renamed["old"], renamed["new"])
         if _event_loop:
             rename_event = json.dumps({
                 "type": "agent_renamed",
@@ -1896,6 +2555,7 @@ async def deregister_agent(name: str, request: Request):
     if renamed:
         mcp_bridge.migrate_identity(renamed["old"], renamed["new"])
         store.rename_sender(renamed["old"], renamed["new"])
+        _tmux_rename_session(renamed["old"], renamed["new"])
         if _event_loop:
             rename_event = json.dumps({
                 "type": "agent_renamed",
