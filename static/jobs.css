@@ -529,12 +529,16 @@ body.archive-no-select * {
     font-size: 11px;
 }
 
-.jobs-conv-messages {
+.jobs-conv-scroll {
     flex: 1;
     overflow-y: auto;
     overflow-x: hidden;
-    padding: 8px 0;
     min-height: 0;
+    -webkit-overflow-scrolling: touch;
+}
+
+.jobs-conv-messages {
+    padding: 8px 0;
 }
 
 .job-msg {

@@ -1055,6 +1055,176 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
+// --- Terminal webcam popover ---
+
+let _termPopoverCloseTimer = null;
+let _termPopoverPollInterval = null;
+
+function stripAnsi(str) {
+    return (str || '').replace(/\x1b\[[0-9;]*m/g, '');
+}
+
+function detectActions(raw) {
+    const actions = [];
+    const r = (raw || '').toLowerCase();
+    if (/\(y\/n\)|y\/n\?|\[y\/n\]/i.test(r)) {
+        actions.push({ label: 'Yes', keys: 'y', enter: true });
+        actions.push({ label: 'No', keys: 'n', enter: true });
+    }
+    if (/action required/i.test(r)) {
+        actions.push({ label: 'Accept', keys: '', enter: true });
+    }
+    if (/untrusted|folder is untrusted|trust folder/i.test(r)) {
+        actions.push({ label: 'Trust folder', keys: '1', enter: true });
+    }
+    if (/press .* to continue|press enter|continue/i.test(r)) {
+        actions.push({ label: 'Enter', keys: '', enter: true });
+    }
+    return actions;
+}
+
+async function fetchTerminal(name, lines = 50) {
+    const resp = await fetch(`/api/terminal/${encodeURIComponent(name)}?lines=${lines}`, {
+        headers: { 'X-Session-Token': SESSION_TOKEN },
+    });
+    return resp.json();
+}
+
+async function sendInput(name, text, enter) {
+    const resp = await fetch(`/api/terminal/${encodeURIComponent(name)}/input`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Session-Token': SESSION_TOKEN },
+        body: JSON.stringify({ text: text || '', enter: enter !== false }),
+    });
+    return resp.json();
+}
+
+function schedulePopoverClose() {
+    if (_termPopoverCloseTimer) clearTimeout(_termPopoverCloseTimer);
+    _termPopoverCloseTimer = setTimeout(() => {
+        _termPopoverCloseTimer = null;
+        if (_termPopoverPollInterval) {
+            clearInterval(_termPopoverPollInterval);
+            _termPopoverPollInterval = null;
+        }
+        const popover = document.getElementById('term-popover');
+        if (popover) popover.classList.add('hidden');
+    }, 250);
+}
+
+function showTerminalPopover(name, pillEl) {
+    if (_termPopoverCloseTimer) {
+        clearTimeout(_termPopoverCloseTimer);
+        _termPopoverCloseTimer = null;
+    }
+    let popover = document.getElementById('term-popover');
+    if (!popover) {
+        popover = document.createElement('div');
+        popover.id = 'term-popover';
+        popover.className = 'term-popover hidden';
+        popover.innerHTML = `
+            <div class="term-title"></div>
+            <pre class="term-screen"></pre>
+            <div class="term-actions"></div>
+            <div class="term-input-row">
+                <input type="text" class="term-input" placeholder="Type or send keys..." spellcheck="false" autocomplete="off" />
+                <button type="button" class="term-send-btn">Send</button>
+            </div>`;
+        popover.addEventListener('mouseenter', () => {
+            if (_termPopoverCloseTimer) clearTimeout(_termPopoverCloseTimer);
+            _termPopoverCloseTimer = null;
+        });
+        popover.addEventListener('mouseleave', schedulePopoverClose);
+        document.body.appendChild(popover);
+    }
+    const cfg = agentConfig[name] || {};
+    const label = cfg.label || name;
+    const color = cfg.color || '#4ade80';
+    popover.style.setProperty('--agent-color', color);
+    popover.querySelector('.term-title').textContent = `${label} — terminal`;
+    popover.querySelector('.term-screen').textContent = 'Loading...';
+    popover.querySelector('.term-actions').innerHTML = '';
+    popover.querySelector('.term-input').value = '';
+    popover.classList.remove('hidden');
+
+    const rect = pillEl.getBoundingClientRect();
+    const popoverHeight = 320;
+    const above = rect.top > popoverHeight + 20;
+    popover.style.top = above ? `${rect.top - popoverHeight - 8}px` : `${rect.bottom + 8}px`;
+    const popoverWidth = 520;
+    const leftRaw = rect.left + rect.width / 2 - popoverWidth / 2;
+    popover.style.left = `${Math.min(Math.max(8, leftRaw), window.innerWidth - popoverWidth - 8)}px`;
+
+    const inputEl = popover.querySelector('.term-input');
+    const sendBtn = popover.querySelector('.term-send-btn');
+    sendBtn.onclick = () => {
+        const text = inputEl.value;
+        if (!text) return;
+        sendInput(name, text, true).catch(() => {});
+        inputEl.value = '';
+    };
+    inputEl.onkeydown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            sendBtn.click();
+        }
+    };
+
+    popover.dataset.agentName = name;
+    // Lines requested from the server — starts small, grows when user loads more
+    let fetchLines = 50;
+
+    async function poll() {
+        const data = await fetchTerminal(name, fetchLines);
+        const screenEl = popover.querySelector('.term-screen');
+        const actionsEl = popover.querySelector('.term-actions');
+        if (!popover.classList.contains('hidden') && popover.dataset.agentName === name) {
+            if (data.available) {
+                const display = stripAnsi(data.raw || '');
+                const atBottom = screenEl.scrollHeight - screenEl.scrollTop - screenEl.clientHeight < 40;
+                screenEl.textContent = display || '(no output)';
+                if (atBottom) screenEl.scrollTop = screenEl.scrollHeight;
+
+                // "Load more" button — appears when user has scrolled to the top
+                // and there might be more history available
+                const hasMore = (data.lines || []).length >= fetchLines && fetchLines < 500;
+                let loadMoreBtn = screenEl.nextElementSibling?.classList?.contains('term-load-more')
+                    ? screenEl.nextElementSibling
+                    : null;
+                if (hasMore && !loadMoreBtn) {
+                    loadMoreBtn = document.createElement('button');
+                    loadMoreBtn.className = 'term-load-more';
+                    loadMoreBtn.textContent = '↑ Load more history';
+                    loadMoreBtn.onclick = () => {
+                        fetchLines = Math.min(fetchLines + 100, 500);
+                        poll();
+                    };
+                    screenEl.insertAdjacentElement('afterend', loadMoreBtn);
+                } else if (!hasMore && loadMoreBtn) {
+                    loadMoreBtn.remove();
+                }
+
+                const actions = detectActions(data.raw);
+                actionsEl.innerHTML = '';
+                actions.forEach(a => {
+                    const btn = document.createElement('button');
+                    btn.className = 'term-action-btn';
+                    btn.textContent = a.label;
+                    btn.onclick = () => sendInput(name, a.keys, a.enter).then(() => poll()).catch(() => {});
+                    actionsEl.appendChild(btn);
+                });
+            } else {
+                screenEl.textContent = 'No tmux session (Mac/Linux only)';
+                actionsEl.innerHTML = '';
+            }
+        }
+    }
+
+    poll();
+    if (_termPopoverPollInterval) clearInterval(_termPopoverPollInterval);
+    _termPopoverPollInterval = setInterval(poll, 1500);
+}
+
 function buildStatusPills() {
     const container = document.getElementById('agent-status');
     container.innerHTML = '';
@@ -1063,10 +1233,16 @@ function buildStatusPills() {
         pill.className = 'status-pill';
         if (cfg.state === 'pending') pill.classList.add('pending');
         pill.id = `status-${name}`;
-        pill.title = `@${name}`;  // Tooltip: canonical name for manual @-typing
+        pill.title = `@${name}`;
         pill.style.setProperty('--agent-color', cfg.color || '#4ade80');
-        pill.innerHTML = `<span class="status-dot"></span><span class="status-label">${escapeHtml(cfg.label || name)}</span>`;
-        // Left-click to rename or name pending instance
+        pill.innerHTML = `
+            <span class="status-dot"></span>
+            <span class="status-label">${escapeHtml(cfg.label || name)}</span>
+            <button class="pill-kill" title="Kill ${escapeHtml(name)}" aria-label="Kill ${escapeHtml(name)}">×</button>`;
+        pill.querySelector('.pill-kill').addEventListener('click', (e) => {
+            e.stopPropagation();
+            killAgent(name);
+        });
         pill.addEventListener('click', () => {
             const mode = cfg.state === 'pending' ? 'pending' : 'rename';
             showAgentNameModal({
@@ -1074,9 +1250,104 @@ function buildStatusPills() {
                 base: cfg.base || '', mode,
             });
         });
+        pill.addEventListener('mouseenter', () => showTerminalPopover(name, pill));
+        pill.addEventListener('mouseleave', schedulePopoverClose);
         container.appendChild(pill);
     }
+
+    // Spawn button — always at the end of the pills row
+    const spawnBtn = document.createElement('button');
+    spawnBtn.className = 'pill-spawn-btn';
+    spawnBtn.title = 'Spawn agent instance';
+    spawnBtn.textContent = '+';
+    spawnBtn.addEventListener('click', showSpawnModal);
+    container.appendChild(spawnBtn);
+
     enableDragScroll(container);
+}
+
+// --- Spawn modal ---
+
+function showSpawnModal() {
+    const spawnableAgents = Object.entries(baseColors)
+        .filter(([, cfg]) => cfg.spawnable)
+        .sort(([a], [b]) => a.localeCompare(b));
+
+    if (spawnableAgents.length === 0) {
+        alert('No spawnable agents configured.');
+        return;
+    }
+
+    let modal = document.getElementById('spawn-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'spawn-modal';
+        modal.className = 'spawn-modal hidden';
+        modal.innerHTML = `
+            <div class="spawn-dialog">
+                <h3 class="spawn-title">Spawn agent</h3>
+                <label class="spawn-label">Agent</label>
+                <select class="spawn-agent-select"></select>
+                <label class="spawn-label">Guidance <span class="spawn-optional">(optional)</span></label>
+                <textarea class="spawn-guidance" rows="3" placeholder="Initial instructions for this instance…" spellcheck="false"></textarea>
+                <div class="spawn-actions">
+                    <button class="spawn-cancel">Cancel</button>
+                    <button class="spawn-confirm">Spawn</button>
+                </div>
+            </div>`;
+        modal.addEventListener('click', (e) => { if (e.target === modal) _closeSpawnModal(); });
+        modal.querySelector('.spawn-cancel').addEventListener('click', _closeSpawnModal);
+        document.body.appendChild(modal);
+    }
+
+    const select = modal.querySelector('.spawn-agent-select');
+    select.innerHTML = spawnableAgents
+        .map(([name, cfg]) => `<option value="${escapeHtml(name)}">${escapeHtml(cfg.label || name)}</option>`)
+        .join('');
+    modal.querySelector('.spawn-guidance').value = '';
+    modal.classList.remove('hidden');
+    select.focus();
+
+    const confirmBtn = modal.querySelector('.spawn-confirm');
+    confirmBtn.onclick = async () => {
+        const agent = select.value;
+        const guidance = modal.querySelector('.spawn-guidance').value.trim();
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'Spawning…';
+        try {
+            const res = await fetch(`/api/agents/${encodeURIComponent(agent)}/spawn`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Session-Token': SESSION_TOKEN },
+                body: JSON.stringify({ guidance }),
+            });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+            _closeSpawnModal();
+        } catch (err) {
+            confirmBtn.disabled = false;
+            confirmBtn.textContent = 'Spawn';
+            alert(`Spawn failed: ${err.message}`);
+        }
+    };
+}
+
+function _closeSpawnModal() {
+    const modal = document.getElementById('spawn-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+async function killAgent(name) {
+    if (!confirm(`Kill ${name}?`)) return;
+    try {
+        const res = await fetch(`/api/agents/${encodeURIComponent(name)}/kill`, {
+            method: 'POST',
+            headers: { 'X-Session-Token': SESSION_TOKEN },
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+    } catch (err) {
+        alert(`Kill failed: ${err.message}`);
+    }
 }
 
 // --- Agent naming lightbox ---
@@ -1407,6 +1678,19 @@ function applySettings(data) {
     if (data.rules_refresh_interval !== undefined) {
         document.getElementById('setting-rules-refresh').value = String(data.rules_refresh_interval);
     }
+    if (data.routing_default) {
+        document.getElementById('setting-routing').value = data.routing_default;
+    }
+    if (data.project_dir !== undefined) {
+        const pd = data.project_dir;
+        document.getElementById('setting-project-dir').value = pd;
+        const display = document.getElementById('project-dir-display');
+        display.textContent = pd || 'Not selected';
+        display.title = pd || '';
+    }
+    if (data.auto_approve !== undefined) {
+        document.getElementById('setting-auto-approve').checked = !!data.auto_approve;
+    }
     if (data.channels && Array.isArray(data.channels)) {
         channelList = data.channels;
         // If active channel was deleted, switch to general
@@ -1451,6 +1735,9 @@ function saveSettings() {
     const newHistory = histVal === 'all' ? 'all' : (parseInt(histVal) || 50);
     const newContrast = document.getElementById('setting-contrast').value;
     const newRulesRefresh = document.getElementById('setting-rules-refresh').value;
+    const newRouting = document.getElementById('setting-routing').value;
+    const newProjectDir = document.getElementById('setting-project-dir').value.trim();
+    const newAutoApprove = document.getElementById('setting-auto-approve').checked;
 
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
@@ -1462,6 +1749,9 @@ function saveSettings() {
                 history_limit: newHistory,
                 contrast: newContrast,
                 rules_refresh_interval: parseInt(newRulesRefresh) || 0,
+                routing_default: newRouting,
+                project_dir: newProjectDir,
+                auto_approve: newAutoApprove,
             }
         }));
     }
@@ -1484,7 +1774,7 @@ function setupSettingsKeys() {
     }
 
     // Auto-save on change for selects, escape to close
-    for (const id of ['setting-font', 'setting-history', 'setting-contrast', 'setting-rules-refresh']) {
+    for (const id of ['setting-font', 'setting-history', 'setting-contrast', 'setting-rules-refresh', 'setting-routing']) {
         const el = document.getElementById(id);
         el.addEventListener('change', () => {
             // Apply contrast immediately (don't wait for server round-trip)
@@ -1499,7 +1789,134 @@ function setupSettingsKeys() {
             }
         });
     }
+
+    // Auto-save on change for checkbox
+    const autoApproveEl = document.getElementById('setting-auto-approve');
+    autoApproveEl.addEventListener('change', () => saveSettings());
+    autoApproveEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') toggleSettings();
+    });
+
+    // Browse project directory
+    document.getElementById('browse-project-dir').addEventListener('click', openFolderPicker);
+
+    // Start all agents
+    document.getElementById('start-all-agents-btn').addEventListener('click', startAllAgents);
+
+    // Stop all agents
+    document.getElementById('stop-all-agents-btn').addEventListener('click', stopAllAgents);
 }
+
+let _folderPickerCurrentPath = '';
+
+function openFolderPicker() {
+    _folderPickerCurrentPath = '';
+    document.getElementById('folder-picker-modal').classList.remove('hidden');
+    loadFolderPicker('');
+}
+
+function closeFolderPicker() {
+    document.getElementById('folder-picker-modal').classList.add('hidden');
+}
+
+function loadFolderPicker(path) {
+    const listEl = document.getElementById('folder-picker-list');
+    const breadcrumbEl = document.getElementById('folder-picker-breadcrumb');
+    listEl.innerHTML = 'Loading...';
+    fetch('/api/browse?path=' + encodeURIComponent(path), {
+        headers: { 'X-Session-Token': SESSION_TOKEN }
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) {
+                listEl.innerHTML = '<span class="folder-picker-error">' + (data.error || 'Error') + '</span>';
+                return;
+            }
+            _folderPickerCurrentPath = data.path || '';
+            breadcrumbEl.textContent = data.path || 'Root';
+            listEl.innerHTML = '';
+            if (data.parent) {
+                const parentItem = document.createElement('div');
+                parentItem.className = 'folder-picker-item';
+                parentItem.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16"><path d="M10 12L6 8l4-4" stroke="currentColor" stroke-width="2" fill="none"/></svg><span>..</span>';
+                parentItem.onclick = () => loadFolderPicker(data.parent);
+                listEl.appendChild(parentItem);
+            }
+            const dirs = data.directories || [];
+            dirs.forEach(d => {
+                const item = document.createElement('div');
+                item.className = 'folder-picker-item';
+                item.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16"><path d="M2 4h4l2 2h6v6H2z" stroke="currentColor" stroke-width="1.2" fill="none"/></svg><span>' + (d.name || d.path) + '</span>';
+                item.onclick = () => loadFolderPicker(d.path);
+                listEl.appendChild(item);
+            });
+        })
+        .catch(() => {
+            listEl.innerHTML = '<span class="folder-picker-error">Failed to load</span>';
+        });
+}
+
+function selectCurrentFolder() {
+    document.getElementById('setting-project-dir').value = _folderPickerCurrentPath;
+    const display = document.getElementById('project-dir-display');
+    display.textContent = _folderPickerCurrentPath || 'Not selected';
+    display.title = _folderPickerCurrentPath || '';
+    closeFolderPicker();
+    saveSettings();
+}
+
+function startAllAgents() {
+    const btn = document.getElementById('start-all-agents-btn');
+    btn.disabled = true;
+    btn.textContent = 'Starting...';
+    saveSettings();
+    setTimeout(() => {
+        fetch('/api/agents/start', {
+            method: 'POST',
+            headers: { 'X-Session-Token': SESSION_TOKEN }
+        })
+        .then(r => r.json())
+        .then(data => {
+            btn.disabled = false;
+            btn.textContent = 'Start all agents';
+            if (data.started && data.started.length > 0) {
+                console.log('Started agents:', data.started);
+            }
+        })
+        .catch(() => {
+            btn.disabled = false;
+            btn.textContent = 'Start all agents';
+        });
+    }, 300);
+}
+
+function stopAllAgents() {
+    const btn = document.getElementById('stop-all-agents-btn');
+    btn.disabled = true;
+    btn.textContent = 'Stopping...';
+    fetch('/api/agents/stop', {
+        method: 'POST',
+        headers: { 'X-Session-Token': SESSION_TOKEN }
+    })
+        .then(r => {
+            if (!r.ok) throw new Error(r.statusText);
+            return r.json();
+        })
+        .then(data => {
+            btn.disabled = false;
+            btn.textContent = 'Stop all agents';
+            if (data.error) console.error('Stop agents:', data.error);
+        })
+        .catch(err => {
+            btn.disabled = false;
+            btn.textContent = 'Stop all agents';
+            console.error('Stop agents failed:', err);
+        });
+}
+
+window.closeFolderPicker = closeFolderPicker;
+window.selectCurrentFolder = selectCurrentFolder;
+window.openFolderPicker = openFolderPicker;
 
 // --- Keyboard shortcuts ---
 
@@ -1509,6 +1926,8 @@ function setupKeyboardShortcuts() {
         const modalOpen = modal && !modal.classList.contains('hidden');
 
         if (e.key === 'Escape') {
+            const folderModal = document.getElementById('folder-picker-modal');
+            if (folderModal && !folderModal.classList.contains('hidden')) { closeFolderPicker(); return; }
             const nameModal = document.getElementById('agent-name-modal');
             if (nameModal && !nameModal.classList.contains('hidden')) { _closeAgentNameModal(); return; }
             const convertModal = document.getElementById('convert-job-modal');

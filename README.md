@@ -35,33 +35,46 @@ On first launch, the script auto-creates a virtual environment, installs Python 
 
 ## Quickstart (Mac / Linux)
 
-**1. Make sure tmux is installed:**
+**1. Install tmux** (required for agent keystroke injection):
 
 ```bash
 brew install tmux    # macOS
 # apt install tmux   # Ubuntu/Debian
 ```
 
-**2. Launch an agent:**
+**2. Start the server:**
 
-Open a terminal in the `macos-linux` folder (right-click → "Open Terminal Here", or `cd` into it) and run:
+```bash
+cd macos-linux
+sh start.sh
+```
 
-- `sh start.sh` — starts the chat server only
-- `sh start_claude.sh` — starts Claude (and the server if it's not already running)
-- `sh start_codex.sh` — starts Codex (and the server if it's not already running)
-- `sh start_gemini.sh` — starts Gemini (and the server if it's not already running)
-- `sh start_kimi.sh` — starts Kimi (and the server if it's not already running)
+This creates a virtual environment (if needed), installs dependencies, and starts the chat server. The server runs in the foreground — keep that terminal open.
 
-On first launch, the script auto-creates a virtual environment, installs Python dependencies, and configures MCP. Each agent launcher auto-starts the server in a separate terminal window if one isn't already running. The agent opens inside a **tmux** session. Detach with `Ctrl+B, D` — the agent keeps running in the background. Reattach with `tmux attach -t agentchattr-claude`.
+**3. Open the chat:** Go to **http://localhost:8300** in your browser.
 
-> **Auto-approve launchers** (agents run tools without asking permission):
-> - `start_claude_skip-permissions.sh` — Claude with `--dangerously-skip-permissions`
-> - `start_codex_bypass.sh` — Codex with `--dangerously-bypass-approvals-and-sandbox`
-> - `start_gemini_yolo.sh` — Gemini with `--yolo`
+**4. Configure and start agents:** Click the gear icon (Settings) in the header. In the **Setup** section:
 
-**3. Open the chat:** Go to **http://localhost:8300** or open `open_chat.html`.
+- **Project directory** — Click **Browse** to pick a folder where agents will work (e.g. your project root)
+- **Auto-approve** — Check to skip permission prompts (YOLO mode)
+- **Start all agents** — Click to launch Claude, Codex, Gemini, and Kimi in separate Terminal windows
 
-**4. Talk to your agents:** Type `@claude`, `@codex`, `@gemini`, or `@kimi` in your message, or use the toggle buttons above the input. The agent will wake up, read the chat, and respond.
+Each agent opens in its own Terminal window so you can see output and debug issues. Status pills in the header show when they connect.
+
+**5. Talk to your agents:** Type `@claude`, `@codex`, `@gemini`, or `@kimi` in your message, or use the toggle buttons above the input.
+
+---
+
+**Alternative: launch agents in separate Terminal windows** (for debugging or manual control):
+
+- `sh start_claude.sh` — Claude (and server if not running)
+- `sh start_codex.sh` — Codex
+- `sh start_gemini.sh` — Gemini
+- `sh start_kimi.sh` — Kimi
+
+Each opens in a **tmux** session. Detach with `Ctrl+B, D`; reattach with `tmux attach -t agentchattr-claude`.
+
+> **Auto-approve launchers:** `start_claude_skip-permissions.sh`, `start_codex_bypass.sh`, `start_gemini_yolo.sh`
 
 ---
 
