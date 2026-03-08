@@ -5,6 +5,7 @@
 const SESSION_TOKEN = window.__SESSION_TOKEN__ || "";
 
 let ws = null;
+let _reconnectDelay = 2000;   // exponential backoff: 2s, 4s, 8s, 16s, 30s (cap)
 let pendingAttachments = [];
 let autoScroll = true;
 let reconnectTimer = null;
@@ -23,6 +24,8 @@ let activeChannel = localStorage.getItem('agentchattr-channel') || 'general';
 let channelList = ['general'];
 let channelUnread = {};  // { channelName: count }
 let agentHats = {};  // { agent_name: svg_string }
+let schedulesData = [];  // scheduled tasks from server
+window.customRoles = [];  // saved custom roles from settings
 
 // Expose globals that extracted modules (sessions.js, jobs.js) read via window.*
 // Using defineProperty so live values are always returned.
@@ -355,6 +358,7 @@ function connectWebSocket() {
 
     ws.onopen = () => {
         console.log('WebSocket connected');
+        _reconnectDelay = 2000;  // reset backoff on successful connect
         if (reconnectTimer) {
             clearTimeout(reconnectTimer);
             reconnectTimer = null;
@@ -464,6 +468,12 @@ function connectWebSocket() {
             applySettings(event.data);
         } else if (event.type === 'delete') {
             handleDeleteBroadcast(event.ids);
+        } else if (event.type === 'schedules') {
+            schedulesData = event.data || [];
+            renderSchedulesList();
+            updateSchedulesBadge();
+        } else if (event.type === 'schedule') {
+            handleScheduleEvent(event.action, event.data);
         } else if (event.type === 'rules' || event.type === 'decisions') {
             rules = event.data || [];
             renderRulesPanel();
@@ -562,11 +572,13 @@ function connectWebSocket() {
             location.reload();
             return;
         }
-        console.log('Disconnected, reconnecting in 2s...');
+        const delay = _reconnectDelay;
+        _reconnectDelay = Math.min(_reconnectDelay * 2, 30000);
+        console.log(`Disconnected, reconnecting in ${delay / 1000}s...`);
         soundEnabled = false;  // suppress sounds during reconnect history replay
         const loader = document.getElementById('loading-indicator');
         if (loader) loader.classList.remove('hidden');
-        reconnectTimer = setTimeout(connectWebSocket, 2000);
+        reconnectTimer = setTimeout(connectWebSocket, delay);
     };
 
     ws.onerror = (err) => {
@@ -696,6 +708,39 @@ function appendMessage(msg) {
                 `}
             </div>
             ${!isPending ? `<div class="msg-actions"><button class="reply-btn" onclick="startReply(${msg.id}, event)">reply</button><button class="delete-btn" onclick="deleteClick(${msg.id}, event)" title="Delete">del</button></div>` : ''}`;
+    } else if (msg.type === 'decision') {
+        el.classList.add('proposal-msg', 'decision-msg');
+        const meta = msg.metadata || {};
+        const question = meta.question || msg.text || '';
+        const choices = meta.choices || [];
+        const status = meta.status || 'pending';
+        const resolvedChoice = meta.resolved_choice || '';
+        const color = getColor(msg.sender);
+        const isPending = status === 'pending';
+        const questionHtml = renderMarkdown(question);
+        const choiceButtons = choices.map(c => {
+            const safe = escapeHtml(c).replace(/"/g, '&quot;');
+            return `<button class="decision-choice" data-msg-id="${msg.id}" data-choice="${safe}">${escapeHtml(c)}</button>`;
+        }).join('');
+        el.innerHTML = `
+            <div class="proposal-card decision-card ${isPending ? '' : 'proposal-resolved'}">
+                <div class="proposal-header">
+                    <span class="proposal-pill decision-pill">Question</span>
+                    <span class="proposal-author" style="color: ${color}">${escapeHtml(msg.sender)}</span>
+                </div>
+                <div class="decision-question">${questionHtml}</div>
+                ${isPending ? `
+                    <div class="decision-choices">${choiceButtons}</div>
+                ` : `
+                    <div class="proposal-status-resolved">✓ You chose: ${escapeHtml(resolvedChoice)}</div>
+                `}
+            </div>
+            ${!isPending ? `<div class="msg-actions"><button class="reply-btn" onclick="startReply(${msg.id}, event)">reply</button><button class="delete-btn" onclick="deleteClick(${msg.id}, event)" title="Delete">del</button></div>` : ''}`;
+        if (isPending) {
+            el.querySelectorAll('.decision-choice').forEach(btn => {
+                btn.addEventListener('click', () => resolveDecision(parseInt(btn.dataset.msgId), btn.dataset.choice));
+            });
+        }
     } else if (window._messageRenderers && window._messageRenderers[msg.type]) {
         window._messageRenderers[msg.type](el, msg);
     } else if (msg.type === 'system' || msg.sender === 'system') {
@@ -1055,7 +1100,193 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
+// --- Terminal webcam popover ---
+
+let _termPopoverCloseTimer = null;
+let _termPopoverPollInterval = null;
+
+function stripAnsi(str) {
+    return (str || '').replace(/\x1b\[[0-9;]*m/g, '');
+}
+
+function detectActions(raw) {
+    const actions = [];
+    const r = (raw || '').toLowerCase();
+    if (/\(y\/n\)|y\/n\?|\[y\/n\]/i.test(r)) {
+        actions.push({ label: 'Yes', keys: 'y', enter: true });
+        actions.push({ label: 'No', keys: 'n', enter: true });
+    }
+    if (/action required/i.test(r)) {
+        actions.push({ label: 'Accept', keys: '', enter: true });
+    }
+    if (/untrusted|folder is untrusted|trust folder/i.test(r)) {
+        actions.push({ label: 'Trust folder', keys: '1', enter: true });
+    }
+    if (/press .* to continue|press enter|continue/i.test(r)) {
+        actions.push({ label: 'Enter', keys: '', enter: true });
+    }
+    return actions;
+}
+
+async function fetchTerminal(name, lines = 50) {
+    const resp = await fetch(`/api/terminal/${encodeURIComponent(name)}?lines=${lines}`, {
+        headers: { 'X-Session-Token': SESSION_TOKEN },
+    });
+    return resp.json();
+}
+
+async function sendInput(name, text, enter) {
+    const resp = await fetch(`/api/terminal/${encodeURIComponent(name)}/input`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Session-Token': SESSION_TOKEN },
+        body: JSON.stringify({ text: text || '', enter: enter !== false }),
+    });
+    return resp.json();
+}
+
+function schedulePopoverClose() {
+    if (_termPopoverCloseTimer) clearTimeout(_termPopoverCloseTimer);
+    _termPopoverCloseTimer = setTimeout(() => {
+        _termPopoverCloseTimer = null;
+        if (_termPopoverPollInterval) {
+            clearInterval(_termPopoverPollInterval);
+            _termPopoverPollInterval = null;
+        }
+        const popover = document.getElementById('term-popover');
+        if (popover) popover.classList.add('hidden');
+    }, 250);
+}
+
+function showTerminalPopover(name, pillEl) {
+    if (_termPopoverCloseTimer) {
+        clearTimeout(_termPopoverCloseTimer);
+        _termPopoverCloseTimer = null;
+    }
+    let popover = document.getElementById('term-popover');
+    if (!popover) {
+        popover = document.createElement('div');
+        popover.id = 'term-popover';
+        popover.className = 'term-popover hidden';
+        popover.innerHTML = `
+            <div class="term-title"></div>
+            <pre class="term-screen"></pre>
+            <div class="term-actions"></div>
+            <div class="term-input-row">
+                <input type="text" class="term-input" placeholder="Type or send keys..." spellcheck="false" autocomplete="off" />
+                <button type="button" class="term-send-btn">Send</button>
+            </div>`;
+        popover.addEventListener('mouseenter', () => {
+            if (_termPopoverCloseTimer) clearTimeout(_termPopoverCloseTimer);
+            _termPopoverCloseTimer = null;
+        });
+        popover.addEventListener('mouseleave', schedulePopoverClose);
+        document.body.appendChild(popover);
+    }
+    const cfg = agentConfig[name] || {};
+    const label = cfg.label || name;
+    const color = cfg.color || '#4ade80';
+    popover.style.setProperty('--agent-color', color);
+    popover.querySelector('.term-title').textContent = `${label} — terminal`;
+    popover.querySelector('.term-screen').textContent = 'Loading...';
+    popover.querySelector('.term-actions').innerHTML = '';
+    popover.querySelector('.term-input').value = '';
+    popover.classList.remove('hidden');
+
+    const rect = pillEl.getBoundingClientRect();
+    const popoverHeight = 320;
+    const above = rect.top > popoverHeight + 20;
+    popover.style.top = above ? `${rect.top - popoverHeight - 8}px` : `${rect.bottom + 8}px`;
+    const popoverWidth = 520;
+    const leftRaw = rect.left + rect.width / 2 - popoverWidth / 2;
+    popover.style.left = `${Math.min(Math.max(8, leftRaw), window.innerWidth - popoverWidth - 8)}px`;
+
+    const inputEl = popover.querySelector('.term-input');
+    const sendBtn = popover.querySelector('.term-send-btn');
+    sendBtn.onclick = () => {
+        const text = inputEl.value;
+        if (!text) return;
+        sendInput(name, text, true).catch(() => {});
+        inputEl.value = '';
+    };
+    inputEl.onkeydown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            sendBtn.click();
+        }
+    };
+
+    popover.dataset.agentName = name;
+    // Lines requested from the server — starts small, grows when user loads more
+    let fetchLines = 50;
+
+    async function poll() {
+        const screenEl = popover.querySelector('.term-screen');
+        const actionsEl = popover.querySelector('.term-actions');
+        try {
+            const data = await fetchTerminal(name, fetchLines);
+            if (!popover.classList.contains('hidden') && popover.dataset.agentName === name) {
+                if (data.available) {
+                    const display = stripAnsi(data.raw || '');
+                    const atBottom = screenEl.scrollHeight - screenEl.scrollTop - screenEl.clientHeight < 40;
+                    screenEl.textContent = display || '(no output)';
+                    if (atBottom) screenEl.scrollTop = screenEl.scrollHeight;
+
+                    // "Load more" button — appears when user has scrolled to the top
+                    // and there might be more history available
+                    const hasMore = (data.lines || []).length >= fetchLines && fetchLines < 500;
+                    let loadMoreBtn = screenEl.nextElementSibling?.classList?.contains('term-load-more')
+                        ? screenEl.nextElementSibling
+                        : null;
+                    if (hasMore && !loadMoreBtn) {
+                        loadMoreBtn = document.createElement('button');
+                        loadMoreBtn.className = 'term-load-more';
+                        loadMoreBtn.textContent = '↑ Load more history';
+                        loadMoreBtn.onclick = () => {
+                            fetchLines = Math.min(fetchLines + 100, 500);
+                            poll();
+                        };
+                        screenEl.insertAdjacentElement('afterend', loadMoreBtn);
+                    } else if (!hasMore && loadMoreBtn) {
+                        loadMoreBtn.remove();
+                    }
+
+                    const actions = detectActions(data.raw);
+                    actionsEl.innerHTML = '';
+                    actions.forEach(a => {
+                        const btn = document.createElement('button');
+                        btn.className = 'term-action-btn';
+                        btn.textContent = a.label;
+                        btn.onclick = () => sendInput(name, a.keys, a.enter).then(() => poll()).catch(() => {});
+                        actionsEl.appendChild(btn);
+                    });
+                } else {
+                    screenEl.textContent = 'No tmux session (Mac/Linux only)';
+                    actionsEl.innerHTML = '';
+                }
+            }
+        } catch (err) {
+            if (!popover.classList.contains('hidden') && popover.dataset.agentName === name) {
+                screenEl.textContent = 'Connection lost';
+                actionsEl.innerHTML = '';
+            }
+        }
+    }
+
+    poll();
+    if (_termPopoverPollInterval) clearInterval(_termPopoverPollInterval);
+    _termPopoverPollInterval = setInterval(poll, 1500);
+}
+
 function buildStatusPills() {
+    // Close term popover and stop polling when pills are rebuilt (e.g. agent
+    // registered/deregistered) — prevents orphaned popover and stale intervals.
+    if (_termPopoverPollInterval) {
+        clearInterval(_termPopoverPollInterval);
+        _termPopoverPollInterval = null;
+    }
+    const popover = document.getElementById('term-popover');
+    if (popover) popover.classList.add('hidden');
+
     const container = document.getElementById('agent-status');
     container.innerHTML = '';
     for (const [name, cfg] of Object.entries(agentConfig)) {
@@ -1063,20 +1294,277 @@ function buildStatusPills() {
         pill.className = 'status-pill';
         if (cfg.state === 'pending') pill.classList.add('pending');
         pill.id = `status-${name}`;
-        pill.title = `@${name}`;  // Tooltip: canonical name for manual @-typing
+        pill.title = `@${name}`;
         pill.style.setProperty('--agent-color', cfg.color || '#4ade80');
-        pill.innerHTML = `<span class="status-dot"></span><span class="status-label">${escapeHtml(cfg.label || name)}</span>`;
-        // Left-click to rename or name pending instance
-        pill.addEventListener('click', () => {
+        pill.innerHTML = `
+            <span class="status-dot"></span>
+            <span class="status-label">${escapeHtml(cfg.label || name)}</span>
+            <button class="pill-kill" title="Kill ${escapeHtml(name)}" aria-label="Kill ${escapeHtml(name)}">×</button>`;
+        pill.querySelector('.pill-kill').addEventListener('click', (e) => {
+            e.stopPropagation();
+            killAgent(name);
+        });
+        pill.addEventListener('click', (e) => {
+            e.stopPropagation();
             const mode = cfg.state === 'pending' ? 'pending' : 'rename';
-            showAgentNameModal({
+            showPillPopover(pill, {
                 name, label: cfg.label || name, color: cfg.color || '#888',
                 base: cfg.base || '', mode,
             });
         });
+        pill.addEventListener('mouseenter', () => showTerminalPopover(name, pill));
+        pill.addEventListener('mouseleave', schedulePopoverClose);
         container.appendChild(pill);
     }
+
+    // Spawn button — always at the end of the pills row
+    const spawnBtn = document.createElement('button');
+    spawnBtn.className = 'pill-spawn-btn';
+    spawnBtn.title = 'Spawn agent instance';
+    spawnBtn.textContent = '+';
+    spawnBtn.addEventListener('click', showSpawnModal);
+    container.appendChild(spawnBtn);
+
     enableDragScroll(container);
+}
+
+const ROLE_PRESETS = [
+    { label: 'Planner', emoji: '📋' },
+    { label: 'Designer', emoji: '✨' },
+    { label: 'Architect', emoji: '🏛️' },
+    { label: 'Builder', emoji: '🔨' },
+    { label: 'Reviewer', emoji: '🔍' },
+    { label: 'Researcher', emoji: '🔬' },
+    { label: 'Red Team', emoji: '🛡️' },
+    { label: 'Wry', emoji: '🍸' },
+    { label: 'Unhinged', emoji: '🤪' },
+    { label: 'Hype', emoji: '🎉' },
+];
+
+function showPillPopover(pillEl, opts) {
+    if (opts.mode === 'pending') _nameModalActive = true;
+    // Hide terminal popover when showing pill popover
+    const termPopover = document.getElementById('term-popover');
+    if (termPopover) termPopover.classList.add('hidden');
+    if (_termPopoverPollInterval) {
+        clearInterval(_termPopoverPollInterval);
+        _termPopoverPollInterval = null;
+    }
+
+    document.querySelectorAll('.pill-popover').forEach(p => p.remove());
+
+    const popover = document.createElement('div');
+    popover.className = 'pill-popover';
+    popover.style.setProperty('--agent-color', opts.color);
+
+    const currentRole = (_agentRoles[opts.name] || '').toLowerCase();
+    const roleChipsHtml = ROLE_PRESETS.map(p =>
+        `<button class="role-preset-chip pill-role-chip ${currentRole === p.label.toLowerCase() ? 'active' : ''}" data-role="${escapeHtml(p.label)}">${p.emoji} ${escapeHtml(p.label)}</button>`
+    ).join('');
+    const customRoles = (window.customRoles || []).map(r =>
+        `<button class="role-preset-chip pill-role-chip ${currentRole === r.toLowerCase() ? 'active' : ''}" data-role="${escapeHtml(r)}">${escapeHtml(r)}</button>`
+    ).join('');
+
+    popover.innerHTML = `
+        <div class="pill-popover-section">
+            <label class="pill-popover-label">${opts.mode === 'pending' ? 'Name this agent' : 'Rename'}</label>
+            <div class="pill-popover-rename-row">
+                <input type="text" class="pill-popover-input" value="${escapeHtml(opts.label)}" maxlength="24" spellcheck="false" />
+                <button class="pill-popover-confirm">${opts.mode === 'pending' ? 'Confirm' : 'Rename'}</button>
+            </div>
+        </div>
+        <div class="pill-popover-section">
+            <label class="pill-popover-label">Role</label>
+            <div class="pill-popover-roles">
+                <button class="role-preset-chip pill-role-chip ${!currentRole ? 'active' : ''}" data-role="">None</button>
+                ${roleChipsHtml}
+                ${customRoles}
+            </div>
+            <div class="pill-popover-custom-row">
+                <input type="text" class="pill-popover-custom-input" placeholder="Custom role..." maxlength="30" />
+            </div>
+        </div>
+    `;
+
+    const inputEl = popover.querySelector('.pill-popover-input');
+    const confirmBtn = popover.querySelector('.pill-popover-confirm');
+    const customInput = popover.querySelector('.pill-popover-custom-input');
+
+    const closePopover = () => {
+        popover.remove();
+        document.removeEventListener('click', outsideClickHandler, true);
+        if (opts.mode === 'pending') {
+            _nameModalActive = false;
+            setTimeout(_showNextPendingName, 200);
+        }
+    };
+
+    const outsideClickHandler = (e) => {
+        if (!popover.contains(e.target) && !(pillEl && pillEl.contains(e.target))) {
+            closePopover();
+        }
+    };
+
+    confirmBtn.addEventListener('click', () => {
+        const label = inputEl.value.trim();
+        if (!label) return;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            if (opts.mode === 'pending') {
+                ws.send(JSON.stringify({ type: 'name_pending', name: opts.name, label }));
+            } else {
+                ws.send(JSON.stringify({ type: 'rename_agent', name: opts.name, label }));
+            }
+        }
+        closePopover();
+    });
+
+    inputEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { confirmBtn.click(); e.preventDefault(); }
+        if (e.key === 'Escape') { closePopover(); e.preventDefault(); }
+    });
+
+    popover.querySelectorAll('.pill-role-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            const role = chip.dataset.role || '';
+            _setRole(opts.name, role);
+            closePopover();
+        });
+    });
+
+    customInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            const val = customInput.value.trim();
+            if (val) { _setRole(opts.name, val); closePopover(); }
+            e.preventDefault();
+        }
+        if (e.key === 'Escape') { closePopover(); e.preventDefault(); }
+    });
+
+    document.body.appendChild(popover);
+
+    if (pillEl) {
+        const rect = pillEl.getBoundingClientRect();
+        popover.style.top = `${rect.bottom + 8}px`;
+        popover.style.left = `${Math.min(rect.left, window.innerWidth - 280)}px`;
+    } else {
+        popover.style.top = '50%';
+        popover.style.left = '50%';
+        popover.style.transform = 'translate(-50%, -50%)';
+    }
+
+    setTimeout(() => document.addEventListener('click', outsideClickHandler, true), 0);
+    inputEl.focus();
+}
+
+// --- Spawn modal ---
+
+function _spawnInstanceCount(base) {
+    return Object.values(agentConfig).filter(c => c.base === base).length;
+}
+
+function showSpawnModal() {
+    const spawnableAgents = Object.entries(baseColors)
+        .filter(([, cfg]) => cfg.spawnable)
+        .sort(([a], [b]) => a.localeCompare(b));
+
+    if (spawnableAgents.length === 0) {
+        alert('No spawnable agents configured.');
+        return;
+    }
+
+    let modal = document.getElementById('spawn-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'spawn-modal';
+        modal.className = 'spawn-modal hidden';
+        modal.innerHTML = `
+            <div class="spawn-dialog">
+                <h3 class="spawn-title">Spawn agent</h3>
+                <label class="spawn-label">Agent</label>
+                <select class="spawn-agent-select"></select>
+                <p class="spawn-cap-note"></p>
+                <label class="spawn-label">Guidance <span class="spawn-optional">(optional)</span></label>
+                <textarea class="spawn-guidance" rows="3" placeholder="Initial instructions for this instance…" spellcheck="false"></textarea>
+                <div class="spawn-actions">
+                    <button class="spawn-cancel">Cancel</button>
+                    <button class="spawn-confirm">Spawn</button>
+                </div>
+            </div>`;
+        modal.addEventListener('click', (e) => { if (e.target === modal) _closeSpawnModal(); });
+        modal.querySelector('.spawn-cancel').addEventListener('click', _closeSpawnModal);
+        document.body.appendChild(modal);
+    }
+
+    const select = modal.querySelector('.spawn-agent-select');
+    const capNote = modal.querySelector('.spawn-cap-note');
+    const confirmBtn = modal.querySelector('.spawn-confirm');
+
+    function _refreshCapState() {
+        const base = select.value;
+        const cfg = baseColors[base] || {};
+        const max = cfg.max_instances ?? 3;
+        const current = _spawnInstanceCount(base);
+        const atCap = current >= max;
+        capNote.textContent = atCap
+            ? `${current}/${max} instances running — kill one to spawn another`
+            : current > 0 ? `${current}/${max} instances running` : '';
+        capNote.style.color = atCap ? 'var(--color-warning, #f59e0b)' : 'var(--color-muted, #888)';
+        confirmBtn.disabled = atCap;
+    }
+
+    select.innerHTML = spawnableAgents
+        .map(([name, cfg]) => `<option value="${escapeHtml(name)}">${escapeHtml(cfg.label || name)}</option>`)
+        .join('');
+    modal.querySelector('.spawn-guidance').value = '';
+    modal.classList.remove('hidden');
+    select.focus();
+    _refreshCapState();
+
+    select.onchange = _refreshCapState;
+
+    confirmBtn.onclick = async () => {
+        const agent = select.value;
+        const guidance = modal.querySelector('.spawn-guidance').value.trim();
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'Spawning…';
+        try {
+            const res = await fetch(`/api/agents/${encodeURIComponent(agent)}/spawn`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Session-Token': SESSION_TOKEN },
+                body: JSON.stringify({ guidance }),
+            });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+            _closeSpawnModal();
+        } catch (err) {
+            confirmBtn.disabled = false;
+            confirmBtn.textContent = 'Spawn';
+            alert(`Spawn failed: ${err.message}`);
+        }
+    };
+}
+
+function _closeSpawnModal() {
+    const modal = document.getElementById('spawn-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+async function killAgent(name) {
+    if (!confirm(`Kill ${name}?`)) return;
+    const pill = document.getElementById(`status-${name}`);
+    const killBtn = pill?.querySelector('.pill-kill');
+    if (killBtn) killBtn.disabled = true;
+    try {
+        const res = await fetch(`/api/agents/${encodeURIComponent(name)}/kill`, {
+            method: 'POST',
+            headers: { 'X-Session-Token': SESSION_TOKEN },
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+    } catch (err) {
+        if (killBtn) killBtn.disabled = false;
+        alert(`Kill failed: ${err.message}`);
+    }
 }
 
 // --- Agent naming lightbox ---
@@ -1090,7 +1578,8 @@ function _showNextPendingName() {
     // Only show if still pending in agentConfig
     const cfg = agentConfig[next.name];
     if (cfg && cfg.state === 'pending') {
-        showAgentNameModal({ ...next, mode: 'pending' });
+        const pillEl = document.getElementById(`status-${next.name}`);
+        showPillPopover(pillEl || null, { ...next, mode: 'pending' });
     } else {
         _showNextPendingName(); // skip stale entries
     }
@@ -1200,19 +1689,6 @@ function showBubbleRolePicker(btn, agentName) {
         p.remove();
     });
 
-    const ROLE_PRESETS = [
-        { label: 'Planner', emoji: '📋' },
-        { label: 'Designer', emoji: '✨' },
-        { label: 'Architect', emoji: '🏛️' },
-        { label: 'Builder', emoji: '🔨' },
-        { label: 'Reviewer', emoji: '🔍' },
-        { label: 'Researcher', emoji: '🔬' },
-        { label: 'Red Team', emoji: '🛡️' },
-        { label: 'Wry', emoji: '🍸' },
-        { label: 'Unhinged', emoji: '🤪' },
-        { label: 'Hype', emoji: '🎉' },
-    ];
-
     const currentRole = (_agentRoles[agentName] || '').toLowerCase();
     const picker = document.createElement('div');
     picker.className = 'bubble-role-picker';
@@ -1230,6 +1706,14 @@ function showBubbleRolePicker(btn, agentName) {
         chip.className = 'role-preset-chip' + (currentRole === preset.label.toLowerCase() ? ' active' : '');
         chip.textContent = `${preset.emoji} ${preset.label}`;
         chip.addEventListener('click', () => { _setRole(agentName, preset.label); closePicker(); });
+        picker.appendChild(chip);
+    }
+    for (const r of (window.customRoles || [])) {
+        if (!r || ROLE_PRESETS.some(p => p.label.toLowerCase() === r.toLowerCase())) continue;
+        const chip = document.createElement('button');
+        chip.className = 'role-preset-chip' + (currentRole === r.toLowerCase() ? ' active' : '');
+        chip.textContent = r;
+        chip.addEventListener('click', () => { _setRole(agentName, r); closePicker(); });
         picker.appendChild(chip);
     }
 
@@ -1315,6 +1799,21 @@ function _setRole(agentName, role) {
     // Optimistic update
     _agentRoles[agentName] = role;
     _syncBubbleRolePills(agentName);
+    // If custom role (not in presets), add to saved custom roles
+    if (role && !ROLE_PRESETS.some(p => p.label.toLowerCase() === role.toLowerCase())) {
+        _addCustomRole(role);
+    }
+}
+
+function _addCustomRole(role) {
+    const list = window.customRoles || [];
+    const lower = role.trim().toLowerCase();
+    if (list.some(r => r.toLowerCase() === lower)) return;
+    const updated = [...list, role.trim()].slice(-20);
+    window.customRoles = updated;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'update_settings', data: { custom_roles: updated } }));
+    }
 }
 
 // --- Status ---
@@ -1407,6 +1906,22 @@ function applySettings(data) {
     if (data.rules_refresh_interval !== undefined) {
         document.getElementById('setting-rules-refresh').value = String(data.rules_refresh_interval);
     }
+    if (data.routing_default) {
+        document.getElementById('setting-routing').value = data.routing_default;
+    }
+    if (data.project_dir !== undefined) {
+        const pd = data.project_dir;
+        document.getElementById('setting-project-dir').value = pd;
+        const display = document.getElementById('project-dir-display');
+        display.textContent = pd || 'Not selected';
+        display.title = pd || '';
+    }
+    if (data.auto_approve !== undefined) {
+        document.getElementById('setting-auto-approve').checked = !!data.auto_approve;
+    }
+    if (Array.isArray(data.custom_roles)) {
+        window.customRoles = data.custom_roles;
+    }
     if (data.channels && Array.isArray(data.channels)) {
         channelList = data.channels;
         // If active channel was deleted, switch to general
@@ -1451,6 +1966,9 @@ function saveSettings() {
     const newHistory = histVal === 'all' ? 'all' : (parseInt(histVal) || 50);
     const newContrast = document.getElementById('setting-contrast').value;
     const newRulesRefresh = document.getElementById('setting-rules-refresh').value;
+    const newRouting = document.getElementById('setting-routing').value;
+    const newProjectDir = document.getElementById('setting-project-dir').value.trim();
+    const newAutoApprove = document.getElementById('setting-auto-approve').checked;
 
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
@@ -1462,6 +1980,9 @@ function saveSettings() {
                 history_limit: newHistory,
                 contrast: newContrast,
                 rules_refresh_interval: parseInt(newRulesRefresh) || 0,
+                routing_default: newRouting,
+                project_dir: newProjectDir,
+                auto_approve: newAutoApprove,
             }
         }));
     }
@@ -1484,7 +2005,7 @@ function setupSettingsKeys() {
     }
 
     // Auto-save on change for selects, escape to close
-    for (const id of ['setting-font', 'setting-history', 'setting-contrast', 'setting-rules-refresh']) {
+    for (const id of ['setting-font', 'setting-history', 'setting-contrast', 'setting-rules-refresh', 'setting-routing']) {
         const el = document.getElementById(id);
         el.addEventListener('change', () => {
             // Apply contrast immediately (don't wait for server round-trip)
@@ -1499,7 +2020,134 @@ function setupSettingsKeys() {
             }
         });
     }
+
+    // Auto-save on change for checkbox
+    const autoApproveEl = document.getElementById('setting-auto-approve');
+    autoApproveEl.addEventListener('change', () => saveSettings());
+    autoApproveEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') toggleSettings();
+    });
+
+    // Browse project directory
+    document.getElementById('browse-project-dir').addEventListener('click', openFolderPicker);
+
+    // Start all agents
+    document.getElementById('start-all-agents-btn').addEventListener('click', startAllAgents);
+
+    // Stop all agents
+    document.getElementById('stop-all-agents-btn').addEventListener('click', stopAllAgents);
 }
+
+let _folderPickerCurrentPath = '';
+
+function openFolderPicker() {
+    _folderPickerCurrentPath = '';
+    document.getElementById('folder-picker-modal').classList.remove('hidden');
+    loadFolderPicker('');
+}
+
+function closeFolderPicker() {
+    document.getElementById('folder-picker-modal').classList.add('hidden');
+}
+
+function loadFolderPicker(path) {
+    const listEl = document.getElementById('folder-picker-list');
+    const breadcrumbEl = document.getElementById('folder-picker-breadcrumb');
+    listEl.innerHTML = 'Loading...';
+    fetch('/api/browse?path=' + encodeURIComponent(path), {
+        headers: { 'X-Session-Token': SESSION_TOKEN }
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) {
+                listEl.innerHTML = '<span class="folder-picker-error">' + (data.error || 'Error') + '</span>';
+                return;
+            }
+            _folderPickerCurrentPath = data.path || '';
+            breadcrumbEl.textContent = data.path || 'Root';
+            listEl.innerHTML = '';
+            if (data.parent) {
+                const parentItem = document.createElement('div');
+                parentItem.className = 'folder-picker-item';
+                parentItem.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16"><path d="M10 12L6 8l4-4" stroke="currentColor" stroke-width="2" fill="none"/></svg><span>..</span>';
+                parentItem.onclick = () => loadFolderPicker(data.parent);
+                listEl.appendChild(parentItem);
+            }
+            const dirs = data.directories || [];
+            dirs.forEach(d => {
+                const item = document.createElement('div');
+                item.className = 'folder-picker-item';
+                item.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16"><path d="M2 4h4l2 2h6v6H2z" stroke="currentColor" stroke-width="1.2" fill="none"/></svg><span>' + (d.name || d.path) + '</span>';
+                item.onclick = () => loadFolderPicker(d.path);
+                listEl.appendChild(item);
+            });
+        })
+        .catch(() => {
+            listEl.innerHTML = '<span class="folder-picker-error">Failed to load</span>';
+        });
+}
+
+function selectCurrentFolder() {
+    document.getElementById('setting-project-dir').value = _folderPickerCurrentPath;
+    const display = document.getElementById('project-dir-display');
+    display.textContent = _folderPickerCurrentPath || 'Not selected';
+    display.title = _folderPickerCurrentPath || '';
+    closeFolderPicker();
+    saveSettings();
+}
+
+function startAllAgents() {
+    const btn = document.getElementById('start-all-agents-btn');
+    btn.disabled = true;
+    btn.textContent = 'Starting...';
+    saveSettings();
+    setTimeout(() => {
+        fetch('/api/agents/start', {
+            method: 'POST',
+            headers: { 'X-Session-Token': SESSION_TOKEN }
+        })
+        .then(r => r.json())
+        .then(data => {
+            btn.disabled = false;
+            btn.textContent = 'Start all agents';
+            if (data.started && data.started.length > 0) {
+                console.log('Started agents:', data.started);
+            }
+        })
+        .catch(() => {
+            btn.disabled = false;
+            btn.textContent = 'Start all agents';
+        });
+    }, 300);
+}
+
+function stopAllAgents() {
+    const btn = document.getElementById('stop-all-agents-btn');
+    btn.disabled = true;
+    btn.textContent = 'Stopping...';
+    fetch('/api/agents/stop', {
+        method: 'POST',
+        headers: { 'X-Session-Token': SESSION_TOKEN }
+    })
+        .then(r => {
+            if (!r.ok) throw new Error(r.statusText);
+            return r.json();
+        })
+        .then(data => {
+            btn.disabled = false;
+            btn.textContent = 'Stop all agents';
+            if (data.error) console.error('Stop agents:', data.error);
+        })
+        .catch(err => {
+            btn.disabled = false;
+            btn.textContent = 'Stop all agents';
+            console.error('Stop agents failed:', err);
+        });
+}
+
+window.closeFolderPicker = closeFolderPicker;
+window.selectCurrentFolder = selectCurrentFolder;
+window.openFolderPicker = openFolderPicker;
 
 // --- Keyboard shortcuts ---
 
@@ -1509,6 +2157,8 @@ function setupKeyboardShortcuts() {
         const modalOpen = modal && !modal.classList.contains('hidden');
 
         if (e.key === 'Escape') {
+            const folderModal = document.getElementById('folder-picker-modal');
+            if (folderModal && !folderModal.classList.contains('hidden')) { closeFolderPicker(); return; }
             const nameModal = document.getElementById('agent-name-modal');
             if (nameModal && !nameModal.classList.contains('hidden')) { _closeAgentNameModal(); return; }
             const convertModal = document.getElementById('convert-job-modal');
@@ -1545,6 +2195,9 @@ const SLASH_COMMANDS = [
     { cmd: '/poetry haiku', desc: 'Agents write a haiku about the codebase', broadcast: true },
     { cmd: '/poetry limerick', desc: 'Agents write a limerick about the codebase', broadcast: true },
     { cmd: '/poetry sonnet', desc: 'Agents write a sonnet about the codebase', broadcast: true },
+    { cmd: '/schedule', desc: 'Schedule a recurring prompt (e.g. /schedule @claude "summarise" every 1h)', broadcast: false },
+    { cmd: '/schedules', desc: 'View scheduled tasks', broadcast: false },
+    { cmd: '/unschedule', desc: 'Cancel a scheduled task (e.g. /unschedule <id>)', broadcast: false },
     { cmd: '/summary', desc: 'Summarize recent messages — tag an agent (e.g. /summary @claude)', broadcast: false, needsMention: true },
     { cmd: '/summarise', desc: 'Summarize recent messages — tag an agent (e.g. /summarise @claude)', broadcast: false, needsMention: true, hidden: true },
     { cmd: '/continue', desc: 'Resume after loop guard pauses', broadcast: false },
@@ -1837,6 +2490,13 @@ function sendMessage() {
         ws.send(JSON.stringify(payload));
     }
 
+    if (text.trim().toLowerCase() === '/schedules') {
+        const panel = document.getElementById('schedules-panel');
+        if (panel && panel.classList.contains('hidden')) {
+            toggleSchedulesPanel();
+        }
+    }
+
     input.value = '';
     input.style.height = 'auto';
     clearAttachments();
@@ -2127,6 +2787,23 @@ let deleteMode = false;
 let deleteSelected = new Set();
 let deleteDragging = false;
 
+async function resolveDecision(msgId, choice) {
+    try {
+        const resp = await fetch(`/api/messages/${msgId}/resolve`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'X-Session-Token': SESSION_TOKEN },
+            body: JSON.stringify({ choice }),
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            console.error('Failed to resolve decision:', err.error || resp.status);
+        }
+    } catch (e) {
+        console.error('Failed to resolve decision:', e);
+    }
+}
+window.resolveDecision = resolveDecision;
+
 function deleteClick(msgId, event) {
     event.stopPropagation();
     enterDeleteMode(msgId);
@@ -2318,16 +2995,84 @@ function handleDeleteBroadcast(ids) {
     if (panel && !panel.classList.contains('hidden')) renderTodosPanel();
 }
 
-function togglePinsPanel() {
-    _preserveScroll(() => {
-        const panel = document.getElementById('pins-panel');
-        panel.classList.toggle('hidden');
-        document.getElementById('pins-toggle').classList.toggle('active', !panel.classList.contains('hidden'));
-        if (!panel.classList.contains('hidden')) {
-            renderTodosPanel();
-        }
-    });
+function toggleSchedulesPanel() {
+    const panel = document.getElementById('schedules-panel');
+    const toggle = document.getElementById('schedules-toggle');
+    if (!panel || !toggle) return;
+    panel.classList.toggle('hidden');
+    toggle.classList.toggle('active', !panel.classList.contains('hidden'));
+    if (!panel.classList.contains('hidden')) {
+        renderSchedulesList();
+    }
 }
+window.toggleSchedulesPanel = toggleSchedulesPanel;
+
+function renderSchedulesList() {
+    const list = document.getElementById('schedules-list');
+    if (!list) return;
+    list.innerHTML = '';
+    const active = schedulesData.filter(s => s.active !== false);
+    if (active.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'schedules-empty';
+        empty.textContent = 'No scheduled tasks. Use /schedule @agent "prompt" every 1h';
+        list.appendChild(empty);
+        return;
+    }
+    for (const s of active) {
+        const card = document.createElement('div');
+        card.className = 'schedule-card';
+        card.dataset.id = s.id;
+        const nextRun = s.next_run ? new Date(s.next_run * 1000).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '—';
+        const targets = (s.targets || []).map(t => `@${t}`).join(' ');
+        const promptPreview = (s.prompt || '').slice(0, 60) + ((s.prompt || '').length > 60 ? '…' : '');
+        card.innerHTML = `
+            <div class="schedule-prompt">${escapeHtml(promptPreview)}</div>
+            <div class="schedule-meta">${escapeHtml(targets)} · ${escapeHtml(nextRun)}</div>
+            <button class="schedule-cancel" data-schedule-id="${escapeHtml(s.id)}" title="Cancel">×</button>
+        `;
+        card.querySelector('.schedule-cancel').addEventListener('click', () => cancelSchedule(s.id));
+        list.appendChild(card);
+    }
+}
+
+function updateSchedulesBadge() {
+    const badge = document.getElementById('schedules-badge');
+    if (!badge) return;
+    const count = schedulesData.filter(s => s.active !== false).length;
+    badge.textContent = count;
+    badge.classList.toggle('hidden', count === 0);
+}
+
+async function cancelSchedule(id) {
+    try {
+        const resp = await fetch(`/api/schedules/${encodeURIComponent(id)}`, {
+            method: 'DELETE',
+            headers: { 'X-Session-Token': SESSION_TOKEN },
+        });
+        if (!resp.ok) throw new Error('Failed to cancel');
+    } catch (e) {
+        console.error('Failed to cancel schedule:', e);
+    }
+}
+window.cancelSchedule = cancelSchedule;
+
+function handleScheduleEvent(action, data) {
+    if (action === 'delete') {
+        schedulesData = schedulesData.filter(s => s.id !== data?.id);
+    } else if (action === 'create' || action === 'update') {
+        const idx = schedulesData.findIndex(s => s.id === data?.id);
+        if (idx >= 0) {
+            schedulesData[idx] = data;
+        } else {
+            schedulesData.push(data);
+        }
+    }
+    renderSchedulesList();
+    updateSchedulesBadge();
+}
+
+function togglePinsPanel() {
 
 function renderTodosPanel() {
     const list = document.getElementById('pins-list');

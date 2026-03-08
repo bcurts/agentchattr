@@ -21,8 +21,15 @@
                 </a>
                 <span class="subtitle" id="room-subtitle"></span>
             </div>
+            <div id="agent-status"></div>
             <div class="header-right">
-                <div id="agent-status"></div>
+                <button class="settings-btn" id="schedules-toggle" onclick="toggleSchedulesPanel()" title="Scheduled tasks">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <rect x="2" y="2" width="12" height="12" rx="1.5" stroke="currentColor" stroke-width="1.2"/>
+                        <path d="M2 5h12M5 2v4M8 2v4M11 2v4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                    </svg>
+                    <span class="schedules-badge hidden" id="schedules-badge">0</span>
+                </button>
                 <button class="settings-btn" id="jobs-toggle" onclick="toggleJobsPanel()" title="Jobs">
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                         <rect x="3" y="2" width="10" height="12" rx="1.5" stroke="currentColor" stroke-width="1.2"/>
@@ -53,6 +60,26 @@
         </header>
 
         <div id="settings-bar" class="hidden">
+            <div class="settings-section-label">Setup</div>
+            <div class="settings-field">
+                <label>Project directory</label>
+                <div class="project-dir-row">
+                    <button type="button" id="browse-project-dir" class="browse-btn">Browse</button>
+                    <span id="project-dir-display" class="project-dir-display">Not selected</span>
+                    <input type="hidden" id="setting-project-dir">
+                </div>
+            </div>
+            <div class="settings-field">
+                <label for="setting-auto-approve">Auto-approve</label>
+                <input type="checkbox" id="setting-auto-approve" title="Skip permission prompts — agents run without asking. Restart agents to apply.">
+                <span class="settings-hint">Restart agents to apply</span>
+            </div>
+            <div class="settings-field settings-agent-buttons">
+                <button type="button" id="start-all-agents-btn" class="start-agents-btn">Start all agents</button>
+                <button type="button" id="stop-all-agents-btn" class="stop-agents-btn">Stop all agents</button>
+            </div>
+            <div class="settings-divider"></div>
+            <div class="settings-section-label">Appearance</div>
             <div class="settings-field">
                 <label for="setting-username">Name</label>
                 <input type="text" id="setting-username" placeholder="your name" maxlength="20">
@@ -94,6 +121,13 @@
                     <option value="10" selected>Every 10 triggers</option>
                     <option value="20">Every 20 triggers</option>
                     <option value="50">Every 50 triggers</option>
+                </select>
+            </div>
+            <div class="settings-field">
+                <label for="setting-routing">Routing</label>
+                <select id="setting-routing" title="Who receives messages without @mentions">
+                    <option value="none">Only @mentions</option>
+                    <option value="all">All agents</option>
                 </select>
             </div>
             <div class="settings-divider"></div>
@@ -160,7 +194,9 @@
                             <button class="job-toggle archived" data-status="archived" onclick="toggleJobStatus('archived')" title="Closed">CLOSED</button>
                         </div>
                     </div>
-                    <div class="jobs-conv-messages" id="jobs-conv-messages"></div>
+                    <div class="jobs-conv-scroll" id="jobs-conv-scroll">
+                        <div class="jobs-conv-messages" id="jobs-conv-messages"></div>
+                    </div>
                     <div class="jobs-conv-input">
                         <div id="job-mention-menu" class="mention-menu hidden"></div>
                         <div id="job-attachments" class="job-attachments"></div>
@@ -178,6 +214,12 @@
                         </div>
                     </div>
                 </div>
+            </aside>
+            <aside id="schedules-panel" class="hidden">
+                <div class="schedules-header">
+                    <span>Scheduled tasks</span>
+                </div>
+                <div id="schedules-list"></div>
             </aside>
             <aside id="rules-panel" class="hidden">
                 <div class="rules-grip" id="rules-grip"></div>
@@ -227,6 +269,21 @@
 
     <div id="dropzone" class="hidden">
         <div class="dropzone-inner">Drop image here</div>
+    </div>
+
+    <div id="folder-picker-modal" class="folder-picker-modal hidden">
+        <div class="folder-picker-dialog">
+            <div class="folder-picker-header">
+                <h3>Select project directory</h3>
+                <button type="button" class="folder-picker-close" onclick="closeFolderPicker()" aria-label="Close">&times;</button>
+            </div>
+            <div class="folder-picker-breadcrumb" id="folder-picker-breadcrumb"></div>
+            <div class="folder-picker-list" id="folder-picker-list"></div>
+            <div class="folder-picker-actions">
+                <button type="button" class="folder-picker-select-btn" id="folder-picker-select-btn" onclick="selectCurrentFolder()">Select this folder</button>
+                <button type="button" class="folder-picker-cancel-btn" onclick="closeFolderPicker()">Cancel</button>
+            </div>
+        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
