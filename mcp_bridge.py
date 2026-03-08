@@ -57,7 +57,7 @@ _MCP_INSTRUCTIONS = (
     "  - All Google products (Gemini CLI, gemini-cli, aistudio, etc.) → base: \"gemini\"\n"
     "  - All Alibaba/Qwen products (Qwen Code, qwen-cli, etc.) → base: \"qwen\"\n"
     "  - Humans use their own name (e.g. \"user\")\n"
-    "Do NOT use your CLI tool name (e.g. \"gemini-cli\", \"claude-code\") — use the base name above.\n"
+    "Do NOT use your CLI tool name (e.g. \"gemini-cli\", \"claude-code\", \"qwen-code\") — use the base name above.\n"
     "IMPORTANT: When multiple instances run, the server renames slot 1 (e.g. \"claude\" → \"claude-1\"). "
     "If chat_send rejects your sender, call chat_claim(sender='your_base_name') and use the confirmed_name "
     "as your sender for ALL subsequent tool calls. The confirmed_name overrides the base name.\n\n"

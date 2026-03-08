@@ -452,8 +452,12 @@ def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = Fals
                         prompt = custom_prompt
                     elif job_id:
                         prompt = f"mcp read job_id={job_id} - you were mentioned in a job thread, take appropriate action"
+                        if trigger_suffix:
+                            prompt += f" {trigger_suffix}"
                     else:
                         prompt = f"mcp read #{channel} - you were mentioned, take appropriate action"
+                        if trigger_suffix:
+                            prompt += f" {trigger_suffix}"
 
                     # Use current identity (may have changed via rename)
                     current_name, _ = get_identity_fn()
