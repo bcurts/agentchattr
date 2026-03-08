@@ -903,8 +903,9 @@ async function openJobConversation(jobId) {
         briefEl = document.createElement('div');
         briefEl.className = 'job-brief-card';
         briefEl.innerHTML = `<div class="job-brief-text">${window.renderMarkdown(job.body)}</div>`;
+        const scrollContainer = document.getElementById('jobs-conv-scroll');
         const messagesContainer = document.getElementById('jobs-conv-messages');
-        messagesContainer.parentNode.insertBefore(briefEl, messagesContainer);
+        scrollContainer.insertBefore(briefEl, messagesContainer);
     }
 
     // Load messages before showing the view
@@ -970,7 +971,8 @@ async function loadJobMessages(jobId) {
             appendJobMessage(msg);
         }
 
-        container.scrollTop = container.scrollHeight;
+        const scrollEl = document.getElementById('jobs-conv-scroll');
+        if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
         return msgs;
     } catch (e) {
         container.innerHTML = '<div class="jobs-empty">Failed to load messages.</div>';
@@ -1419,8 +1421,8 @@ function handleJobEvent(action, data) {
         // If we're viewing this job, append the message. Otherwise count unread.
         if (isViewingThis) {
             appendJobMessage(data.message);
-            const container = document.getElementById('jobs-conv-messages');
-            if (container) container.scrollTop = container.scrollHeight;
+            const scrollEl = document.getElementById('jobs-conv-scroll');
+            if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
             markJobRead(data.job_id);
         } else if (!isSelfMessage) {
             jobUnread[data.job_id] = (jobUnread[data.job_id] || 0) + 1;

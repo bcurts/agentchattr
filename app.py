@@ -2,11 +2,13 @@
 
 import asyncio
 import json
+import logging
+import os
 import re as _re
+import subprocess
 import sys
 import threading
 import uuid
-import logging
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File
@@ -52,6 +54,9 @@ room_settings: dict = {
     "channels": ["general"],
     "history_limit": "all",
     "contrast": "normal",
+    "routing_default": "none",
+    "project_dir": "",
+    "auto_approve": False,
 }
 
 # Channel validation
@@ -60,6 +65,60 @@ MAX_CHANNELS = 8
 
 # Agent hats (persisted to data/hats.json)
 agent_hats: dict[str, str] = {}  # { agent_name: svg_string }
+
+
+# ---------------------------------------------------------------------------
+# Auto-trust helpers — called whenever project_dir is set in settings
+# ---------------------------------------------------------------------------
+
+def _gemini_trust_folder(folder: Path) -> None:
+    """Write TRUST_FOLDER for *folder* into ~/.gemini/trustedFolders.json.
+
+    Gemini CLI blocks ALL MCPs (even system-settings ones) for untrusted
+    folders.  A more-specific TRUST_FOLDER entry overrides any parent
+    DO_NOT_TRUST rule, so we always write the exact path we're working in.
+    Respects the GEMINI_CLI_TRUSTED_FOLDERS_PATH env override if set.
+    """
+    trusted_path_env = os.environ.get("GEMINI_CLI_TRUSTED_FOLDERS_PATH", "")
+    trusted_file = Path(trusted_path_env) if trusted_path_env else Path.home() / ".gemini" / "trustedFolders.json"
+    try:
+        data: dict = {}
+        if trusted_file.exists():
+            try:
+                data = json.loads(trusted_file.read_text("utf-8"))
+            except Exception:
+                data = {}
+        folder_key = str(folder.resolve())
+        if data.get(folder_key) == "TRUST_FOLDER":
+            return
+        data[folder_key] = "TRUST_FOLDER"
+        trusted_file.parent.mkdir(parents=True, exist_ok=True)
+        trusted_file.write_text(json.dumps(data, indent=2) + "\n", "utf-8")
+        logging.getLogger(__name__).info("Gemini: trusted folder %s", folder_key)
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not update Gemini trusted folders: %s", exc)
+
+
+def _auto_trust_project_dir(project_dir_str: str) -> None:
+    """Trust *project_dir_str* for every agent that requires explicit folder trust.
+
+    Currently handles:
+      - Gemini CLI  → ~/.gemini/trustedFolders.json
+    Add additional agents here as needed.
+    """
+    if not project_dir_str:
+        return
+    folder = Path(project_dir_str)
+    if not folder.is_dir():
+        return
+
+    # Gemini: always trust — MCPs are blocked for untrusted folders
+    agents_cfg = config.get("agents", {})
+    for agent_name, agent_cfg in agents_cfg.items():
+        cmd = agent_cfg.get("command", agent_name)
+        if cmd == "gemini" or agent_name == "gemini" or agent_cfg.get("mcp_inject") == "env":
+            _gemini_trust_folder(folder)
+            break  # only need to write once per directory
 
 
 def _hats_path() -> Path:
@@ -135,6 +194,8 @@ def _load_settings():
         room_settings["channels"] = ["general"]
     elif "general" not in room_settings["channels"]:
         room_settings["channels"].insert(0, "general")
+    # Re-apply folder trust on startup so agents always launch into a trusted dir
+    _auto_trust_project_dir(room_settings.get("project_dir", ""))
 
 
 def _save_settings():
@@ -184,7 +245,7 @@ def _install_security_middleware(token: str, cfg: dict):
             if path == "/" or path.startswith(("/static/", "/uploads/", "/api/roles")):
                 return await call_next(request)
 
-            # Agent registration/heartbeat: loopback only (no remote agent minting).
+            # Agent registration/heartbeat/settings: loopback only (wrappers need settings at startup).
             if path.startswith(("/api/register", "/api/deregister/", "/api/heartbeat/")):
                 client_ip = request.client.host if request.client else ""
                 if client_ip not in ("127.0.0.1", "::1", "localhost"):
@@ -193,6 +254,10 @@ def _install_security_middleware(token: str, cfg: dict):
                         status_code=403,
                     )
                 return await call_next(request)
+            if path == "/api/settings" and request.method == "GET":
+                client_ip = request.client.host if request.client else ""
+                if client_ip in ("127.0.0.1", "::1", "localhost"):
+                    return await call_next(request)
 
             # --- Origin check (blocks cross-origin / DNS-rebinding attacks) ---
             origin = request.headers.get("origin")
@@ -298,9 +363,15 @@ def configure(cfg: dict, session_token: str = ""):
     _load_settings()
     _load_hats()
 
+    # Wire spawn function into mcp_bridge so agents can call chat_spawn
+    import mcp_bridge as _mb
+    _mb._spawn_fn = _spawn_agent
+
     # Apply saved loop guard setting
     if "max_agent_hops" in room_settings:
         router.max_hops = room_settings["max_agent_hops"]
+    if "routing_default" in room_settings:
+        router.default_mention = room_settings["routing_default"]
 
     # Background thread: check for wrapper recovery flag files
     _data_dir = Path(data_dir)
@@ -962,7 +1033,11 @@ async def websocket_endpoint(websocket: WebSocket):
     # Send base agent colors (used for message coloring, no pills)
     base_colors = {}
     for name, cfg in config.get("agents", {}).items():
-        base_colors[name] = {"color": cfg.get("color", "#888"), "label": cfg.get("label", name)}
+        base_colors[name] = {
+            "color": cfg.get("color", "#888"),
+            "label": cfg.get("label", name),
+            "spawnable": bool(cfg.get("command") and cfg.get("type") != "api"),
+        }
     await websocket.send_text(json.dumps({"type": "base_colors", "data": base_colors}))
 
     # Send todos {msg_id: status}
@@ -1191,6 +1266,14 @@ async def websocket_endpoint(websocket: WebSocket):
                             room_settings["history_limit"] = max(1, min(val_int, 10000))
                         except (ValueError, TypeError):
                             pass
+                if "routing_default" in new and new["routing_default"] in ("none", "all"):
+                    room_settings["routing_default"] = new["routing_default"]
+                    router.default_mention = new["routing_default"]
+                if "project_dir" in new and isinstance(new["project_dir"], str):
+                    room_settings["project_dir"] = new["project_dir"].strip()
+                    _auto_trust_project_dir(room_settings["project_dir"])
+                if "auto_approve" in new:
+                    room_settings["auto_approve"] = bool(new["auto_approve"])
                 _save_settings()
                 await broadcast_settings()
 
@@ -1400,6 +1483,248 @@ async def get_status():
 @app.get("/api/settings")
 async def get_settings():
     return room_settings
+
+
+@app.get("/api/terminal/{agent_name}")
+async def get_terminal(agent_name: str, lines: int = 50):
+    """Capture tmux pane output for an agent's terminal. Mac/Linux only.
+
+    Query param `lines` controls how many lines back to capture (default 50,
+    max 500). Scrollback is cleared on each agent registration so only content
+    from the *current* session is ever returned.
+    """
+    if sys.platform == "win32":
+        return {"available": False}
+    session_name = f"agentchattr-{agent_name}"
+    history = max(1, min(int(lines), 500))
+    try:
+        result = subprocess.run(
+            ["tmux", "capture-pane", "-t", session_name, "-p", "-S", f"-{history}"],
+            capture_output=True,
+            timeout=2,
+        )
+        if result.returncode != 0:
+            return {"available": False}
+        raw = result.stdout.decode("utf-8", errors="replace")
+        out_lines = raw.strip().split("\n")
+        return {"available": True, "lines": out_lines, "raw": raw}
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return {"available": False}
+
+
+@app.post("/api/terminal/{agent_name}/input")
+async def send_terminal_input(agent_name: str, request: Request):
+    """Send keystrokes to an agent's tmux session. Mac/Linux only."""
+    if sys.platform == "win32":
+        return JSONResponse({"error": "not supported on Windows"}, status_code=400)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+    text = body.get("text", "")
+    enter = body.get("enter", True)
+    session_name = f"agentchattr-{agent_name}"
+    try:
+        if text:
+            subprocess.run(
+                ["tmux", "send-keys", "-t", session_name, "-l", text],
+                capture_output=True,
+                timeout=2,
+            )
+        if enter:
+            subprocess.run(
+                ["tmux", "send-keys", "-t", session_name, "Enter"],
+                capture_output=True,
+                timeout=2,
+            )
+        return {"ok": True}
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+def _browse_roots() -> list[dict]:
+    """Return platform-specific root entries for directory browser."""
+    roots = []
+    if sys.platform == "darwin":
+        for name, p in [("Users", "/Users"), ("Volumes", "/Volumes")]:
+            if Path(p).exists():
+                roots.append({"name": name, "path": p})
+    elif sys.platform == "win32":
+        import string
+        for letter in string.ascii_uppercase:
+            p = f"{letter}:\\"
+            if Path(p).exists():
+                roots.append({"name": p, "path": p})
+    else:
+        for name, p in [("home", "/home"), ("mnt", "/mnt"), ("root", "/")]:
+            if Path(p).exists():
+                roots.append({"name": name, "path": p})
+    return roots
+
+
+@app.get("/api/browse")
+async def browse_directories(path: str = ""):
+    """List directories for folder picker. path='' returns roots."""
+    if not path or path in ("/", "\\"):
+        return {"path": "", "directories": _browse_roots(), "parent": None}
+    try:
+        p = Path(path).resolve()
+        if not p.is_dir():
+            return JSONResponse({"error": "not a directory"}, status_code=400)
+        parent = str(p.parent) if p.parent != p else None
+        dirs = []
+        for child in sorted(p.iterdir()):
+            if child.is_dir() and not child.name.startswith("."):
+                dirs.append({"name": child.name, "path": str(child.resolve())})
+        return {"path": str(p), "directories": dirs, "parent": parent}
+    except (OSError, PermissionError) as e:
+        return JSONResponse({"error": str(e)}, status_code=403)
+
+
+@app.post("/api/agents/start")
+async def start_all_agents():
+    """Launch all CLI agents in separate Terminal windows (server must already be running)."""
+    ROOT = Path(__file__).parent
+    start_script = ROOT / "macos-linux" / "start_all.sh"
+    if not start_script.exists():
+        return JSONResponse({"error": "start_all.sh not found"}, status_code=500)
+    try:
+        agents_cfg = config.get("agents", {})
+        cli_agents = [k for k, v in agents_cfg.items() if v.get("command") and v.get("type") != "api"]
+        subprocess.Popen(
+            ["sh", str(start_script)],
+            cwd=str(ROOT),
+            start_new_session=True,
+        )
+        return JSONResponse({"started": cli_agents, "message": "Launching agents in Terminal windows..."})
+    except Exception as e:
+        log.warning("Failed to start agents: %s", e)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/api/agents/stop")
+async def stop_all_agents():
+    """Kill all agent wrapper processes (does not stop the server)."""
+    try:
+        import psutil
+        killed = 0
+        my_pid = os.getpid()
+        for proc in psutil.process_iter(["pid", "cmdline", "name"]):
+            try:
+                if proc.info["pid"] == my_pid:
+                    continue
+                cmdline = proc.info.get("cmdline") or []
+                cmdstr = " ".join(str(c) for c in cmdline)
+                if "wrapper.py" in cmdstr and "run.py" not in cmdstr:
+                    proc.kill()
+                    killed += 1
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+        return JSONResponse({"ok": True, "message": f"Stopped {killed} agent(s)"})
+    except ImportError:
+        return JSONResponse({"error": "psutil not installed"}, status_code=500)
+    except Exception as e:
+        log.warning("Failed to stop agents: %s", e)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+def _spawn_agent(agent: str, guidance: str = "", label: str = "") -> dict:
+    """Spawn a new wrapper instance for *agent*.  Runs synchronously (blocks up to 12s).
+
+    Launches wrapper.py headlessly: tmux attach-session silently fails without a
+    tty, so the wrapper enters its monitor loop and stays alive until the agent
+    tmux session is killed.  Returns {ok, name} or {error}.
+    """
+    import time as _time
+
+    ROOT = Path(__file__).parent
+    agents_cfg = config.get("agents", {})
+
+    if agent not in agents_cfg:
+        return {"error": f"unknown agent: {agent}"}
+    cfg = agents_cfg[agent]
+    if cfg.get("type") == "api":
+        return {"error": f"'{agent}' is an API agent and cannot be spawned"}
+    if not cfg.get("command"):
+        return {"error": f"'{agent}' has no command configured"}
+
+    before = set(registry.get_all_names()) if registry else set()
+
+    spawn_log = ROOT / config.get("server", {}).get("data_dir", "data") / f"spawn-{agent}.log"
+    spawn_log.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        subprocess.Popen(
+            [sys.executable, str(ROOT / "wrapper.py"), agent] + (["--label", label] if label else []),
+            cwd=str(ROOT),
+            start_new_session=True,
+            stdin=subprocess.DEVNULL,
+            stdout=open(spawn_log, "a"),
+            stderr=subprocess.STDOUT,
+        )
+    except Exception as exc:
+        return {"error": f"failed to start wrapper: {exc}"}
+
+    # Poll registry until the new instance appears (max 12 s)
+    deadline = _time.time() + 12
+    new_name = None
+    while _time.time() < deadline:
+        if registry:
+            new_names = [
+                n for n in set(registry.get_all_names()) - before
+                if (inst := registry.get_instance(n)) and inst.get("base") == agent
+            ]
+            if new_names:
+                new_name = new_names[0]
+                break
+        _time.sleep(0.3)
+
+    if not new_name:
+        return {"error": "timed out waiting for agent to register — check spawn log"}
+
+    if guidance and guidance.strip():
+        data_dir = ROOT / config.get("server", {}).get("data_dir", "data")
+        queue_file = data_dir / f"{new_name}_queue.jsonl"
+        try:
+            queue_file.write_text(json.dumps({"prompt": guidance.strip()}) + "\n", "utf-8")
+        except Exception as exc:
+            log.warning("Could not write guidance for %s: %s", new_name, exc)
+
+    return {"ok": True, "name": new_name}
+
+
+@app.post("/api/agents/{agent}/spawn")
+async def spawn_agent(agent: str, request: Request):
+    """Spawn a new instance of *agent*.  Body: {guidance?, label?}."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    guidance = (body.get("guidance") or "").strip()
+    label = (body.get("label") or "").strip()
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, _spawn_agent, agent, guidance, label)
+    if "error" in result:
+        return JSONResponse(result, status_code=400)
+    return JSONResponse(result)
+
+
+@app.post("/api/agents/{name}/kill")
+async def kill_agent(name: str):
+    """Kill a specific agent instance by its canonical name.
+
+    Kills the agent's tmux session; the wrapper detects the dead session and
+    deregisters itself.  Works for both manually-started and UI-spawned agents.
+    """
+    if not registry or not registry.is_registered(name):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    killed_sessions = []
+    if sys.platform != "win32":
+        for session in [f"agentchattr-{name}", f"agentchattr-wrapper-{name}"]:
+            r = subprocess.run(["tmux", "kill-session", "-t", session],
+                               capture_output=True, timeout=3)
+            if r.returncode == 0:
+                killed_sessions.append(session)
+    return JSONResponse({"ok": True, "name": name, "sessions_killed": killed_sessions})
 
 
 @app.delete("/api/hat/{agent_name}")
@@ -1847,6 +2172,16 @@ async def register_agent(request: Request):
     import mcp_bridge
     with mcp_bridge._presence_lock:
         mcp_bridge._presence[result["name"]] = __import__("time").time()
+    # Clear the tmux pane scrollback so the terminal popover only shows
+    # content from this session, not stale output from before a server restart.
+    if sys.platform != "win32":
+        try:
+            subprocess.run(
+                ["tmux", "clear-history", "-t", f"agentchattr-{result['name']}"],
+                capture_output=True, timeout=2,
+            )
+        except Exception:
+            pass
     # If slot 1 was renamed (e.g. "claude" → "claude-1"), migrate state
     renamed = result.pop("_renamed_slot1", None)
     if renamed:

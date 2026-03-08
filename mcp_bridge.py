@@ -847,9 +847,40 @@ def chat_summary(
     return f"Unknown action: {action}. Valid actions: read, write."
 
 
+_spawn_fn = None  # set by app.configure() → _spawn_agent
+
+
+def chat_spawn(
+    agent: str,
+    guidance: str = "",
+    label: str = "",
+    ctx: Context | None = None,
+) -> str:
+    """Spawn a new instance of an agent, optionally with initial guidance.
+
+    Args:
+        agent: base agent name to spawn (e.g. "gemini", "claude", "codex")
+        guidance: first prompt injected into the new instance's queue
+        label: optional custom display label for the new instance
+
+    Returns the assigned name (e.g. "gemini-2") on success, or an error string.
+    This call blocks up to ~12 seconds while waiting for the instance to register.
+    """
+    if _spawn_fn is None:
+        return "Error: spawn is not available in this environment."
+    result = _spawn_fn(agent, guidance, label)
+    if "error" in result:
+        return f"Error: {result['error']}"
+    name = result.get("name", "?")
+    if guidance:
+        snippet = guidance[:80] + ("…" if len(guidance) > 80 else "")
+        return f"Spawned {name}. Guidance injected: '{snippet}'"
+    return f"Spawned {name}."
+
+
 _ALL_TOOLS = [
     chat_send, chat_read, chat_resync, chat_join, chat_who, chat_rules, chat_decision,
-    chat_channels, chat_set_hat, chat_claim, chat_summary, chat_propose_job,
+    chat_channels, chat_set_hat, chat_claim, chat_summary, chat_propose_job, chat_spawn,
 ]
 
 
