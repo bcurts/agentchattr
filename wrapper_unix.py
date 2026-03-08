@@ -39,7 +39,7 @@ def _check_tmux():
     sys.exit(1)
 
 
-def inject(text: str, *, tmux_session: str):
+def inject(text: str, *, tmux_session: str, delay: float = 0.3):
     """Send text + Enter to a tmux session via send-keys."""
     # Use -l to send text literally (avoids misinterpreting as key names),
     # then send Enter as a separate key press
@@ -48,7 +48,7 @@ def inject(text: str, *, tmux_session: str):
         capture_output=True,
     )
     # Let TUI process the text before sending Enter (matches Windows wrapper)
-    time.sleep(0.3)
+    time.sleep(delay)
     subprocess.run(
         ["tmux", "send-keys", "-t", tmux_session, "Enter"],
         capture_output=True,
@@ -92,6 +92,7 @@ def run_agent(
     pid_holder=None,
     session_name=None,
     inject_env=None,
+    inject_delay: float = 0.3,
 ):
     """Run agent inside a tmux session, inject via tmux send-keys."""
     _check_tmux()
@@ -121,7 +122,7 @@ def run_agent(
     abs_cwd = str(Path(cwd).resolve())
 
     # Wire up injection with the tmux session name
-    inject_fn = lambda text: inject(text, tmux_session=session_name)
+    inject_fn = lambda text: inject(text, tmux_session=session_name, delay=inject_delay)
     start_watcher(inject_fn)
 
     print(f"  Using tmux session: {session_name}")

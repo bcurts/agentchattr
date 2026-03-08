@@ -55,7 +55,7 @@ def _write_key(handle, char: str, key_down: bool, vk: int = 0, scan: int = 0):
     kernel32.WriteConsoleInputW(handle, ctypes.byref(rec), 1, ctypes.byref(written))
 
 
-def inject(text: str):
+def inject(text: str, *, delay: float = 0.3):
     """Inject text + Enter into the current console via WriteConsoleInput."""
     handle = kernel32.GetStdHandle(STD_INPUT_HANDLE)
 
@@ -64,7 +64,7 @@ def inject(text: str):
         _write_key(handle, ch, False)
 
     # Let TUI process the text before sending Enter
-    time.sleep(0.3)
+    time.sleep(delay)
 
     _write_key(handle, "\r", True, vk=VK_RETURN, scan=0x1C)
     _write_key(handle, "\r", False, vk=VK_RETURN, scan=0x1C)
@@ -229,11 +229,11 @@ def get_activity_checker(pid_holder, agent_name="unknown", trigger_flag=None):
     return check
 
 
-def run_agent(command, extra_args, cwd, env, queue_file, agent, no_restart, start_watcher, strip_env=None, pid_holder=None, session_name=None, inject_env=None):
+def run_agent(command, extra_args, cwd, env, queue_file, agent, no_restart, start_watcher, strip_env=None, pid_holder=None, session_name=None, inject_env=None, inject_delay: float = 0.3):
     """Run agent as a direct subprocess, inject via Win32 console."""
     if inject_env:
         env = {**env, **inject_env}
-    start_watcher(inject)
+    start_watcher(lambda text: inject(text, delay=inject_delay))
 
     while True:
         try:
