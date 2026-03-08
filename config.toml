@@ -31,6 +31,12 @@ cwd = ".."
 color = "#1783ff"
 label = "Kimi"
 
+[agents.kilo]
+command = "kilo"
+cwd = ".."
+color = "#ff6b35"
+label = "Kilo"
+
 [routing]
 # "none" = only route on explicit @mention. "all" = route to all agents by default.
 default = "none"
