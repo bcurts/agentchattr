@@ -101,8 +101,9 @@ _MCP_INSTRUCTIONS = (
     "Do NOT summarize just because a task was discussed or abandoned — wait for the 20-message threshold or a human request. "
     "Keep summaries factual and concise (under 150 words) — focus on decisions made, tasks completed, and open questions.\n\n"
     "Jobs are bounded work conversations — like Slack threads with status tracking. "
-    "When you are triggered with job_id=N, use chat_read(job_id=N) to read the job conversation, "
-    "then use chat_send(job_id=N, message='...') to reply within it. "
+    "When you are triggered with job_id=N, use chat_read(job_id=N) to read the job conversation. "
+    "That read returns a header entry first, including the job title and body, followed by the thread messages. "
+    "Then use chat_send(job_id=N, message='...') to reply within it. "
     "Job conversations are separate from the main timeline — your response should go to the job, not the channel.\n\n"
     "CRITICAL — Proposing Jobs:\n"
     "Agents must ONLY propose jobs using chat_propose_job when explicitly asked by the user, OR when the request is a clearly 'scoped task'. "
@@ -527,17 +528,37 @@ def chat_read(
     - Pass since_id to override and read from a specific point.
     - Omit sender to always get the last `limit` messages (no cursor).
     - Pass channel to filter by channel name (default: all channels).
-    - Pass job_id to read messages from a specific job."""
+    - Pass job_id to read a specific job. Job reads return a header entry first,
+      including title and body, followed by the thread messages."""
     sender, err = _resolve_tool_identity(sender, ctx, field_name="sender", required=False)
     if err:
         return err
 
-    # Job-scoped read: return messages from the job store
+    # Job-scoped read: return job metadata plus the thread messages
     if job_id and jobs:
+        job = jobs.get(job_id)
         msgs = jobs.get_messages(job_id)
-        if msgs is None:
+        if job is None or msgs is None:
             return f"Error: job #{job_id} not found."
-        out = []
+        title = (job.get("title") or "").strip()
+        body = (job.get("body") or "").strip()
+        header_text = f"Job: {title}" if title else f"Job #{job_id}"
+        if body:
+            header_text += f"\nDescription: {body}"
+        out = [{
+            "id": -1,
+            "sender": "system",
+            "text": header_text,
+            "type": "job_header",
+            "time": "",
+            "job_id": job_id,
+            "title": title,
+            "body": body,
+            "status": job.get("status", ""),
+            "channel": job.get("channel", ""),
+            "created_by": job.get("created_by", ""),
+            "assignee": job.get("assignee", ""),
+        }]
         for m in msgs:
             entry = {"id": m["id"], "sender": m["sender"], "text": m["text"],
                      "time": m.get("time", ""), "job_id": job_id}
@@ -548,7 +569,7 @@ def chat_read(
             if m.get("resolved"):
                 entry["resolved"] = m["resolved"]
             out.append(entry)
-        return json.dumps(out, ensure_ascii=False) if out else "No messages in this job yet."
+        return json.dumps(out, ensure_ascii=False)
 
     ch = channel if channel else None
     if since_id:

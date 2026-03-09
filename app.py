@@ -660,10 +660,12 @@ async def _handle_new_message(msg: dict):
     is_agent_session_draft = bool(draft_match and sender in known_agents)
     is_hidden_session_request = msg_type == "session_request"
 
+    is_agent_continue = (stripped == "/continue" and sender in known_agents)
     suppress_broadcast = (
         is_broadcast_cmd
         or is_hidden_session_request
         or is_agent_session_draft
+        or is_agent_continue
     )
 
     if not suppress_broadcast:
@@ -680,6 +682,9 @@ async def _handle_new_message(msg: dict):
 
     # Check for slash commands — use stripped text (sans @mentions)
     if stripped == "/continue":
+        if sender in known_agents:
+            store.add("system", f"Loop guard: only humans can /continue. {sender} tried to self-resume.", channel=channel)
+            return
         router.continue_routing(channel)
         store.add("system", f"Routing resumed by {sender}.", channel=channel)
         await broadcast_status()
