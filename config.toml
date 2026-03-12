@@ -31,6 +31,17 @@ cwd = ".."
 color = "#1783ff"
 label = "Kimi"
 
+[agents.qwen]
+command = "qwen"
+cwd = ".."
+color = "#8b5cf6"
+label = "Qwen"
+mcp_inject = "settings_file"
+mcp_settings_path = ".qwen/settings.json"
+mcp_transport = "http"
+mcp_url_key = "httpUrl"
+inject_delay = 1.0
+
 [routing]
 # "none" = only route on explicit @mention. "all" = route to all agents by default.
 default = "none"
@@ -62,7 +73,8 @@ max_size_mb = 10
 #   label = "Qwen"
 #   mcp_inject = "settings_file"
 #   mcp_settings_path = ".qwen/settings.json"
-#   mcp_transport = "sse"
+#   mcp_transport = "http"
+#   mcp_url_key = "httpUrl"           # Qwen uses 'httpUrl' instead of type+url
 #
 # Example: CLI with env var for settings
 #   [agents.mycli]

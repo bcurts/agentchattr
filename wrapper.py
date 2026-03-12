@@ -5,6 +5,7 @@ Usage:
     python wrapper.py codex
     python wrapper.py gemini
     python wrapper.py kimi
+    python wrapper.py qwen
 
 Cross-platform:
   - Windows: injects keystrokes via Win32 WriteConsoleInput (wrapper_windows.py)
@@ -35,7 +36,7 @@ SERVER_NAME = "agentchattr"
 # ---------------------------------------------------------------------------
 
 def _write_json_mcp_settings(config_file: Path, url: str, transport: str = "http",
-                              *, token: str = "") -> Path:
+                              *, token: str = "", url_key: str | None = None) -> Path:
     """Write/merge a settings-style JSON file with nested mcpServers config.
 
     Preserves existing servers in the file — only updates the agentchattr entry.
@@ -203,7 +204,8 @@ def _apply_mcp_inject(
             base = Path(project_dir) if project_dir else Path.cwd()
             target = base / target
         settings_path = _write_json_mcp_settings(target, server_url,
-                                                  transport=transport, token=token)
+                                                  transport=transport, token=token,
+                                                  url_key=inject_cfg.get("mcp_url_key"))
         # Optionally set an env var pointing to the settings file
         env_var = inject_cfg.get("mcp_env_var")
         if env_var:
@@ -217,6 +219,7 @@ def _apply_mcp_inject(
         settings_path = _write_json_mcp_settings(
             config_dir / f"{instance_name}-settings.json",
             server_url, transport=transport, token=token,
+            url_key=inject_cfg.get("mcp_url_key"),
         )
         inject_env[env_var] = str(settings_path)
 
@@ -825,6 +828,7 @@ def main():
         strip_env=list(strip_vars),
         pid_holder=_agent_pid,
         inject_env=inject_env,
+        inject_delay=agent_cfg.get("inject_delay", 0.3),
     )
     if sys.platform != "win32":
         run_kwargs["session_name"] = unix_session_name

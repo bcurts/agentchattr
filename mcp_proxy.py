@@ -7,7 +7,7 @@ server-issued bearer token, so agents never need to know
 their own name or auth material.
 
 Supports both transports:
-  - streamable-http (Claude, Codex): POST /mcp, GET /mcp, DELETE /mcp
+  - streamable-http (Claude, Codex, Qwen): POST /mcp, GET /mcp, DELETE /mcp
   - SSE (Gemini): GET /sse → event stream, POST /messages/ → tool calls
 
 Usage (from wrapper.py):
