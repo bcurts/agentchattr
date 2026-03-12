@@ -1566,7 +1566,17 @@ async function _doConvertToJob() {
 
     closeConvertJobModal();
 
-    // Silently trigger the agent to propose a job — no visible chat message
+    // Show status message while agent drafts the job card
+    const statusMsg = {
+        id: Date.now(),
+        sender: 'system',
+        type: 'system',
+        text: `Asking @${agent} to create a job card\u2026`,
+        channel: window.activeChannel,
+        time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+    };
+    if (window.appendMessage) window.appendMessage(statusMsg);
+
     const instruction = `${window.username}: Please read the following message and use chat_propose_job to propose it as a job. Write a concise title (max 80 chars) and a clear body (max 500 chars) summarizing the task:\n\n---\n${rawText.substring(0, 800)}\n---`;
 
     try {

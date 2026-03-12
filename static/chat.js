@@ -859,6 +859,7 @@ function scrollToBottom() {
     updateScrollAnchor();
 }
 window.scrollToBottom = scrollToBottom;
+window.appendMessage = appendMessage;
 
 function updateScrollAnchor() {
     const anchor = document.getElementById('scroll-anchor');
