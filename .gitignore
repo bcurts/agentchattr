@@ -16,9 +16,9 @@ build/
 .idea/
 .gemini/
 .claude/
-tests/
 agents_lineup.svg
 docs/
 goals.py
 pr-reviews/
 agentchattr-*.zip
+kxaichattr-*.zip

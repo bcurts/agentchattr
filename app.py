@@ -1,4 +1,4 @@
-"""agentchattr — FastAPI web UI + agent auto-trigger."""
+"""KxAIChattr — FastAPI web UI + agent auto-trigger."""
 
 import asyncio
 import json
@@ -27,7 +27,7 @@ from session_engine import SessionEngine
 
 log = logging.getLogger(__name__)
 
-app = FastAPI(title="agentchattr")
+app = FastAPI(title="KxAIChattr")
 
 # --- globals (set by configure()) ---
 store: MessageStore | None = None
@@ -48,7 +48,7 @@ session_token: str = ""
 
 # Room settings (persisted to data/settings.json)
 room_settings: dict = {
-    "title": "agentchattr",
+    "title": "KxAIChattr",
     "username": "user",
     "font": "sans",
     "channels": ["general"],
@@ -207,9 +207,14 @@ def _install_security_middleware(token: str, cfg: dict):
 
             # --- Token check ---
             # Allow registered agents to authenticate via Bearer token
-            # for /api/messages and /api/send (no browser session needed).
+            # for chat read/write endpoints (no browser session needed).
             auth_header = request.headers.get("authorization", "")
-            if auth_header.lower().startswith("bearer ") and (path in ("/api/messages", "/api/send") or path.startswith("/api/rules/")):
+            allow_agent_bearer = (
+                path in ("/api/messages", "/api/send")
+                or path.startswith("/api/rules/")
+                or (path.startswith("/api/jobs/") and path.endswith("/messages"))
+            )
+            if auth_header.lower().startswith("bearer ") and allow_agent_bearer:
                 bearer = auth_header[7:].strip()
                 if _self.registry and _self.registry.resolve_token(bearer):
                     return await call_next(request)
@@ -238,7 +243,11 @@ def configure(cfg: dict, session_token: str = ""):
     data_dir = cfg.get("server", {}).get("data_dir", "./data")
     Path(data_dir).mkdir(parents=True, exist_ok=True)
 
-    log_path = Path(data_dir) / "agentchattr_log.jsonl"
+    log_path = Path(data_dir) / "kxaichattr_log.jsonl"
+    # Backward compat: try legacy name
+    legacy_agentchattr_log = Path(data_dir) / "agentchattr_log.jsonl"
+    if not log_path.exists() and legacy_agentchattr_log.exists():
+        log_path = legacy_agentchattr_log
     legacy_log_path = Path(data_dir) / "room_log.jsonl"
     if not log_path.exists() and legacy_log_path.exists():
         # Backward compatibility for existing installs.
@@ -1184,7 +1193,8 @@ async def websocket_endpoint(websocket: WebSocket):
                                 channel=channel,
                                 metadata={"rule_id": rule["id"], "text": text, "status": "pending"},
                             )
-                            await broadcast(msg)
+                            # store.add() fires _on_store_message → _handle_new_message → broadcast(msg)
+                            # Do NOT call broadcast(msg) again here — that would double-send the card.
                 continue
 
             elif event.get("type") in ("decision_approve", "rule_activate"):
@@ -1234,7 +1244,7 @@ async def websocket_endpoint(websocket: WebSocket):
             elif event.get("type") == "update_settings":
                 new = event.get("data", {})
                 if "title" in new and isinstance(new["title"], str):
-                    room_settings["title"] = new["title"].strip() or "agentchattr"
+                    room_settings["title"] = new["title"].strip() or "KxAIChattr"
                 if "username" in new and isinstance(new["username"], str):
                     room_settings["username"] = new["username"].strip() or "user"
                 if "font" in new and new["font"] in ("mono", "serif", "sans"):
@@ -2400,7 +2410,7 @@ def _detect_install_kind() -> str:
             cwd=Path(__file__).parent,
         )
         url = result.stdout.strip().lower()
-        if "bcurts/agentchattr" in url:
+        if "bcurts/agentchattr" in url or "kxaichattr" in url:
             return "official_git"
         elif url:
             return "fork"
@@ -2421,7 +2431,7 @@ def _fetch_latest_release() -> dict | None:
     try:
         req = urllib.request.Request(
             "https://api.github.com/repos/bcurts/agentchattr/releases/latest",
-            headers={"Accept": "application/vnd.github+json", "User-Agent": "agentchattr"},
+            headers={"Accept": "application/vnd.github+json", "User-Agent": "KxAIChattr"},
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read())
