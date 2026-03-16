@@ -28,7 +28,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent
 
-SERVER_NAME = "agentchattr"
+SERVER_NAME = "mehub"
 
 
 # ---------------------------------------------------------------------------
@@ -39,7 +39,7 @@ def _write_json_mcp_settings(config_file: Path, url: str, transport: str = "http
                               *, token: str = "") -> Path:
     """Write/merge a settings-style JSON file with nested mcpServers config.
 
-    Preserves existing servers in the file — only updates the agentchattr entry.
+    Preserves existing servers in the file — only updates the Mehub entry.
 
     Gemini CLI 0.32+ expects:
       - "httpUrl" key (not "url") for streamable-http transport
@@ -82,7 +82,7 @@ def _read_project_mcp_servers(project_dir: Path) -> dict:
         try:
             data = json.loads(mcp_file.read_text("utf-8"))
             servers = data.get("mcpServers", {})
-            # Remove agentchattr — we'll add our own authenticated version
+            # Remove Mehub — we'll add our own authenticated version
             servers.pop(SERVER_NAME, None)
             return servers
         except Exception:
@@ -106,7 +106,7 @@ def _write_claude_mcp_config(
     # Start with other project servers (e.g. unity-mcp)
     servers = dict(project_servers or {})
 
-    # Add agentchattr with bearer token for direct server auth
+    # Add Mehub with bearer token for direct server auth
     entry: dict = {"type": "http", "url": url}
     if token:
         entry["headers"] = {"Authorization": f"Bearer {token}"}
@@ -828,7 +828,7 @@ def main():
     else:
         from wrapper_unix import get_activity_checker, run_agent
 
-        unix_session_name = f"agentchattr-{assigned_name}"
+        unix_session_name = f"mehub-{assigned_name}"
         _set_activity_checker(get_activity_checker(unix_session_name, trigger_flag=_trigger_flag))
 
     run_kwargs = dict(

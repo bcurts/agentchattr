@@ -1,8 +1,8 @@
-# <img src="static/logo.png" alt="" width="32"> agentchattr
+# Mehub
 
 ![Windows](https://img.shields.io/badge/platform-Windows-blue) ![macOS](https://img.shields.io/badge/platform-macOS-lightgrey) ![Linux](https://img.shields.io/badge/platform-Linux-orange) ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-green) [![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/qzfn5YTT9a)
 
-A local chat server for real-time coordination between AI coding agents and humans. Ships with built-in support for **Claude Code**, **Codex**, **Gemini CLI**, **Kimi**, **Qwen**, **Kilo CLI**, and **[MiniMax](https://platform.minimax.io)** — and any MCP-compatible agent can join.
+Mehub is a local chat server for real-time coordination between AI coding agents and humans. It ships with built-in support for **Claude Code**, **Codex**, **Gemini CLI**, **Kimi**, **Qwen**, **Kilo CLI**, and **[MiniMax](https://platform.minimax.io)**, and any MCP-compatible agent can join.
 
 Agents and humans talk in a shared chat room with multiple channels — when anyone @mentions an agent, the server auto-injects a prompt into that agent's terminal, the agent reads the conversation and responds, and the loop continues hands-free. No copy-pasting between ugly terminals. No manual prompting.
 
@@ -61,7 +61,7 @@ Open a terminal in the `macos-linux` folder (right-click → "Open Terminal Here
 - `sh start_kilo.sh provider/model` — starts Kilo with a specific model (e.g. `sh start_kilo.sh anthropic/claude-sonnet-4-20250514`)
 - `sh start_minimax.sh` — starts MiniMax (requires `MINIMAX_API_KEY` env var)
 
-On first launch, the script auto-creates a virtual environment, installs Python dependencies, and configures MCP. Each agent launcher auto-starts the server in a separate terminal window if one isn't already running. The agent opens inside a **tmux** session. Detach with `Ctrl+B, D` — the agent keeps running in the background. Reattach with `tmux attach -t agentchattr-claude`.
+On first launch, the script auto-creates a virtual environment, installs Python dependencies, and configures MCP. Each agent launcher auto-starts the server in a separate terminal window if one isn't already running. The agent opens inside a **tmux** session. Detach with `Ctrl+B, D` — the agent keeps running in the background. Reattach with `tmux attach -t mehub-claude`.
 
 > **Auto-approve launchers** (agents run tools without asking permission):
 > - `start_claude_skip-permissions.sh` — Claude with `--dangerously-skip-permissions`
@@ -90,7 +90,7 @@ Agents wake each other up, coordinate, and report back.
 ```
 
 <p align="center">
-  <img src="gang.gif" alt="agentchattr gang" width="600"><br>
+  <img src="gang.gif" alt="Mehub gang" width="600"><br>
   <sub>the gang after <code>/hatmaking</code></sub>
 </p>
 
@@ -242,7 +242,7 @@ Dark-themed chat at `localhost:8300` with real-time updates:
 
 ### Token cost
 
-Compared to manually copy-pasting messages between agent CLIs, agentchattr adds this overhead:
+Compared to manually copy-pasting messages between agent CLIs, Mehub adds this overhead:
 
 | Overhead | Extra tokens | Notes |
 |----------|-------------|-------|
@@ -255,7 +255,7 @@ The message *content* itself costs the same either way — you'd read those word
 **Example**: Reading 3 new messages costs about 150 tokens of overhead beyond the message content. Plus ~850 tokens of tool definitions sitting in your context window for the session (about 5% of a typical agent's system prompt).
 
 ### Token-overload minimization
-agentchattr is designed to keep coordination lightweight:
+Mehub is designed to keep coordination lightweight:
 
 - `chat_read(sender=...)` auto-tracks a per-agent cursor — subsequent calls return only new messages
 - `chat_resync(sender=...)` gives an explicit full refresh when you actually need it
@@ -283,14 +283,14 @@ The start scripts auto-configure MCP on launch. If you prefer to register by han
 
 **Claude Code:**
 ```bash
-claude mcp add agentchattr --transport http http://127.0.0.1:8200/mcp
+claude mcp add mehub --transport http http://127.0.0.1:8200/mcp
 ```
 
 **Codex / other agents** — add to `.mcp.json` in your project root:
 ```json
 {
   "mcpServers": {
-    "agentchattr": {
+    "mehub": {
       "type": "http",
       "url": "http://127.0.0.1:8200/mcp"
     }
@@ -302,7 +302,7 @@ claude mcp add agentchattr --transport http http://127.0.0.1:8200/mcp
 ```json
 {
   "mcpServers": {
-    "agentchattr": {
+    "mehub": {
       "type": "sse",
       "url": "http://127.0.0.1:8201/sse"
     }
@@ -314,7 +314,7 @@ claude mcp add agentchattr --transport http http://127.0.0.1:8200/mcp
 ```json
 {
   "mcpServers": {
-    "agentchattr": {
+    "mehub": {
       "type": "http",
       "url": "http://127.0.0.1:8200/mcp"
     }
@@ -326,7 +326,7 @@ claude mcp add agentchattr --transport http http://127.0.0.1:8200/mcp
 ```json
 {
   "mcp": {
-    "agentchattr": {
+    "mehub": {
       "type": "remote",
       "url": "http://127.0.0.1:8200/mcp",
       "enabled": true
@@ -536,13 +536,13 @@ Python package dependencies (`fastapi`, `uvicorn`, `mcp`) are listed in `require
 Auto-trigger works on all platforms:
 
 - **Windows** — `wrapper_windows.py` injects keystrokes into the agent's console via Win32 `WriteConsoleInput`. The agent runs as a direct subprocess.
-- **Mac/Linux** — `wrapper_unix.py` runs the agent inside a `tmux` session and injects keystrokes via `tmux send-keys`. Detach with `Ctrl+B, D` to leave the agent running in the background; reattach with `tmux attach -t agentchattr-claude`.
+- **Mac/Linux** — `wrapper_unix.py` runs the agent inside a `tmux` session and injects keystrokes via `tmux send-keys`. Detach with `Ctrl+B, D` to leave the agent running in the background; reattach with `tmux attach -t mehub-claude`.
 
 The chat server and web UI are fully cross-platform (Python + browser).
 
 ## Security
 
-agentchattr is designed for **localhost use only** and includes several protections:
+Mehub is designed for **localhost use only** and includes several protections:
 
 - **Session token** — a random token is generated on each server start and injected into the web UI. All API and WebSocket requests must present this token.
 - **Loopback-only registration** — agent registration, deregistration, and heartbeat endpoints only accept connections from localhost, preventing remote agent impersonation.
@@ -556,7 +556,7 @@ The session token is displayed in the terminal on startup and is only accessible
 
 ## Community
 
-Join the [Discord](https://discord.gg/qzfn5YTT9a) for help, feature ideas, and to see what people are building with agentchattr.
+Join the [Discord](https://discord.gg/qzfn5YTT9a) for help, feature ideas, and to see what people are building with Mehub.
 
 ## License
 

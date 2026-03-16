@@ -1,5 +1,5 @@
 /**
- * AgentChattr UI — TypeScript types
+ * Mehub UI — TypeScript types
  *
  * STRICT: derived 1:1 from backend source code.
  * Reference: plans/ui-rebuild/api-contract-strict.md

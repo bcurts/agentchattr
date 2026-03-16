@@ -1,4 +1,4 @@
-"""agentchattr — FastAPI web UI + agent auto-trigger."""
+"""Mehub — FastAPI web UI + agent auto-trigger."""
 
 import asyncio
 import json
@@ -27,7 +27,7 @@ from session_engine import SessionEngine
 
 log = logging.getLogger(__name__)
 
-app = FastAPI(title="agentchattr")
+app = FastAPI(title="Mehub")
 
 # --- globals (set by configure()) ---
 store: MessageStore | None = None
@@ -48,7 +48,7 @@ session_token: str = ""
 
 # Room settings (persisted to data/settings.json)
 room_settings: dict = {
-    "title": "agentchattr",
+    "title": "Mehub",
     "username": "user",
     "font": "sans",
     "channels": ["general"],
@@ -238,7 +238,7 @@ def configure(cfg: dict, session_token: str = ""):
     data_dir = cfg.get("server", {}).get("data_dir", "./data")
     Path(data_dir).mkdir(parents=True, exist_ok=True)
 
-    log_path = Path(data_dir) / "agentchattr_log.jsonl"
+    log_path = Path(data_dir) / "mehub_log.jsonl"
     legacy_log_path = Path(data_dir) / "room_log.jsonl"
     if not log_path.exists() and legacy_log_path.exists():
         # Backward compatibility for existing installs.
@@ -1235,7 +1235,7 @@ async def websocket_endpoint(websocket: WebSocket):
             elif event.get("type") == "update_settings":
                 new = event.get("data", {})
                 if "title" in new and isinstance(new["title"], str):
-                    room_settings["title"] = new["title"].strip() or "agentchattr"
+                    room_settings["title"] = new["title"].strip() or "Mehub"
                 if "username" in new and isinstance(new["username"], str):
                     room_settings["username"] = new["username"].strip() or "user"
                 if "font" in new and new["font"] in ("mono", "serif", "sans"):
@@ -1450,7 +1450,7 @@ async def export_history():
         )
     except Exception as exc:
         return JSONResponse({"error": f"export failed: {exc}"}, status_code=500)
-    filename = f"agentchattr-export-{_time.strftime('%Y%m%d-%H%M%S')}.zip"
+    filename = f"mehub-export-{_time.strftime('%Y%m%d-%H%M%S')}.zip"
     return Response(
         content=zip_bytes,
         media_type="application/zip",
@@ -2462,7 +2462,7 @@ def _detect_install_kind() -> str:
             cwd=Path(__file__).parent,
         )
         url = result.stdout.strip().lower()
-        if "bcurts/agentchattr" in url:
+        if "dnd288/mehub" in url:
             return "official_git"
         elif url:
             return "fork"
@@ -2482,8 +2482,8 @@ def _fetch_latest_release() -> dict | None:
 
     try:
         req = urllib.request.Request(
-            "https://api.github.com/repos/bcurts/agentchattr/releases/latest",
-            headers={"Accept": "application/vnd.github+json", "User-Agent": "agentchattr"},
+            "https://api.github.com/repos/dnd288/mehub/releases/latest",
+            headers={"Accept": "application/vnd.github+json", "User-Agent": "mehub"},
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read())

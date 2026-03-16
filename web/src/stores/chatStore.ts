@@ -10,7 +10,7 @@
 import { create } from 'zustand';
 import type { Message } from '../types';
 
-const ACTIVE_CHANNEL_KEY = 'agentchattr_active_channel';
+const ACTIVE_CHANNEL_KEY = 'mehub_active_channel';
 
 function loadPersistedChannel(): string {
   try {

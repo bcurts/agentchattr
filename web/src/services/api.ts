@@ -1,5 +1,5 @@
 /**
- * api.ts — thin REST client for AgentChattr backend.
+ * api.ts — thin REST client for the Mehub backend.
  * Auth: X-Session-Token header (injected from window.__SESSION_TOKEN__)
  * Exception: /api/send uses Authorization: Bearer
  *

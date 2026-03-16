@@ -132,7 +132,7 @@ def main():
     #             print("  Aborted.\n")
     #             sys.exit(1)
 
-    print(f"\n  agentchattr")
+    print(f"\n  Mehub")
     print(f"  Web UI:  http://{host}:{port}")
     print(f"  MCP HTTP: http://{host}:{http_port}/mcp  (Claude, Codex)")
     print(f"  MCP SSE:  http://{host}:{sse_port}/sse   (Gemini)")

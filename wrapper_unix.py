@@ -97,7 +97,7 @@ def run_agent(
     """Run agent inside a tmux session, inject via tmux send-keys."""
     _check_tmux()
 
-    session_name = session_name or f"agentchattr-{agent}"
+    session_name = session_name or f"mehub-{agent}"
     agent_cmd = " ".join(
         [shlex.quote(command)] + [shlex.quote(a) for a in extra_args]
     )

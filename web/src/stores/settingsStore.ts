@@ -6,7 +6,7 @@ import { create } from 'zustand';
 import type { RoomSettings } from '../types';
 
 const DEFAULT_SETTINGS: RoomSettings = {
-  title: 'AgentChattr',
+  title: 'Mehub',
   username: 'user',
   font: 'sans',
   channels: ['general'],
