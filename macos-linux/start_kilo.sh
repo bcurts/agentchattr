@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# agentchattr - starts server (if not running) + Kilo wrapper
+# Mehub - starts server (if not running) + Kilo wrapper
 # Usage: sh start_kilo.sh [provider/model]
 #   e.g. sh start_kilo.sh anthropic/claude-sonnet-4-20250514
 #   Omit the model to use Kilo's configured default.

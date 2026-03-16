@@ -107,7 +107,7 @@ def build_export(store, jobs_store, rules_store, summary_store,
         "schema_version": SCHEMA_VERSION,
         "archive_id": str(uuid.uuid4()),
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "product": "agentchattr",
+        "product": "mehub",
         "app_version": app_version,
         "counts": {
             "messages": len(messages_lines),
@@ -175,7 +175,7 @@ def _do_import(zip_bytes, store, jobs_store, rules_store,
         return {"ok": False, "error": "corrupt manifest.json"}
 
     if manifest.get("schema_version", 0) > SCHEMA_VERSION:
-        return {"ok": False, "error": f"unsupported archive schema_version: {manifest.get('schema_version')}. Update agentchattr to import this archive."}
+        return {"ok": False, "error": f"unsupported archive schema_version: {manifest.get('schema_version')}. Update Mehub to import this archive."}
 
     archive_info = {
         "archive_id": manifest.get("archive_id", ""),

@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# agentchattr - starts server (if not running) + Qwen wrapper (auto-approve mode)
+# Mehub - starts server (if not running) + Qwen wrapper (auto-approve mode)
 cd "$(dirname "$0")/.."
 
 PYTHON_BIN=""
@@ -61,4 +61,4 @@ if ! is_server_running; then
     done
 fi
 
-.venv/bin/python wrapper.py qwen  --yolo -i "When asked for a reply or to answer, YOU MUST USE the mcp of agentchattr. When talking about a chat, we are speaking about interaction with tools provided by mcp of agentchattr. The human NEVER SEES your usual CLI interface. Just consider this, other instructions will follow."
+.venv/bin/python wrapper.py qwen  --yolo -i "When asked for a reply or to answer, YOU MUST USE the MCP of Mehub. When talking about a chat, we mean interaction with tools provided by Mehub MCP. The human NEVER SEES your usual CLI interface. Just consider this, other instructions will follow."

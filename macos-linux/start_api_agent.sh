@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# agentchattr — starts server (if not running) + API agent wrapper
+# Mehub — starts server (if not running) + API agent wrapper
 # Usage: sh start_api_agent.sh <agent_name>
 # Example: sh start_api_agent.sh qwen
 cd "$(dirname "$0")/.."

@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# agentchattr - starts the server only
+# Mehub - starts the server only
 cd "$(dirname "$0")/.."
 
 PYTHON_BIN=""

@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# agentchattr - starts server (if not running) + Codex wrapper
+# Mehub - starts server (if not running) + Codex wrapper
 cd "$(dirname "$0")/.."
 
 PYTHON_BIN=""

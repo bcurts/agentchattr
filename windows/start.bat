@@ -1,5 +1,5 @@
 @echo off
-REM agentchattr — starts the server only
+REM Mehub — starts the server only
 cd /d "%~dp0.."
 
 REM Auto-create venv and install deps on first run

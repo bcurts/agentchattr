@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# agentchattr — starts server (if not running) + MiniMax API agent wrapper
+# Mehub — starts server (if not running) + MiniMax API agent wrapper
 # Usage: sh start_minimax.sh
 # Requires MINIMAX_API_KEY environment variable.
 cd "$(dirname "$0")/.."

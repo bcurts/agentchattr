@@ -1,6 +1,6 @@
 """Per-instance MCP identity proxy.
 
-Sits between an agent CLI and the real agentchattr MCP server.
+Sits between an agent CLI and the real Mehub MCP server.
 Intercepts tool calls and stamps the `sender`/`name` argument
 from the agent's registered identity while forwarding the
 server-issued bearer token, so agents never need to know

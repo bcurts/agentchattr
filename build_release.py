@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Build a clean release zip for agentchattr.
+"""Build a clean release zip for Mehub.
 
 Packages only user-facing files — no .git, no dev files, no logs, no caches.
-Output: agentchattr-{version}.zip in the repo root.
+Output: mehub-{version}.zip in the repo root.
 """
 
 import shutil
@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent
 VERSION = (ROOT / "VERSION").read_text().strip()
-OUT_NAME = f"agentchattr-{VERSION}"
+OUT_NAME = f"mehub-{VERSION}"
 
 # Files and dirs to include (relative to repo root)
 INCLUDE_FILES = [

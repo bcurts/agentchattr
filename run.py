@@ -110,7 +110,7 @@ def main():
     # --- Security: warn if binding to a non-localhost address ---
     # if host not in ("127.0.0.1", "localhost", "::1"):
     #     print(f"\n  !! SECURITY WARNING — binding to {host} !!")
-    #     print("  This exposes agentchattr to your local network.")
+    #     print("  This exposes Mehub to your local network.")
     #     print()
     #     print("  Risks:")
     #     print("  - No TLS: traffic (including session token) is plaintext")

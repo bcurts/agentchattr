@@ -1,5 +1,5 @@
 @echo off
-REM agentchattr — starts server (if not running) + Kilo wrapper
+REM Mehub — starts server (if not running) + Kilo wrapper
 REM Usage: start_kilo.bat [provider/model]
 REM   e.g. start_kilo.bat anthropic/claude-sonnet-4-20250514
 REM   Omit the model to use Kilo's configured default.
@@ -26,7 +26,7 @@ if %errorlevel% neq 0 (
 REM Start server if not already running, then wait for it
 netstat -ano | findstr :8300 | findstr LISTENING >nul 2>&1
 if %errorlevel% neq 0 (
-    start "agentchattr server" cmd /c "python run.py"
+    start "Mehub server" cmd /c "python run.py"
 )
 :wait_server
 netstat -ano | findstr :8300 | findstr LISTENING >nul 2>&1
