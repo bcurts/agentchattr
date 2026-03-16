@@ -169,13 +169,6 @@ function App() {
         <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: '-0.3px', flexShrink: 0 }}>
           {title}
         </span>
-        <span style={{
-          fontSize: 11, color: '#55556a',
-          background: '#1a1a2e', padding: '1px 6px', borderRadius: 4, flexShrink: 0,
-        }}>
-          new ui
-        </span>
-
         {/* Header action buttons */}
         <HeaderButton active={showJobs} onClick={() => setShowJobs(v => !v)} label="Jobs">
           Jobs

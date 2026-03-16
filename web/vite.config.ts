@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: '/static/',
   plugins: [react()],
   server: {
     port: 8888,
@@ -27,7 +28,7 @@ export default defineConfig({
     }
   },
   build: {
-    outDir: './dist',
+    outDir: '../static',
     emptyOutDir: true,
   }
 })
