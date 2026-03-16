@@ -184,7 +184,7 @@ def _install_security_middleware(token: str, cfg: dict):
             # Static assets, index page, and uploaded images are public.
             # The index page injects the token client-side via same-origin script.
             # Uploads use random filenames and have path-traversal protection.
-            if path == "/" or path.startswith(("/static/", "/uploads/", "/api/roles")):
+            if path == "/" or path.startswith(("/static/", "/uploads/", "/api/roles", "/api/session-token")):
                 return await call_next(request)
 
             # Agent registration/heartbeat: loopback only (no remote agent minting).

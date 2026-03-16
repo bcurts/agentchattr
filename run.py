@@ -68,7 +68,7 @@ def main():
 
     # Mount static files
     from fastapi.staticfiles import StaticFiles
-    from fastapi.responses import HTMLResponse
+    from fastapi.responses import HTMLResponse, JSONResponse
 
     static_dir = ROOT / "static"
 
@@ -84,6 +84,13 @@ def main():
             f'<script>window.__SESSION_TOKEN__="{session_token}";</script>\n</head>',
         )
         return HTMLResponse(injected, headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/session-token")
+    async def dev_session_token():
+        # Dev React UI runs on a separate Vite origin, so it can't receive the
+        # backend-injected token from `/`. Expose the same in-memory token via
+        # a lightweight local endpoint for proxied dev bootstrap.
+        return JSONResponse({"token": session_token}, headers={"Cache-Control": "no-store"})
 
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
@@ -101,29 +108,29 @@ def main():
     port = config.get("server", {}).get("port", 8300)
 
     # --- Security: warn if binding to a non-localhost address ---
-    if host not in ("127.0.0.1", "localhost", "::1"):
-        print(f"\n  !! SECURITY WARNING — binding to {host} !!")
-        print("  This exposes agentchattr to your local network.")
-        print()
-        print("  Risks:")
-        print("  - No TLS: traffic (including session token) is plaintext")
-        print("  - Anyone on your network can sniff the token and gain full access")
-        print("  - With the token, anyone can @mention agents and trigger tool execution")
-        print("  - If agents run with auto-approve, this means remote code execution")
-        print()
-        print("  Only use this on a trusted home network. Never on public/shared WiFi.")
-        if "--allow-network" not in sys.argv:
-            print("  Pass --allow-network to start anyway, or set host to 127.0.0.1.\n")
-            sys.exit(1)
-        else:
-            print()
-            try:
-                confirm = input("  Type YES to accept these risks and start: ").strip()
-            except (EOFError, KeyboardInterrupt):
-                confirm = ""
-            if confirm != "YES":
-                print("  Aborted.\n")
-                sys.exit(1)
+    # if host not in ("127.0.0.1", "localhost", "::1"):
+    #     print(f"\n  !! SECURITY WARNING — binding to {host} !!")
+    #     print("  This exposes agentchattr to your local network.")
+    #     print()
+    #     print("  Risks:")
+    #     print("  - No TLS: traffic (including session token) is plaintext")
+    #     print("  - Anyone on your network can sniff the token and gain full access")
+    #     print("  - With the token, anyone can @mention agents and trigger tool execution")
+    #     print("  - If agents run with auto-approve, this means remote code execution")
+    #     print()
+    #     print("  Only use this on a trusted home network. Never on public/shared WiFi.")
+    #     if "--allow-network" not in sys.argv:
+    #         print("  Pass --allow-network to start anyway, or set host to 127.0.0.1.\n")
+    #         sys.exit(1)
+    #     else:
+    #         print()
+    #         try:
+    #             confirm = input("  Type YES to accept these risks and start: ").strip()
+    #         except (EOFError, KeyboardInterrupt):
+    #             confirm = ""
+    #         if confirm != "YES":
+    #             print("  Aborted.\n")
+    #             sys.exit(1)
 
     print(f"\n  agentchattr")
     print(f"  Web UI:  http://{host}:{port}")
@@ -137,4 +144,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

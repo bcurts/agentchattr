@@ -101,6 +101,7 @@ def run_agent(
     agent_cmd = " ".join(
         [shlex.quote(command)] + [shlex.quote(a) for a in extra_args]
     )
+    print(f"\nStarting {agent} in tmux session '{session_name}' with command:\n  {agent_cmd}\n")
 
     # Build env(1) prefix for the command INSIDE the tmux session.
     # subprocess.run(env=...) only affects the tmux client binary — the
