@@ -79,6 +79,7 @@ function App() {
   const font        = useSettingsStore(s => s.settings.font ?? 'sans');
   const contrast    = useSettingsStore(s => s.settings.contrast ?? 'normal');
   const activeJobId = useJobsStore(s => s.activeJobId);
+  const setActiveJobId = useJobsStore(s => s.setActiveJobId);
   const currentChannel = useChatStore(s => s.currentChannel);
 
   const [showJobs,     setShowJobs]     = useState(false);
@@ -203,6 +204,19 @@ function App() {
           />
         )}
 
+        {(showJobs || showRules || showSettings || activeJobId !== null) && (
+          <div
+            className="side-panel-backdrop"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowJobs(false);
+              setShowRules(false);
+              setShowSettings(false);
+              setActiveJobId(null);
+            }}
+          />
+        )}
+
         {/* Channel Sidebar */}
         <div
           className={`channel-sidebar-wrapper${sidebarOpen ? ' sidebar-open' : ''}`}
@@ -226,7 +240,7 @@ function App() {
 
         {/* Jobs panel — overlay on mobile, push on desktop */}
         {showJobs && (
-          <div className="side-panel" onClick={e => e.stopPropagation()}>
+          <div className="side-panel jobs-panel" onClick={e => e.stopPropagation()}>
             <JobsPanel onClose={() => setShowJobs(false)} />
           </div>
         )}
@@ -234,8 +248,7 @@ function App() {
         {/* Job thread — shown when a job is selected */}
         {activeJobId !== null && (
           <div
-            className="side-panel"
-            style={{ width: 320, flexShrink: 0 }}
+            className="side-panel job-thread-panel"
             onClick={e => e.stopPropagation()}
           >
             <JobThread />
@@ -244,14 +257,14 @@ function App() {
 
         {/* Rules panel */}
         {showRules && (
-          <div className="side-panel" onClick={e => e.stopPropagation()}>
+          <div className="side-panel rules-panel" onClick={e => e.stopPropagation()}>
             <RulesPanel onClose={() => setShowRules(false)} />
           </div>
         )}
 
         {/* Settings panel */}
         {showSettings && (
-          <div className="side-panel" onClick={e => e.stopPropagation()}>
+          <div className="side-panel settings-panel" onClick={e => e.stopPropagation()}>
             <SettingsPanel
               onSend={send}
               onClose={() => setShowSettings(false)}

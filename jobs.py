@@ -116,7 +116,7 @@ class JobStore:
                updated_at: float | None = None) -> dict:
         """Create a new job. Returns the job dict."""
         with self._lock:
-            st = status or "done"
+            st = status or "open"
             now = time.time()
             a = {
                 "id": self._next_id,
@@ -282,6 +282,40 @@ class JobStore:
                 return None
         self._fire("delete", result)
         return result
+
+    def rename_channel(self, old_name: str, new_name: str) -> list[dict]:
+        """Migrate all jobs from old_name to new_name."""
+        changed: list[dict] = []
+        with self._lock:
+            for a in self._jobs:
+                if a.get("channel") != old_name:
+                    continue
+                a["channel"] = new_name
+                a["updated_at"] = time.time()
+                changed.append(dict(a))
+            if changed:
+                self._save()
+        for item in changed:
+            self._fire("update", item)
+        return changed
+
+    def delete_channel(self, channel: str) -> list[dict]:
+        """Delete all jobs that belong to a removed channel."""
+        removed: list[dict] = []
+        with self._lock:
+            kept: list[dict] = []
+            for a in self._jobs:
+                if a.get("channel") == channel:
+                    removed.append(dict(a))
+                else:
+                    kept.append(a)
+            if not removed:
+                return []
+            self._jobs = kept
+            self._save()
+        for item in removed:
+            self._fire("delete", item)
+        return removed
 
     def reorder(self, status: str, ordered_ids: list[int]) -> list[dict]:
         """Reorder jobs within a status group by explicit id order (top to bottom)."""

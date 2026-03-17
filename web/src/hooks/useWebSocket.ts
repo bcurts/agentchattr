@@ -40,7 +40,7 @@ export function useWebSocket() {
   const inReplayRef = useRef(false);
   const [connected, setConnected] = useState(false);
 
-  const { addMessage, deleteMessages } = useChatStore();
+  const { addMessage, deleteMessages, updateMessage } = useChatStore();
   const { addJob, updateJob, removeJob, addJobMessage, deleteJobMessage } = useJobsStore();
   const { setAgents, setBaseColors, setHats, setTyping, setPresence } = useAgentStore();
   const { setSettings } = useSettingsStore();
@@ -124,6 +124,12 @@ export function useWebSocket() {
         if (Array.isArray(e.ids)) deleteMessages(e.ids as number[]);
         break;
 
+      case 'edit':
+        if (e.message?.id != null) {
+          updateMessage(e.message.id as number, e.message as Partial<Message>);
+        }
+        break;
+
       case 'typing':
         setTyping(
           e.agent as string,
@@ -187,7 +193,7 @@ export function useWebSocket() {
         break;
       case 'rules_remind':    break;
     }
-  }, [addMessage, deleteMessages, setAgents, setBaseColors, setHats, setTyping, setPresence,
+  }, [addMessage, deleteMessages, updateMessage, setAgents, setBaseColors, setHats, setTyping, setPresence,
       addJob, updateJob, removeJob, addJobMessage, deleteJobMessage, setSettings,
       setRules, applyRuleEvent]);
 

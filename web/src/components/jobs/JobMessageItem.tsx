@@ -26,6 +26,7 @@ export function JobMessageItem({ message }: Props) {
     () => decorateMentionsHtml(renderMarkdown(message.text), getColor),
     [getColor, message.text],
   );
+  const isSuggestion = message.type === 'suggestion';
 
   if (isSystem) {
     return (
@@ -45,9 +46,10 @@ export function JobMessageItem({ message }: Props) {
     <div style={{
       display: 'flex',
       gap: 10,
-      padding: '4px 14px',
+      padding: '6px 16px',
       borderRadius: 4,
       position: 'relative',
+      alignItems: 'flex-start',
     }}>
       {/* Avatar */}
       <AgentAvatar name={message.sender} size="sm" showHat={false} />
@@ -58,26 +60,55 @@ export function JobMessageItem({ message }: Props) {
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 1 }}>
           <span style={{ fontWeight: 600, color, fontSize: 12 }}>{label}</span>
           <span style={{ color: '#55556a', fontSize: 10 }}>{timeStr}</span>
+          {isSuggestion && (
+            <span style={{
+              fontSize: 10,
+              fontWeight: 700,
+              color: '#f0a040',
+              background: '#f0a04022',
+              borderRadius: 999,
+              padding: '2px 6px',
+              textTransform: 'uppercase',
+            }}>
+              Suggestion
+            </span>
+          )}
         </div>
 
         {/* Markdown body */}
-        <div
-          className="md-body"
-          style={{ color: '#e8e8f0', fontSize: 13, lineHeight: 1.4 }}
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
+        <div style={{
+          background: isSuggestion ? '#2a1e00' : '#151b2d',
+          border: `1px solid ${isSuggestion ? '#6a4c0f' : '#26314d'}`,
+          borderRadius: 14,
+          padding: '10px 12px',
+          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
+        }}>
+          <div
+            className="md-body"
+            style={{ color: '#e8e8f0', fontSize: 13, lineHeight: 1.5 }}
+            dangerouslySetInnerHTML={{ __html: html }}
+          />
 
-        {/* Attachments */}
-        {message.attachments?.length > 0 && (
-          <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-            {message.attachments.map((a, i) => (
-              <a key={i} href={a.url} target="_blank" rel="noopener noreferrer"
-                style={{ color: '#7c6af7', fontSize: 11 }}>
-                📎 {a.name}
-              </a>
-            ))}
-          </div>
-        )}
+          {/* Attachments */}
+          {message.attachments?.length > 0 && (
+            <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {message.attachments.map((a, i) => (
+                <a key={i} href={a.url} target="_blank" rel="noopener noreferrer"
+                  style={{
+                    color: '#7c6af7',
+                    fontSize: 11,
+                    background: '#0f1322',
+                    border: '1px solid #2a2a4a',
+                    borderRadius: 999,
+                    padding: '4px 8px',
+                    textDecoration: 'none',
+                  }}>
+                  {a.name}
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

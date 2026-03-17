@@ -13,7 +13,8 @@
  */
 import { useState, useRef, useEffect } from 'react';
 import { useChatStore } from '../../stores/chatStore';
-import { channelCreatePayload } from '../../services/api';
+import { channelCreatePayload, channelDeletePayload } from '../../services/api';
+import { AlertDialog } from '../ui/AlertDialog';
 
 // Must exactly mirror backend: ^[a-z0-9][a-z0-9\-]{0,19}$
 // i.e. starts with a lowercase letter or digit, then 0–19 more lowercase letters/digits/hyphens
@@ -33,6 +34,7 @@ export function ChannelSidebar({ channels = ['general'], onSend }: Props) {
   const atMax = channels.length >= MAX_CHANNELS;
 
   const [showCreate, setShowCreate] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
   const [error, setError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -69,6 +71,21 @@ export function ChannelSidebar({ channels = ['general'], onSend }: Props) {
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'Enter') handleCreate();
     if (e.key === 'Escape') setShowCreate(false);
+  }
+
+  function handleDelete(channel: string) {
+    if (channel === 'general') return;
+    setPendingDelete(channel);
+  }
+
+  function confirmDelete() {
+    if (!pendingDelete) return;
+    const channel = pendingDelete;
+    if (currentChannel === channel) {
+      setCurrentChannel('general');
+    }
+    onSend?.(channelDeletePayload(channel));
+    setPendingDelete(null);
   }
 
   return (
@@ -191,18 +208,10 @@ export function ChannelSidebar({ channels = ['general'], onSend }: Props) {
         const unread = unreadCounts[ch] ?? 0;
         const isActive = currentChannel === ch;
         return (
-          <button
+          <div
             key={ch}
-            onClick={() => setCurrentChannel(ch)}
             style={{
               background: isActive ? '#1f2b47' : 'transparent',
-              border: 'none',
-              color: isActive ? '#e8e8f0' : '#8888aa',
-              cursor: 'pointer',
-              padding: '10px 12px',
-              textAlign: 'left',
-              fontSize: 13,
-              borderRadius: 0,
               display: 'flex',
               alignItems: 'center',
               gap: 6,
@@ -212,34 +221,87 @@ export function ChannelSidebar({ channels = ['general'], onSend }: Props) {
               width: '100%',
             }}
           >
-            <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-              <span style={{ opacity: 0.5, flexShrink: 0 }}>#</span>
-              <span style={{
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
+            <button
+              onClick={() => setCurrentChannel(ch)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: isActive ? '#e8e8f0' : '#8888aa',
+                cursor: 'pointer',
+                padding: '10px 12px',
+                textAlign: 'left',
+                fontSize: 13,
+                borderRadius: 0,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                minHeight: 44,
+                minWidth: 0,
+                flex: 1,
               }}>
-                {ch}
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                <span style={{ opacity: 0.5, flexShrink: 0 }}>#</span>
+                <span style={{
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}>
+                  {ch}
+                </span>
               </span>
-            </span>
-            {unread > 0 && !isActive && (
-              <span style={{
-                background: '#7c6af7',
-                color: '#fff',
-                fontSize: 10,
-                fontWeight: 700,
-                borderRadius: 8,
-                padding: '1px 5px',
-                minWidth: 16,
-                textAlign: 'center',
-                flexShrink: 0,
-              }}>
-                {unread > 99 ? '99+' : unread}
-              </span>
+              {unread > 0 && !isActive && (
+                <span style={{
+                  background: '#7c6af7',
+                  color: '#fff',
+                  fontSize: 10,
+                  fontWeight: 700,
+                  borderRadius: 8,
+                  padding: '1px 5px',
+                  minWidth: 16,
+                  textAlign: 'center',
+                  flexShrink: 0,
+                }}>
+                  {unread > 99 ? '99+' : unread}
+                </span>
+              )}
+            </button>
+            {isActive && ch !== 'general' && (
+              <button
+                onClick={() => handleDelete(ch)}
+                title={`Delete #${ch}`}
+                aria-label={`Delete #${ch}`}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#7f88aa',
+                  cursor: 'pointer',
+                  fontSize: 14,
+                  width: 36,
+                  alignSelf: 'stretch',
+                  flexShrink: 0,
+                }}
+              >
+                ×
+              </button>
             )}
-          </button>
+          </div>
         );
       })}
+
+      <AlertDialog
+        open={pendingDelete !== null}
+        title={pendingDelete ? `Delete #${pendingDelete}?` : 'Delete channel?'}
+        description={(
+          <span>
+            This removes the channel timeline and any related jobs. <span style={{ color: '#fda4af' }}>This cannot be undone.</span>
+          </span>
+        )}
+        confirmLabel="Delete Channel"
+        cancelLabel="Keep Channel"
+        confirmTone="destructive"
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={confirmDelete}
+      />
     </div>
   );
 }

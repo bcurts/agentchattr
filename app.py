@@ -1446,6 +1446,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 idx = room_settings["channels"].index(old_name)
                 room_settings["channels"][idx] = new_name
                 store.rename_channel(old_name, new_name)
+                jobs.rename_channel(old_name, new_name)
+                schedules.rename_channel(old_name, new_name)
+                summaries.rename_channel(old_name, new_name)
                 import mcp_bridge
                 mcp_bridge.migrate_cursors_rename(old_name, new_name)
                 _save_settings()
@@ -1470,6 +1473,9 @@ async def websocket_endpoint(websocket: WebSocket):
                     continue
                 room_settings["channels"].remove(name)
                 store.delete_channel(name)
+                jobs.delete_channel(name)
+                schedules.delete_channel(name)
+                summaries.delete(name)
                 import mcp_bridge
                 mcp_bridge.migrate_cursors_delete(name)
                 _save_settings()

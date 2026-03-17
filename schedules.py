@@ -224,6 +224,37 @@ class ScheduleStore:
         self._fire("delete", result)
         return result
 
+    def rename_channel(self, old_name: str, new_name: str) -> list[dict]:
+        changed: list[dict] = []
+        with self._lock:
+            for s in self._schedules:
+                if s.get("channel") != old_name:
+                    continue
+                s["channel"] = new_name
+                changed.append(dict(s))
+            if changed:
+                self._save()
+        for item in changed:
+            self._fire("update", item)
+        return changed
+
+    def delete_channel(self, channel: str) -> list[dict]:
+        removed: list[dict] = []
+        with self._lock:
+            kept: list[dict] = []
+            for s in self._schedules:
+                if s.get("channel") == channel:
+                    removed.append(dict(s))
+                else:
+                    kept.append(s)
+            if not removed:
+                return []
+            self._schedules = kept
+            self._save()
+        for item in removed:
+            self._fire("delete", item)
+        return removed
+
     def toggle(self, schedule_id: str) -> dict | None:
         with self._lock:
             for s in self._schedules:

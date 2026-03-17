@@ -13,10 +13,12 @@ import { useState, useMemo, useCallback } from 'react';
 import { useAgentStore } from '../../stores/agentStore';
 import { useJobsStore } from '../../stores/jobsStore';
 import { useChatStore } from '../../stores/chatStore';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { AgentAvatar } from '../agents/AgentAvatar';
 import { renderMarkdown } from '../../utils/markdown';
 import { decorateMentionsHtml } from '../../utils/mentions';
 import { CreateJobForm } from '../jobs/CreateJobForm';
+import { createJob, demoteProposal } from '../../services/api';
 import type { Message } from '../../types';
 
 interface Props {
@@ -29,10 +31,13 @@ export function MessageItem({ message }: Props) {
   const currentChannel = useChatStore(s => s.currentChannel);
   const jobs = useJobsStore(s => s.jobs);
   const setActiveJobId = useJobsStore(s => s.setActiveJobId);
+  const username = useSettingsStore(s => s.settings.username);
 
   const [copied, setCopied]   = useState(false);
   const [hovered, setHovered] = useState(false);
   const [promoting, setPromoting] = useState(false);
+  const [acting, setActing] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const isSystem = message.type === 'system';
   const color = getColor(message.sender);
@@ -53,6 +58,16 @@ export function MessageItem({ message }: Props) {
     [getColor, message.text],
   );
 
+  const proposalMeta = message.metadata ?? {};
+  const proposalStatus = typeof proposalMeta.status === 'string' ? proposalMeta.status : 'pending';
+  const proposalTitle = typeof proposalMeta.title === 'string' ? proposalMeta.title : message.text;
+  const proposalBody = typeof proposalMeta.body === 'string' ? proposalMeta.body : '';
+  const proposalBodyHtml = useMemo(
+    () => decorateMentionsHtml(renderMarkdown(proposalBody), getColor),
+    [getColor, proposalBody],
+  );
+  const jobId = typeof proposalMeta.job_id === 'number' ? proposalMeta.job_id : null;
+
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(message.text).then(() => {
       setCopied(true);
@@ -63,6 +78,203 @@ export function MessageItem({ message }: Props) {
   const handlePromote = useCallback(() => {
     setPromoting(true);
   }, []);
+
+  const handleAcceptProposal = useCallback(async () => {
+    if (acting) return;
+    setActing(true);
+    setActionError(null);
+    try {
+      const job = await createJob({
+        title: proposalTitle,
+        body: proposalBody,
+        channel: message.channel,
+        created_by: username,
+        anchor_msg_id: message.id,
+      }) as { id?: number };
+      if (job?.id != null) {
+        setActiveJobId(job.id);
+      }
+    } catch (e: any) {
+      setActionError(e.message ?? 'Failed to accept proposal');
+    } finally {
+      setActing(false);
+    }
+  }, [acting, proposalTitle, proposalBody, message.channel, message.id, username, setActiveJobId]);
+
+  const handleDismissProposal = useCallback(async () => {
+    if (acting) return;
+    setActing(true);
+    setActionError(null);
+    try {
+      await demoteProposal(message.id);
+    } catch (e: any) {
+      setActionError(e.message ?? 'Failed to dismiss proposal');
+    } finally {
+      setActing(false);
+    }
+  }, [acting, message.id]);
+
+  if (message.type === 'job_proposal') {
+    const canAct = proposalStatus === 'pending' && !linkedJob;
+
+    return (
+      <div style={{ padding: '8px 16px' }}>
+        <div style={{
+          border: '1px solid #2a2a4a',
+          borderRadius: 8,
+          background: '#13172a',
+          overflow: 'hidden',
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '10px 12px',
+            borderBottom: '1px solid #2a2a4a',
+            background: '#101425',
+          }}>
+            <AgentAvatar name={message.sender} size="sm" showHat />
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color }}>{label}</div>
+              <div style={{ fontSize: 10, color: '#55556a' }}>{timeStr}</div>
+            </div>
+            <span style={{
+              fontSize: 10,
+              fontWeight: 700,
+              padding: '2px 6px',
+              borderRadius: 999,
+              textTransform: 'uppercase',
+              color:
+                proposalStatus === 'accepted' ? '#22c55e' :
+                proposalStatus === 'dismissed' ? '#f87171' :
+                '#f0a040',
+              background:
+                proposalStatus === 'accepted' ? '#22c55e22' :
+                proposalStatus === 'dismissed' ? '#f8717122' :
+                '#f0a04022',
+            }}>
+              {proposalStatus}
+            </span>
+          </div>
+
+          <div style={{ padding: '12px' }}>
+            <div style={{ fontSize: 12, color: '#8888aa', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+              Job Proposal
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#e8e8f0', marginBottom: 8 }}>
+              {proposalTitle}
+            </div>
+            {proposalBody && (
+              <div
+                className="md-body"
+                style={{ color: '#cfd3ea', fontSize: 13 }}
+                dangerouslySetInnerHTML={{ __html: proposalBodyHtml }}
+              />
+            )}
+
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              marginTop: 12,
+              flexWrap: 'wrap',
+            }}>
+              {canAct && (
+                <>
+                  <button
+                    onClick={handleAcceptProposal}
+                    disabled={acting}
+                    style={{
+                      background: '#22c55e',
+                      border: 'none',
+                      borderRadius: 6,
+                      color: '#08140d',
+                      cursor: acting ? 'default' : 'pointer',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      padding: '6px 10px',
+                      opacity: acting ? 0.7 : 1,
+                    }}
+                  >
+                    Accept
+                  </button>
+                  <button
+                    onClick={handleDismissProposal}
+                    disabled={acting}
+                    style={{
+                      background: 'transparent',
+                      border: '1px solid #7a3240',
+                      borderRadius: 6,
+                      color: '#f2a2ad',
+                      cursor: acting ? 'default' : 'pointer',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      padding: '6px 10px',
+                      opacity: acting ? 0.7 : 1,
+                    }}
+                  >
+                    Dismiss
+                  </button>
+                </>
+              )}
+
+              {(linkedJob || jobId !== null) && (
+                <button
+                  onClick={() => setActiveJobId(linkedJob?.id ?? jobId)}
+                  style={{
+                    background: '#7c6af722',
+                    border: '1px solid #7c6af744',
+                    borderRadius: 6,
+                    color: '#a99bff',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    padding: '6px 10px',
+                  }}
+                >
+                  Open Job #{linkedJob?.id ?? jobId}
+                </button>
+              )}
+            </div>
+
+            {actionError && (
+              <div style={{ marginTop: 8, color: '#ef4444', fontSize: 12 }}>
+                {actionError}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (message.type === 'job_created') {
+    return (
+      <div style={{ padding: '6px 16px' }}>
+        <button
+          onClick={() => { if (jobId !== null) setActiveJobId(jobId); }}
+          style={{
+            width: '100%',
+            textAlign: 'left',
+            background: '#101425',
+            border: '1px solid #2a2a4a',
+            borderRadius: 8,
+            color: '#cfd3ea',
+            cursor: jobId !== null ? 'pointer' : 'default',
+            padding: '10px 12px',
+          }}
+        >
+          <div style={{ fontSize: 11, color: '#7c6af7', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+            Job Created
+          </div>
+          <div style={{ fontSize: 13, color: '#e8e8f0', marginTop: 2 }}>{message.text}</div>
+          {jobId !== null && (
+            <div style={{ fontSize: 11, color: '#8888aa', marginTop: 4 }}>Open Job #{jobId}</div>
+          )}
+        </button>
+      </div>
+    );
+  }
 
   if (isSystem) {
     return (

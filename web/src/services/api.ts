@@ -47,6 +47,12 @@ export function createJob(payload: CreateJobPayload) {
   });
 }
 
+export function demoteProposal(messageId: number) {
+  return apiFetch(`/api/messages/${messageId}/demote`, {
+    method: 'POST',
+  });
+}
+
 export interface UpdateJobPayload {
   status?: string;
   title?: string;
@@ -73,8 +79,9 @@ export function postJobMessage(jobId: number, payload: PostJobMessagePayload) {
   });
 }
 
-export function deleteJob(jobId: number) {
-  return apiFetch(`/api/jobs/${jobId}`, { method: 'DELETE' });
+export function deleteJob(jobId: number, permanent = false) {
+  const suffix = permanent ? '?permanent=true' : '';
+  return apiFetch(`/api/jobs/${jobId}${suffix}`, { method: 'DELETE' });
 }
 
 // ── Channels ────────────────────────────────────────────────────────────────

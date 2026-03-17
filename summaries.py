@@ -68,3 +68,11 @@ class SummaryStore:
                 self._save()
                 return True
             return False
+
+    def rename_channel(self, old_name: str, new_name: str) -> bool:
+        with self._lock:
+            if old_name not in self._summaries:
+                return False
+            self._summaries[new_name] = self._summaries.pop(old_name)
+            self._save()
+            return True
