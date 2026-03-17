@@ -185,6 +185,8 @@ export interface WSTypingEvent {
   type: 'typing';
   agent: string;
   active: boolean;
+  channel?: string;
+  status?: 'checking' | 'working' | 'typing';
 }
 
 export interface WSTodoUpdateEvent {

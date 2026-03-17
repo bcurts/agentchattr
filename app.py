@@ -5,6 +5,7 @@ import json
 import re as _re
 import sys
 import threading
+import time
 import uuid
 import logging
 from pathlib import Path
@@ -63,6 +64,11 @@ MAX_CHANNELS = 8
 
 # Agent hats (persisted to data/hats.json)
 agent_hats: dict[str, str] = {}  # { agent_name: svg_string }
+
+# Ephemeral per-channel typing/checking indicators (auto-expire to avoid stuck UI).
+_typing_lock = threading.Lock()
+_typing_deadlines: dict[tuple[str, str], float] = {}
+_TYPING_TTL_SECONDS = 45
 
 
 def _hats_path() -> Path:
@@ -324,6 +330,18 @@ def configure(cfg: dict, session_token: str = ""):
 
         while True:
             _time.sleep(3)
+            # Auto-clear stale typing/checking indicators.
+            try:
+                expired_typing = _pop_expired_typing(_time.time())
+                if _event_loop:
+                    for agent_name, channel in expired_typing:
+                        asyncio.run_coroutine_threadsafe(
+                            broadcast_typing(agent_name, False, channel=channel),
+                            _event_loop,
+                        )
+            except Exception:
+                pass
+
             # Recovery flags
             try:
                 for flag in _data_dir.glob("*_recovered"):
@@ -642,6 +660,51 @@ def _resolve_draft_lineage(text: str, channel: str) -> tuple[str, int]:
     return str(uuid.uuid4())[:8], 1
 
 
+def _set_typing_deadline(agent_name: str, channel: str, active: bool):
+    key = (agent_name, channel)
+    with _typing_lock:
+        if active:
+            _typing_deadlines[key] = time.time() + _TYPING_TTL_SECONDS
+        else:
+            _typing_deadlines.pop(key, None)
+
+
+def _pop_expired_typing(now: float) -> list[tuple[str, str]]:
+    expired: list[tuple[str, str]] = []
+    with _typing_lock:
+        for key, deadline in list(_typing_deadlines.items()):
+            if deadline <= now:
+                expired.append(key)
+                _typing_deadlines.pop(key, None)
+    return expired
+
+
+async def set_agent_typing(agent_name: str, active: bool, channel: str = "general",
+                           status: str = "typing"):
+    channel_name = channel or "general"
+    _set_typing_deadline(agent_name, channel_name, active)
+    await broadcast_typing(agent_name, active, channel=channel_name, status=status)
+
+
+def dispatch_typing(agent_name: str, active: bool, channel: str = "general",
+                    status: str = "typing"):
+    """Thread-safe sync wrapper — call from MCP tool handlers or any non-async context."""
+    channel_name = channel or "general"
+    if _event_loop is None:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+        if loop is _event_loop:
+            asyncio.ensure_future(set_agent_typing(agent_name, active, channel_name, status))
+            return
+    except RuntimeError:
+        pass
+    asyncio.run_coroutine_threadsafe(
+        set_agent_typing(agent_name, active, channel_name, status),
+        _event_loop,
+    )
+
+
 async def _handle_new_message(msg: dict):
     """Broadcast message to web clients + check for @mention triggers."""
     # For broadcast slash commands, suppress the raw message — only the expanded
@@ -682,6 +745,10 @@ async def _handle_new_message(msg: dict):
     # System messages never trigger routing - prevents infinite callback loops
     if sender == "system":
         return
+
+    # First agent message in a channel clears the pending indicator for that agent.
+    if sender in known_agents:
+        await set_agent_typing(sender, False, channel=channel)
 
     # Check for slash commands — use stripped text (sans @mentions)
     if stripped == "/continue":
@@ -839,6 +906,7 @@ async def _handle_new_message(msg: dict):
         if not mcp_bridge.is_online(target):
             store.add("system", f"{target} appears offline — message queued.", msg_type="system", channel=channel)
         if agents.is_available(target):
+            await set_agent_typing(target, True, channel=channel, status="checking")
             await agents.trigger(target, message=chat_msg, channel=channel, prompt=custom_prompt)
 
 
@@ -879,8 +947,14 @@ async def broadcast_status():
     ws_clients.difference_update(dead)
 
 
-async def broadcast_typing(agent_name: str, is_typing: bool):
-    data = json.dumps({"type": "typing", "agent": agent_name, "active": is_typing})
+async def broadcast_typing(agent_name: str, is_typing: bool, channel: str | None = None,
+                           status: str | None = None):
+    payload = {"type": "typing", "agent": agent_name, "active": is_typing}
+    if channel:
+        payload["channel"] = channel
+    if status:
+        payload["status"] = status
+    data = json.dumps(payload)
     dead = set()
     for client in list(ws_clients):
         try:
@@ -1884,6 +1958,10 @@ async def post_job_message(job_id: int, request: Request):
     job = jobs.get(job_id)
     if job:
         channel = job.get("channel", "general")
+        known_agents = set(registry.get_all_names()) if registry else set()
+        known_agents.update(config.get("agents", {}).keys())
+        if sender in known_agents:
+            await set_agent_typing(sender, False, channel=channel)
         raw_targets = router.get_targets(sender, text, channel)
         targets = []
         for t in raw_targets:
@@ -1901,6 +1979,7 @@ async def post_job_message(job_id: int, request: Request):
                 if inst and inst.get("state") == "pending":
                     continue
             if agents.is_available(target):
+                await set_agent_typing(target, True, channel=channel, status="checking")
                 await agents.trigger(target, message=chat_msg, channel=channel,
                                      job_id=job_id)
 

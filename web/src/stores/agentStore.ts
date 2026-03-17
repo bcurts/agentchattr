@@ -19,6 +19,11 @@ export interface AgentPresence {
   role?: string;
 }
 
+export interface AgentTyping {
+  channel?: string;
+  status: 'checking' | 'working' | 'typing';
+}
+
 interface AgentState {
   // From `agents` snapshot: registry config (color, label, etc.)
   agents: Record<string, AgentConfig>;
@@ -28,14 +33,19 @@ interface AgentState {
   hats: Record<string, string>;
   // From `status` dynamic: live presence (available, busy)
   presence: Record<string, AgentPresence>;
-  // From `typing` dynamic: set of agents currently typing
-  typingAgents: Set<string>;
+  // From `typing` dynamic: per-agent transient status
+  typingAgents: Record<string, AgentTyping>;
 
   setAgents: (agents: Record<string, AgentConfig>) => void;
   setBaseColors: (bc: Record<string, { color: string; label: string }>) => void;
   setHats: (hats: Record<string, string>) => void;
   setPresence: (presence: Record<string, AgentPresence>) => void;
-  setTyping: (name: string, active: boolean) => void;
+  setTyping: (
+    name: string,
+    active: boolean,
+    status?: AgentTyping['status'],
+    channel?: string,
+  ) => void;
 
   // Derived helper: get display color for an agent (registry > base_colors > fallback)
   getColor: (name: string) => string;
@@ -47,17 +57,18 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   baseColors: {},
   hats: {},
   presence: {},
-  typingAgents: new Set(),
+  typingAgents: {},
 
   setAgents: (agents) => set({ agents }),
   setBaseColors: (bc) => set({ baseColors: bc }),
   setHats: (hats) => set({ hats }),
   setPresence: (presence) => set({ presence }),
 
-  setTyping: (name, active) =>
+  setTyping: (name, active, status = 'typing', channel) =>
     set((s) => {
-      const next = new Set(s.typingAgents);
-      active ? next.add(name) : next.delete(name);
+      const next = { ...s.typingAgents };
+      if (active) next[name] = { status, channel };
+      else delete next[name];
       return { typingAgents: next };
     }),
 

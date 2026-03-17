@@ -113,7 +113,15 @@ _MCP_INSTRUCTIONS = (
     "This prevents over-use of the jobs feature for vague requests.\n\n"
     "To post a suggestion (Accept/Dismiss card) in a job, prefix your message with [suggestion]: "
     "chat_send(job_id=N, message='[suggestion] I recommend we refactor the auth module'). "
-    "The human can Accept (triggers you with context) or Dismiss."
+    "The human can Accept (triggers you with context) or Dismiss.\n\n"
+    "Presence indicators:\n"
+    "When you receive a mention and start working, the UI shows a presence indicator (checking/working/typing). "
+    "This indicator auto-expires after 45 s. If your task takes longer, call set_presence_status every 10-15 s "
+    "to keep it alive and accurate. Use the correct phase:\n"
+    "  set_presence_status(sender='yourname', status='checking', channel='general')  # reading context\n"
+    "  set_presence_status(sender='yourname', status='working', channel='general')   # processing/using tools\n"
+    "  set_presence_status(sender='yourname', status='typing', channel='general')    # composing reply\n"
+    "The indicator is cleared automatically when you call chat_send."
 )
 
 # --- Tool implementations (shared between both servers) ---
@@ -271,6 +279,14 @@ def chat_send(
                         agents.trigger_sync(target, message=chat_msg,
                                             channel=job_channel, job_id=job_id)
 
+        # Clear presence indicator for job-scoped replies.
+        try:
+            import app as _app
+            _job_meta = jobs.get(job_id) if jobs else None
+            _jch = _job_meta.get("channel", "general") if _job_meta else "general"
+            _app.dispatch_typing(sender, False, channel=_jch)
+        except Exception:
+            pass
         return f"Sent to job #{job_id} (msg_id={msg['id']})" + (
             " [suggestion]" if msg_type == "suggestion" else "")
 
@@ -305,6 +321,12 @@ def chat_send(
     _update_cursor(sender, [msg], channel)
     with _presence_lock:
         _presence[sender] = time.time()
+    # Clear presence indicator — agent has replied.
+    try:
+        import app as _app
+        _app.dispatch_typing(sender, False, channel=channel or "general")
+    except Exception:
+        pass
     return f"Sent (id={msg['id']})"
 
 
@@ -870,9 +892,43 @@ def chat_summary(
     return f"Unknown action: {action}. Valid actions: read, write."
 
 
+def set_presence_status(
+    sender: str,
+    status: str,
+    channel: str = "general",
+    ctx: Context | None = None,
+) -> str:
+    """Report your current activity phase to the UI presence indicator.
+
+    Call this to keep the 'checking / working / typing' indicator alive and accurate
+    while you are processing a request. The indicator auto-expires after 45 s of
+    silence, so call this roughly every 10–15 s while you are busy.
+
+    status values:
+      - "checking" — you received a mention and are reading context
+      - "working"  — you are processing / using tools / analysing
+      - "typing"   — you are composing your reply (call just before chat_send)
+      - "off"      — clear the indicator immediately
+
+    The indicator is cleared automatically when you call chat_send."""
+    sender, err = _resolve_tool_identity(sender, ctx, field_name="sender", required=True)
+    if err:
+        return err
+
+    valid = {"checking", "working", "typing", "off"}
+    if status not in valid:
+        return f"Error: status must be one of {sorted(valid)}, got '{status}'."
+
+    import app as _app
+    active = status != "off"
+    _app.dispatch_typing(sender, active, channel=channel or "general", status=status)
+    return f"Presence updated: {sender} is {status} in #{channel or 'general'}."
+
+
 _ALL_TOOLS = [
     chat_send, chat_read, chat_resync, chat_join, chat_who, chat_rules, chat_decision,
     chat_channels, chat_set_hat, chat_claim, chat_summary, chat_propose_job,
+    set_presence_status,
 ]
 
 
