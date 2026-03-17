@@ -133,6 +133,8 @@ def _load_settings():
             room_settings.update(saved)
         except Exception:
             pass
+    if room_settings.get("title") == "agentchattr":
+        room_settings["title"] = "Mehub"
     # Ensure "general" always exists and is first
     if "channels" not in room_settings or not room_settings["channels"]:
         room_settings["channels"] = ["general"]
