@@ -1,6 +1,6 @@
 [server]
 port = 8300
-host = "127.0.0.1"
+host = "0.0.0.0"
 data_dir = "./data"
 
 # Add agents here. Each gets a status pill, @mention routing, and color.

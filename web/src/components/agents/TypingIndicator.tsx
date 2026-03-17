@@ -1,24 +1,32 @@
 /**
  * TypingIndicator — shows which agents are currently typing.
- * Displayed above MessageInput when typingAgents set is non-empty.
- * Filters to current channel is not needed — backend typing events
- * don't carry channel, so we show all typing agents globally.
+ * Displayed above MessageInput when there are active indicators.
  */
 import { useAgentStore } from '../../stores/agentStore';
+import { useChatStore } from '../../stores/chatStore';
 
 export function TypingIndicator() {
+  const currentChannel = useChatStore(s => s.currentChannel);
   const typingAgents = useAgentStore(s => s.typingAgents);
   const getLabel = useAgentStore(s => s.getLabel);
   const getColor = useAgentStore(s => s.getColor);
 
-  const names = Array.from(typingAgents);
+  const entries = Object.entries(typingAgents)
+    .filter(([, meta]) => !meta.channel || meta.channel === currentChannel);
+  const names = entries.map(([name]) => name);
   if (names.length === 0) return null;
 
+  const primaryStatus = entries[0]?.[1]?.status ?? 'typing';
+  const verb = primaryStatus === 'checking'
+    ? 'checking…'
+    : primaryStatus === 'working'
+    ? 'working…'
+    : 'typing…';
   const text = names.length === 1
-    ? `${getLabel(names[0])} is typing…`
+    ? `${getLabel(names[0])} is ${verb}`
     : names.length === 2
-    ? `${getLabel(names[0])} and ${getLabel(names[1])} are typing…`
-    : `${names.length} agents are typing…`;
+    ? `${getLabel(names[0])} and ${getLabel(names[1])} are ${verb}`
+    : `${names.length} agents are ${verb}`;
 
   return (
     <div style={{

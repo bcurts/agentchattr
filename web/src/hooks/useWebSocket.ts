@@ -125,7 +125,12 @@ export function useWebSocket() {
         break;
 
       case 'typing':
-        setTyping(e.agent as string, e.active as boolean);
+        setTyping(
+          e.agent as string,
+          e.active as boolean,
+          (e.status as 'checking' | 'working' | 'typing' | undefined) ?? 'typing',
+          e.channel as string | undefined,
+        );
         break;
 
       case 'clear':
