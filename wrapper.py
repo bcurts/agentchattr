@@ -132,15 +132,19 @@ _BUILTIN_DEFAULTS: dict[str, dict] = {
         "mcp_inject": "env",
         "mcp_env_var": "GEMINI_CLI_SYSTEM_SETTINGS_PATH",
         "mcp_transport": "http",  # streamable-http; SSE has blocking issues in Gemini 0.32.x
+        "mcp_merge_project": True,
     },
     "codex": {
         "mcp_inject": "proxy_flag",
         "mcp_proxy_flag_template": '-c mcp_servers.{server}.url="{url}"',
+        # mcp_merge_project disabled — Codex reads .mcp.json natively,
+        # and duplicate detection is name-based only (e.g. unityMCP vs unity-mcp)
     },
     "kimi": {
         "mcp_inject": "flag",
         "mcp_flag": "--mcp-config-file",
         "mcp_transport": "http",
+        "mcp_merge_project": True,
     },
     "kilo": {
         "mcp_inject": "env_content",
@@ -224,6 +228,27 @@ def _apply_mcp_inject(
             config_dir / f"{instance_name}-settings.json",
             server_url, transport=transport, token=token,
         )
+        # Merge project .mcp.json servers into the settings file
+        merge_project = inject_cfg.get("mcp_merge_project", False)
+        if merge_project and project_dir and settings_path:
+            project_servers = _read_project_mcp_servers(project_dir)
+            if project_servers:
+                try:
+                    data = json.loads(settings_path.read_text("utf-8"))
+                    servers = data.get("mcpServers", {})
+                    for name, cfg in project_servers.items():
+                        if name not in servers:
+                            # Normalize for Gemini: url → httpUrl for HTTP transport
+                            entry = dict(cfg)
+                            srv_type = entry.get("type", "http")
+                            if srv_type in ("http", "streamable-http") and "url" in entry and "httpUrl" not in entry:
+                                entry["httpUrl"] = entry.pop("url")
+                            entry.setdefault("trust", True)
+                            servers[name] = entry
+                    data["mcpServers"] = servers
+                    settings_path.write_text(json.dumps(data, indent=2) + "\n", "utf-8")
+                except Exception:
+                    pass
         inject_env[env_var] = str(settings_path)
 
     elif mode == "flag":
