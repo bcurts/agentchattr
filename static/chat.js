@@ -1,7 +1,8 @@
 /* agentchattr — WebSocket client */
 
-// Session token injected by the server into the HTML page.
-// Sent with every API call and WebSocket connection to authenticate.
+// Browser-visible token injected by the server into the HTML page.
+// This is a CSRF token, not the session secret. The actual browser session
+// stays in an HttpOnly cookie.
 const SESSION_TOKEN = window.__SESSION_TOKEN__ || "";
 
 let ws = null;
@@ -367,7 +368,7 @@ function addCodeCopyButtons(container) {
 
 function connectWebSocket() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(SESSION_TOKEN)}`);
+    ws = new WebSocket(`${proto}://${location.host}/ws`);
 
     ws.onopen = () => {
         console.log('WebSocket connected');
@@ -1976,8 +1977,8 @@ function showSlashHint(text) {
 }
 
 const SLASH_COMMANDS = [
-    { cmd: '/artchallenge', desc: 'SVG art challenge — all agents create artwork (optional theme)', broadcast: true },
-    { cmd: '/hatmaking', desc: 'All agents design a hat to wear on their avatar', broadcast: true },
+    { cmd: '/artchallenge', desc: 'Temporarily disabled during SVG security hardening', broadcast: true },
+    { cmd: '/hatmaking', desc: 'Temporarily disabled during SVG security hardening', broadcast: true },
     { cmd: '/roastreview', desc: 'Get all agents to review and roast each other\'s work', broadcast: true },
     { cmd: '/poetry haiku', desc: 'Agents write a haiku about the codebase', broadcast: true },
     { cmd: '/poetry limerick', desc: 'Agents write a limerick about the codebase', broadcast: true },

@@ -28,12 +28,13 @@ def main():
 
     config = load_config(ROOT)
 
-    # --- Security: generate a random session token (in-memory only) ---
+    # --- Security: generate browser auth secrets (in-memory only) ---
     session_token = secrets.token_hex(32)
+    csrf_token = secrets.token_hex(32)
 
     # Configure the FastAPI app (creates shared store)
     from app import app, configure, set_event_loop, store as _store_ref
-    configure(config, session_token=session_token)
+    configure(config, session_token=session_token, csrf_token=csrf_token)
 
     # Share stores with the MCP bridge
     from app import store, rules, summaries, jobs, room_settings, registry, router as app_router, agents as app_agents, session_engine, session_store
@@ -75,15 +76,23 @@ def main():
     @app.get("/")
     async def index():
         # Read index.html fresh each request so changes take effect without restart.
-        # Inject the session token into the HTML so the browser client can use it.
-        # This is safe: same-origin policy prevents cross-origin pages from reading
-        # the response body, so only the user's own browser tab gets the token.
+        # Inject only the CSRF token into the HTML. The browser session secret
+        # itself stays in an HttpOnly cookie.
         html = (static_dir / "index.html").read_text("utf-8")
         injected = html.replace(
             "</head>",
-            f'<script>window.__SESSION_TOKEN__="{session_token}";</script>\n</head>',
+            f'<script>window.__SESSION_TOKEN__="{csrf_token}";</script>\n</head>',
         )
-        return HTMLResponse(injected, headers={"Cache-Control": "no-store"})
+        resp = HTMLResponse(injected, headers={"Cache-Control": "no-store"})
+        resp.set_cookie(
+            "agentchattr_session",
+            session_token,
+            httponly=True,
+            samesite="lax",
+            secure=False,
+            path="/",
+        )
+        return resp
 
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
@@ -130,11 +139,10 @@ def main():
     print(f"  MCP HTTP: http://{host}:{http_port}/mcp  (Claude, Codex)")
     print(f"  MCP SSE:  http://{host}:{sse_port}/sse   (Gemini)")
     print(f"  Agents auto-trigger on @mention")
-    print(f"\n  Session token: {session_token}\n")
+    print()
 
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 
 if __name__ == "__main__":
     main()
-

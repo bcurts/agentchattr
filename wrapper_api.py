@@ -19,16 +19,56 @@ How it works:
 """
 
 import argparse
+import ipaddress
 import json
 import os
 import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).parent
+
+
+def _is_private_or_local_base_url(url: str) -> bool:
+    try:
+        parsed = urllib.parse.urlparse(url)
+        host = (parsed.hostname or "").lower()
+    except Exception:
+        return False
+    if not host:
+        return False
+    if host in {"localhost", "127.0.0.1", "::1"}:
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+        return ip.is_private or ip.is_loopback
+    except ValueError:
+        pass
+    return host.endswith(".local")
+
+
+def _validate_api_endpoint_policy(agent: str, agent_cfg: dict) -> tuple[bool, list[str], str]:
+    base_url = agent_cfg.get("base_url", "").rstrip("/")
+    if not base_url:
+        return False, [f"  Error: [agents.{agent}] must have base_url (e.g. http://localhost:8189/v1)"], ""
+    if _is_private_or_local_base_url(base_url):
+        return True, [], base_url
+    if agent_cfg.get("allow_remote") is True:
+        return True, [
+            "  WARNING: this API agent points at a non-local endpoint.",
+            "  Recent chat context sent to this wrapper will be transmitted to that remote service.",
+            f"  Endpoint: {base_url}",
+            "",
+        ], base_url
+    return False, [
+        "  Error: this API agent points at a non-local endpoint.",
+        "  Set allow_remote = true for this agent if you want to forward chat context there.",
+        f"  Endpoint: {base_url}",
+    ], base_url
 
 
 def _auth_headers(token: str, *, include_json: bool = False) -> dict[str, str]:
@@ -67,9 +107,10 @@ def main():
     data_dir.mkdir(parents=True, exist_ok=True)
 
     # Model API config
-    base_url = agent_cfg.get("base_url", "").rstrip("/")
-    if not base_url:
-        print(f"  Error: [agents.{agent}] must have base_url (e.g. http://localhost:8189/v1)")
+    ok, policy_lines, base_url = _validate_api_endpoint_policy(agent, agent_cfg)
+    for line in policy_lines:
+        print(line)
+    if not ok:
         sys.exit(1)
     model = agent_cfg.get("model", "")
     api_key_env = agent_cfg.get("api_key_env", "")
