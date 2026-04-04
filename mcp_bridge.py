@@ -238,7 +238,7 @@ def chat_send(
             src = Path(image_path)
             if not src.exists():
                 return f"Image not found: {image_path}"
-            if src.suffix.lower() not in ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg'):
+            if src.suffix.lower() not in ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'):
                 return f"Unsupported image type: {src.suffix}"
             raw_dir = "./uploads"
             if config and "images" in config:
@@ -289,7 +289,7 @@ def chat_send(
         src = Path(image_path)
         if not src.exists():
             return f"Image not found: {image_path}"
-        if src.suffix.lower() not in ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg'):
+        if src.suffix.lower() not in ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'):
             return f"Unsupported image type: {src.suffix}"
         
         # Get upload dir from config (fall back to ./uploads)
@@ -920,4 +920,3 @@ def run_http_server():
 def run_sse_server():
     """Block — run SSE MCP in a background thread."""
     mcp_sse.run(transport="sse")
-
