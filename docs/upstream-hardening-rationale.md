@@ -15,6 +15,7 @@ Examples:
 - public-route matching by prefix
 - browser-visible bearer token with broad authority
 - broken archive import path
+- remote API forwarding without explicit endpoint opt-in
 
 These are not environment quirks. They are source-level issues.
 
@@ -49,6 +50,7 @@ The hardening plan is intentionally organized into narrow PRs:
 - browser auth redesign
 - local action restriction
 - archive repair
+- remote API endpoint opt-in and browser-header tightening
 
 That gives upstream maintainers a realistic review path.
 
@@ -77,4 +79,3 @@ Each upstream PR should include:
 If this repo is going to be used seriously as a live agent coordination tool,
 these fixes should not live in a private fork. They address foundational trust
 boundaries and belong upstream.
-

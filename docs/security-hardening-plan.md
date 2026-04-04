@@ -12,6 +12,12 @@ The review found four priority areas:
 3. At least one write endpoint is unintentionally public.
 4. Import/export reliability is not strong enough to trust for recovery.
 
+Second-pass hardening adds three smaller follow-ups:
+
+5. Browser requests should be constrained by fetch metadata as well as `Origin`.
+6. Uploaded files should be served with conservative browser headers.
+7. Remote API agents should require explicit opt-in, not just a warning.
+
 The goal is to fix the highest-risk trust-boundary issues first, with minimal
 architectural churn.
 
@@ -195,6 +201,30 @@ Changes:
 
 This phase is explicitly later because it is larger and less surgical.
 
+## Phase 7: Second-pass hardening
+
+Files:
+
+- `app.py`
+- `wrapper_api.py`
+- `config.toml`
+- `config.local.toml.example`
+- `README.md`
+
+Changes:
+
+- block cross-site browser requests when `Sec-Fetch-Site` is present and not
+  `same-origin` or `none`
+- serve uploads with `X-Content-Type-Options: nosniff`
+- require `allow_remote = true` for non-local API endpoints
+- document the remote-forwarding boundary in user-facing config examples
+
+Success criteria:
+
+- browser-side CSRF defenses do not rely on `Origin` alone
+- uploaded content is served with safer default browser behavior
+- sending room context to internet-hosted model endpoints is an explicit choice
+
 ## PR Slices
 
 Recommended upstream sequence:
@@ -222,4 +252,3 @@ Not part of the first hardening series:
 - large UI rewrites
 
 The first series should reduce risk without changing the product shape.
-

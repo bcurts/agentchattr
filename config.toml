@@ -50,6 +50,7 @@ label = "Kilo"
 [agents.minimax]
 type = "api"
 base_url = "https://api.minimax.io/v1"
+allow_remote = true
 model = "MiniMax-M2.7"
 color = "#2fe898"
 label = "MiniMax"

@@ -408,6 +408,7 @@ label = "Kilo"
 [agents.minimax]
 type = "api"
 base_url = "https://api.minimax.io/v1"
+allow_remote = true
 model = "MiniMax-M2.7"
 color = "#2fe898"
 label = "MiniMax"
@@ -480,6 +481,8 @@ The wrapper registers with the server, watches for @mentions, reads recent chat 
    ```
 
 Available models: `MiniMax-M2.7` (default), `MiniMax-M2.7-highspeed` (faster), `MiniMax-M2.5`, `MiniMax-M2.5-highspeed`. China mainland users can change `base_url` to `https://api.minimaxi.com/v1` in `config.toml`.
+
+For any non-local API endpoint, set `allow_remote = true` on that agent. This makes the exfiltration boundary explicit, because recent room context will be sent to that remote service.
 
 ## Architecture
 
