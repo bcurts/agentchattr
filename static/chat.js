@@ -1,7 +1,8 @@
 /* agentchattr — WebSocket client */
 
-// Session token injected by the server into the HTML page.
-// Sent with every API call and WebSocket connection to authenticate.
+// Browser-visible token injected by the server into the HTML page.
+// This is a CSRF token, not the session secret. The actual browser session
+// stays in an HttpOnly cookie.
 const SESSION_TOKEN = window.__SESSION_TOKEN__ || "";
 
 let ws = null;
@@ -367,7 +368,7 @@ function addCodeCopyButtons(container) {
 
 function connectWebSocket() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(SESSION_TOKEN)}`);
+    ws = new WebSocket(`${proto}://${location.host}/ws`);
 
     ws.onopen = () => {
         console.log('WebSocket connected');

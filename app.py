@@ -45,6 +45,8 @@ ws_clients: set[WebSocket] = set()
 
 # --- Security: session token (set by configure()) ---
 session_token: str = ""
+csrf_token: str = ""
+allowed_origins: set[str] = set()
 
 # Room settings (persisted to data/settings.json)
 room_settings: dict = {
@@ -72,18 +74,13 @@ def _hats_path() -> Path:
 
 def _load_hats():
     global agent_hats
-    p = _hats_path()
-    if p.exists():
-        try:
-            agent_hats = json.loads(p.read_text("utf-8"))
-        except Exception:
-            agent_hats = {}
+    # Disabled pending a safer rendering model for custom SVG content.
+    agent_hats = {}
 
 
 def _save_hats():
-    p = _hats_path()
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(agent_hats), "utf-8")
+    # Persisting raw SVG hats is intentionally disabled.
+    return
 
 
 def _sanitize_svg(svg: str) -> str:
@@ -95,18 +92,8 @@ def _sanitize_svg(svg: str) -> str:
 
 
 def set_agent_hat(agent: str, svg: str) -> str | None:
-    """Validate, sanitize, and store a hat SVG. Returns error string or None."""
-    svg = svg.strip()
-    if not svg.lower().startswith("<svg"):
-        return "Hat must be an SVG element (starts with <svg)."
-    if len(svg) > 5120:
-        return "Hat SVG too large (max 5KB)."
-    svg = _sanitize_svg(svg)
-    agent_hats[agent.lower()] = svg
-    _save_hats()
-    if _event_loop:
-        asyncio.run_coroutine_threadsafe(broadcast_hats(), _event_loop)
-    return None
+    """Custom SVG hats are disabled until a safer rendering model exists."""
+    return "Custom SVG hats are temporarily disabled for security hardening."
 
 
 def clear_agent_hat(agent: str):
@@ -163,16 +150,13 @@ def _resolve_authenticated_agent(request: Request) -> dict | None:
 
 
 # --- Security middleware ---
-# Paths that don't require the session token (public assets).
-_PUBLIC_PREFIXES = ("/", "/static/")
-
-
-def _install_security_middleware(token: str, cfg: dict):
+def _install_security_middleware(token: str, csrf: str, cfg: dict):
     """Add token validation and origin checking middleware to the app."""
     import app as _self
     _self.session_token = token
+    _self.csrf_token = csrf
     port = cfg.get("server", {}).get("port", 8300)
-    allowed_origins = {
+    _self.allowed_origins = {
         f"http://127.0.0.1:{port}",
         f"http://localhost:{port}",
     }
@@ -180,14 +164,16 @@ def _install_security_middleware(token: str, cfg: dict):
     class SecurityMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
             path = request.url.path
+            method = request.method.upper()
 
-            # Static assets, index page, and uploaded images are public.
-            # The index page injects the token client-side via same-origin script.
-            # Uploads use random filenames and have path-traversal protection.
-            if path == "/" or path.startswith(("/static/", "/uploads/", "/api/roles")):
+            if (
+                path == "/"
+                or path.startswith("/static/")
+                or path.startswith("/uploads/")
+                or (path == "/api/roles" and method in ("GET", "HEAD", "OPTIONS"))
+            ):
                 return await call_next(request)
 
-            # Agent registration/heartbeat: loopback only (no remote agent minting).
             if path.startswith(("/api/register", "/api/deregister/", "/api/heartbeat/")):
                 client_ip = request.client.host if request.client else ""
                 if client_ip not in ("127.0.0.1", "::1", "localhost"):
@@ -197,43 +183,47 @@ def _install_security_middleware(token: str, cfg: dict):
                     )
                 return await call_next(request)
 
-            # --- Origin check (blocks cross-origin / DNS-rebinding attacks) ---
             origin = request.headers.get("origin")
-            if origin and origin not in allowed_origins:
+            if origin and origin not in _self.allowed_origins:
                 return JSONResponse(
                     {"error": "forbidden: origin not allowed"},
                     status_code=403,
                 )
 
-            # --- Token check ---
-            # Allow registered agents to authenticate via Bearer token
-            # for /api/messages and /api/send (no browser session needed).
             auth_header = request.headers.get("authorization", "")
             if auth_header.lower().startswith("bearer ") and (path in ("/api/messages", "/api/send") or path.startswith("/api/rules/")):
                 bearer = auth_header[7:].strip()
                 if _self.registry and _self.registry.resolve_token(bearer):
                     return await call_next(request)
 
-            req_token = (
-                request.headers.get("x-session-token")
-                or request.query_params.get("token")
-            )
-            if req_token != _self.session_token:
+            session_cookie = request.cookies.get("agentchattr_session", "")
+            if session_cookie != _self.session_token:
                 return JSONResponse(
-                    {"error": "forbidden: invalid or missing session token"},
+                    {"error": "forbidden: invalid or missing session cookie"},
                     status_code=403,
                 )
+
+            if method not in ("GET", "HEAD", "OPTIONS"):
+                req_token = (
+                    request.headers.get("x-csrf-token")
+                    or request.headers.get("x-session-token")
+                )
+                if req_token != _self.csrf_token:
+                    return JSONResponse(
+                        {"error": "forbidden: invalid or missing csrf token"},
+                        status_code=403,
+                    )
 
             return await call_next(request)
 
     app.add_middleware(SecurityMiddleware)
 
 
-def configure(cfg: dict, session_token: str = ""):
+def configure(cfg: dict, session_token: str = "", csrf_token: str = ""):
     global store, rules, summaries, jobs, schedules, router, agents, registry, session_store, session_engine, config
     config = cfg
     # --- Security: store the session token and install middleware ---
-    _install_security_middleware(session_token, cfg)
+    _install_security_middleware(session_token, csrf_token, cfg)
 
     data_dir = cfg.get("server", {}).get("data_dir", "./data")
     Path(data_dir).mkdir(parents=True, exist_ok=True)
@@ -1012,13 +1002,19 @@ def _on_registry_change():
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    # --- Security: validate session token on WebSocket connect ---
-    token = websocket.query_params.get("token", "")
+    # --- Security: validate session cookie and same-origin websocket ---
+    origin = websocket.headers.get("origin")
+    if origin and origin not in allowed_origins:
+        await websocket.accept()
+        await websocket.close(code=4003, reason="forbidden: origin not allowed")
+        return
+
+    token = websocket.cookies.get("agentchattr_session", "")
     if token != session_token:
         # Must accept before closing so the browser receives the close frame.
         # Code 4003 triggers an auto-reload in the client to pick up the new token.
         await websocket.accept()
-        await websocket.close(code=4003, reason="forbidden: invalid session token")
+        await websocket.close(code=4003, reason="forbidden: invalid session cookie")
         return
 
     await websocket.accept()
@@ -1409,7 +1405,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
 # --- REST endpoints ---
 
-ALLOWED_UPLOAD_EXTS = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg'}
+ALLOWED_UPLOAD_EXTS = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'}
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB default
 
 
@@ -2275,26 +2271,39 @@ async def open_path(body: dict):
 
     p = Path(path)
     try:
+        resolved = p.resolve()
+    except Exception:
+        return JSONResponse({"error": "invalid path"}, status_code=400)
+
+    allowed_roots = {
+        Path(__file__).parent.resolve(),
+        Path(config.get("server", {}).get("data_dir", "./data")).resolve(),
+        Path(config.get("images", {}).get("upload_dir", "./uploads")).resolve(),
+    }
+    if not any(resolved == root or root in resolved.parents for root in allowed_roots):
+        return JSONResponse({"error": "path outside allowed roots"}, status_code=403)
+
+    try:
         if sys.platform == "win32":
-            if p.is_file():
-                subprocess.Popen(["explorer", "/select,", str(p)])
-            elif p.is_dir():
-                subprocess.Popen(["explorer", str(p)])
+            if resolved.is_file():
+                subprocess.Popen(["explorer", "/select,", str(resolved)])
+            elif resolved.is_dir():
+                subprocess.Popen(["explorer", str(resolved)])
             else:
                 return JSONResponse({"error": "path not found"}, status_code=404)
         elif sys.platform == "darwin":
-            if p.is_file():
-                subprocess.Popen(["open", "-R", str(p)])
-            elif p.is_dir():
-                subprocess.Popen(["open", str(p)])
+            if resolved.is_file():
+                subprocess.Popen(["open", "-R", str(resolved)])
+            elif resolved.is_dir():
+                subprocess.Popen(["open", str(resolved)])
             else:
                 return JSONResponse({"error": "path not found"}, status_code=404)
         else:
             # Linux — xdg-open opens the containing folder for files
-            if p.is_file():
-                subprocess.Popen(["xdg-open", str(p.parent)])
-            elif p.is_dir():
-                subprocess.Popen(["xdg-open", str(p)])
+            if resolved.is_file():
+                subprocess.Popen(["xdg-open", str(resolved.parent)])
+            elif resolved.is_dir():
+                subprocess.Popen(["xdg-open", str(resolved)])
             else:
                 return JSONResponse({"error": "path not found"}, status_code=404)
     except Exception as e:
