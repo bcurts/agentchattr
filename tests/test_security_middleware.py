@@ -65,6 +65,22 @@ class SecurityMiddlewareTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 403)
         self.assertIn("invalid or missing csrf token", resp.text)
 
+    def test_cross_site_browser_request_is_blocked(self):
+        app_module = _fresh_app()
+        client = TestClient(app_module.app)
+
+        resp = client.post(
+            "/api/roles/claude",
+            json={"role": "reviewer"},
+            headers={
+                "X-Session-Token": "test-csrf",
+                "Sec-Fetch-Site": "cross-site",
+            },
+            cookies={"agentchattr_session": "test-session"},
+        )
+        self.assertEqual(resp.status_code, 403)
+        self.assertIn("cross-site browser request blocked", resp.text)
+
     def test_svg_upload_is_rejected(self):
         app_module = _fresh_app()
         client = TestClient(app_module.app)
@@ -77,6 +93,22 @@ class SecurityMiddlewareTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 400)
         self.assertIn("unsupported file type", resp.text)
+
+    def test_uploaded_files_are_served_with_nosniff(self):
+        app_module = _fresh_app()
+        client = TestClient(app_module.app)
+
+        upload_resp = client.post(
+            "/api/upload",
+            files={"file": ("note.png", b"not-a-real-png", "image/png")},
+            headers={"X-Session-Token": "test-csrf"},
+            cookies={"agentchattr_session": "test-session"},
+        )
+        self.assertEqual(upload_resp.status_code, 200)
+
+        served = client.get(upload_resp.json()["url"])
+        self.assertEqual(served.status_code, 200)
+        self.assertEqual(served.headers.get("X-Content-Type-Options"), "nosniff")
 
     def test_open_path_is_restricted_to_known_roots(self):
         app_module = _fresh_app()

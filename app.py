@@ -190,6 +190,13 @@ def _install_security_middleware(token: str, csrf: str, cfg: dict):
                     status_code=403,
                 )
 
+            fetch_site = (request.headers.get("sec-fetch-site") or "").lower()
+            if fetch_site and fetch_site not in ("same-origin", "none"):
+                return JSONResponse(
+                    {"error": "forbidden: cross-site browser request blocked"},
+                    status_code=403,
+                )
+
             auth_header = request.headers.get("authorization", "")
             if auth_header.lower().startswith("bearer ") and (path in ("/api/messages", "/api/send") or path.startswith("/api/rules/")):
                 bearer = auth_header[7:].strip()
@@ -2616,5 +2623,5 @@ async def serve_upload(filename: str):
     if not filepath.is_relative_to(upload_dir.resolve()):
         return JSONResponse({"error": "invalid path"}, status_code=400)
     if filepath.exists():
-        return FileResponse(filepath)
+        return FileResponse(filepath, headers={"X-Content-Type-Options": "nosniff"})
     return JSONResponse({"error": "not found"}, status_code=404)
