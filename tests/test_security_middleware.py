@@ -1,10 +1,12 @@
 import importlib
+import re
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from fastapi.routing import APIRoute
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -33,6 +35,16 @@ def _fresh_app():
 
 
 class SecurityMiddlewareTests(unittest.TestCase):
+    def test_public_browser_route_policy_is_explicit_and_minimal(self):
+        app_module = _fresh_app()
+
+        self.assertTrue(app_module._is_public_browser_route("/", "GET"))
+        self.assertTrue(app_module._is_public_browser_route("/static/chat.js", "GET"))
+        self.assertTrue(app_module._is_public_browser_route("/uploads/example.png", "GET"))
+        self.assertTrue(app_module._is_public_browser_route("/api/roles", "GET"))
+        self.assertFalse(app_module._is_public_browser_route("/api/roles/claude", "POST"))
+        self.assertFalse(app_module._is_public_browser_route("/api/send", "POST"))
+
     def test_roles_list_is_public_but_role_mutation_requires_session_token(self):
         app_module = _fresh_app()
         client = TestClient(app_module.app)
@@ -135,6 +147,39 @@ class SecurityMiddlewareTests(unittest.TestCase):
         with client.websocket_connect("/ws") as ws:
             first = ws.receive_json()
             self.assertEqual(first["type"], "settings")
+
+    def test_mutating_routes_do_not_succeed_without_auth(self):
+        app_module = _fresh_app()
+        client = TestClient(app_module.app)
+
+        def sample_path(path: str) -> str:
+            return re.sub(r"\{[^}]+\}", "1", path)
+
+        for route in app_module.app.routes:
+            if not isinstance(route, APIRoute):
+                continue
+            for method in route.methods:
+                if method not in {"POST", "PATCH", "DELETE", "PUT"}:
+                    continue
+                resp = client.request(method, sample_path(route.path))
+                self.assertNotIn(
+                    resp.status_code,
+                    {200, 201, 202, 204},
+                    msg=f"{method} {route.path} unexpectedly succeeded without auth",
+                )
+
+    def test_security_headers_are_set_on_public_and_protected_responses(self):
+        app_module = _fresh_app()
+        client = TestClient(app_module.app)
+
+        public_resp = client.get("/api/roles")
+        self.assertEqual(public_resp.headers.get("X-Frame-Options"), "DENY")
+        self.assertEqual(public_resp.headers.get("X-Content-Type-Options"), "nosniff")
+
+        protected_resp = client.post("/api/roles/claude", json={"role": "reviewer"})
+        self.assertEqual(protected_resp.status_code, 403)
+        self.assertEqual(protected_resp.headers.get("X-Frame-Options"), "DENY")
+        self.assertEqual(protected_resp.headers.get("X-Content-Type-Options"), "nosniff")
 
 
 if __name__ == "__main__":

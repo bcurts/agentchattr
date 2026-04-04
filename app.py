@@ -48,6 +48,23 @@ session_token: str = ""
 csrf_token: str = ""
 allowed_origins: set[str] = set()
 
+
+def _is_public_browser_route(path: str, method: str) -> bool:
+    method = method.upper()
+    return (
+        path == "/"
+        or path.startswith("/static/")
+        or path.startswith("/uploads/")
+        or (path == "/api/roles" and method in ("GET", "HEAD", "OPTIONS"))
+    )
+
+
+def _apply_security_headers(response: Response) -> Response:
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    return response
+
 # Room settings (persisted to data/settings.json)
 room_settings: dict = {
     "title": "agentchattr",
@@ -81,14 +98,6 @@ def _load_hats():
 def _save_hats():
     # Persisting raw SVG hats is intentionally disabled.
     return
-
-
-def _sanitize_svg(svg: str) -> str:
-    """Strip dangerous content from SVG string."""
-    svg = _re.sub(r'<script[^>]*>.*?</script>', '', svg, flags=_re.DOTALL | _re.IGNORECASE)
-    svg = _re.sub(r'\bon\w+\s*=', '', svg, flags=_re.IGNORECASE)
-    svg = _re.sub(r'javascript\s*:', '', svg, flags=_re.IGNORECASE)
-    return svg
 
 
 def set_agent_hat(agent: str, svg: str) -> str | None:
@@ -166,49 +175,47 @@ def _install_security_middleware(token: str, csrf: str, cfg: dict):
             path = request.url.path
             method = request.method.upper()
 
-            if (
-                path == "/"
-                or path.startswith("/static/")
-                or path.startswith("/uploads/")
-                or (path == "/api/roles" and method in ("GET", "HEAD", "OPTIONS"))
-            ):
-                return await call_next(request)
+            if _is_public_browser_route(path, method):
+                response = await call_next(request)
+                return _apply_security_headers(response)
 
             if path.startswith(("/api/register", "/api/deregister/", "/api/heartbeat/")):
                 client_ip = request.client.host if request.client else ""
                 if client_ip not in ("127.0.0.1", "::1", "localhost"):
-                    return JSONResponse(
+                    return _apply_security_headers(JSONResponse(
                         {"error": f"forbidden: agent registration is restricted to local loopback. Source {client_ip} is not allowed."},
                         status_code=403,
-                    )
-                return await call_next(request)
+                    ))
+                response = await call_next(request)
+                return _apply_security_headers(response)
 
             origin = request.headers.get("origin")
             if origin and origin not in _self.allowed_origins:
-                return JSONResponse(
+                return _apply_security_headers(JSONResponse(
                     {"error": "forbidden: origin not allowed"},
                     status_code=403,
-                )
+                ))
 
             fetch_site = (request.headers.get("sec-fetch-site") or "").lower()
             if fetch_site and fetch_site not in ("same-origin", "none"):
-                return JSONResponse(
+                return _apply_security_headers(JSONResponse(
                     {"error": "forbidden: cross-site browser request blocked"},
                     status_code=403,
-                )
+                ))
 
             auth_header = request.headers.get("authorization", "")
             if auth_header.lower().startswith("bearer ") and (path in ("/api/messages", "/api/send") or path.startswith("/api/rules/")):
                 bearer = auth_header[7:].strip()
                 if _self.registry and _self.registry.resolve_token(bearer):
-                    return await call_next(request)
+                    response = await call_next(request)
+                    return _apply_security_headers(response)
 
             session_cookie = request.cookies.get("agentchattr_session", "")
             if session_cookie != _self.session_token:
-                return JSONResponse(
+                return _apply_security_headers(JSONResponse(
                     {"error": "forbidden: invalid or missing session cookie"},
                     status_code=403,
-                )
+                ))
 
             if method not in ("GET", "HEAD", "OPTIONS"):
                 req_token = (
@@ -216,12 +223,13 @@ def _install_security_middleware(token: str, csrf: str, cfg: dict):
                     or request.headers.get("x-session-token")
                 )
                 if req_token != _self.csrf_token:
-                    return JSONResponse(
+                    return _apply_security_headers(JSONResponse(
                         {"error": "forbidden: invalid or missing csrf token"},
                         status_code=403,
-                    )
+                    ))
 
-            return await call_next(request)
+            response = await call_next(request)
+            return _apply_security_headers(response)
 
     app.add_middleware(SecurityMiddleware)
 
@@ -696,36 +704,17 @@ async def _handle_new_message(msg: dict):
         return
 
     if stripped.startswith("/artchallenge"):
-        parts = stripped.split(None, 1)
-        theme = parts[1] if len(parts) > 1 else "anything you like"
-        agent_names = registry.get_all_names() if registry else list(config.get("agents", {}).keys())
-        mentions = " ".join(f"@{a}" for a in agent_names)
         store.add(
             sender,
-            f"{mentions} Art challenge! Create an SVG artwork with the theme: **{theme}**. "
-            "Write your SVG code to a .svg file, then attach it using chat_send(image_path=...). "
-            "Make it creative, keep it under 5KB. Let's see what you've got!",
+            "Art challenge is temporarily disabled because SVG uploads are blocked during security hardening.",
             channel=channel,
         )
         return
 
     if stripped == "/hatmaking":
-        agent_names = registry.get_all_names() if registry else list(config.get("agents", {}).keys())
-        mentions = " ".join(f"@{a}" for a in agent_names)
-        all_instances = registry.get_all() if registry else {}
-        agents_cfg = config.get("agents", {})
-        color_parts = ", ".join(
-            f"{a}={all_instances[a]['color']}" if a in all_instances
-            else f"{a}={agents_cfg.get(a, {}).get('color', '#888')}"
-            for a in agent_names
-        )
         store.add(
             sender,
-            f"{mentions} Hat making time! Design a new hat for your avatar using SVG. "
-            "Use viewBox=\"0 0 32 16\" so it fits on top of a 32px avatar circle. "
-            f"Background is dark (#0f0f17). Avatar colors: {color_parts}. Design for good contrast! "
-            "Call chat_set_hat(sender=your_name, svg='<svg ...>...</svg>') to wear it. "
-            "Be creative — top hats, party hats, crowns, propeller beanies, whatever you want!",
+            "Hat making is temporarily disabled because custom SVG hats are blocked during security hardening.",
             channel=channel,
         )
         return
