@@ -19,16 +19,36 @@ How it works:
 """
 
 import argparse
+import ipaddress
 import json
 import os
 import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).parent
+
+
+def _is_private_or_local_base_url(url: str) -> bool:
+    try:
+        parsed = urllib.parse.urlparse(url)
+        host = (parsed.hostname or "").lower()
+    except Exception:
+        return False
+    if not host:
+        return False
+    if host in {"localhost", "127.0.0.1", "::1"}:
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+        return ip.is_private or ip.is_loopback
+    except ValueError:
+        pass
+    return host.endswith(".local")
 
 
 def _auth_headers(token: str, *, include_json: bool = False) -> dict[str, str]:
@@ -71,6 +91,11 @@ def main():
     if not base_url:
         print(f"  Error: [agents.{agent}] must have base_url (e.g. http://localhost:8189/v1)")
         sys.exit(1)
+    if not _is_private_or_local_base_url(base_url):
+        print("  WARNING: this API agent points at a non-local endpoint.")
+        print("  Recent chat context sent to this wrapper will be transmitted to that remote service.")
+        print(f"  Endpoint: {base_url}")
+        print()
     model = agent_cfg.get("model", "")
     api_key_env = agent_cfg.get("api_key_env", "")
     api_key = os.environ.get(api_key_env, "") if api_key_env else ""
