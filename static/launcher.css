@@ -1,0 +1,472 @@
+/* --- Launcher panel (right-side slide-out) --- */
+
+#launcher-panel {
+  --panel-w: 380px;
+  width: var(--panel-w);
+  min-width: 280px;
+  max-width: 50vw;
+  flex-shrink: 0;
+  background: var(--bg-header);
+  border-left: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  margin-right: 0;
+  transition:
+    margin-right 0.25s ease,
+    opacity 0.2s ease;
+  position: relative;
+}
+
+#launcher-panel.hidden {
+  margin-right: calc(-1 * var(--panel-w));
+  opacity: 0;
+  pointer-events: none;
+}
+
+.launcher-header {
+  display: flex;
+  align-items: center;
+  padding: var(--sb-padding);
+  font-size: var(--sb-title-fs);
+  font-weight: var(--sb-title-fw);
+  line-height: var(--sb-title-lh);
+  color: var(--text-dim);
+  border-bottom: var(--sb-card-border-width) solid var(--border);
+  flex-shrink: 0;
+  gap: var(--sb-gap);
+}
+
+.add-agent-btn {
+  margin-left: auto;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.add-agent-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+#launcher-list {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0;
+}
+
+/* --- Agent card --- */
+
+.launcher-card {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--sb-card-border-color);
+  transition: background var(--duration-fast) ease;
+}
+
+.launcher-card:hover {
+  background: var(--white-03);
+}
+
+.launcher-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.launcher-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.launcher-dot.online {
+  background: var(--online);
+}
+.launcher-dot.offline {
+  background: var(--text-dim);
+}
+.launcher-dot.crashed {
+  background: var(--error-color);
+}
+
+.launcher-card-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.launcher-card-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+.launcher-card-meta {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Status badges --- */
+
+.launcher-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  line-height: 1.4;
+  flex-shrink: 0;
+}
+
+.launcher-badge.running {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.launcher-badge.crashed {
+  background: var(--error-soft);
+  color: var(--error-color);
+}
+
+.launcher-badge.stopped {
+  background: var(--white-06);
+  color: var(--text-dim);
+}
+
+/* --- Instance rows --- */
+
+.launcher-instance {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0 4px 16px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.launcher-instance-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.launcher-instance-pid {
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+/* --- Action buttons --- */
+
+.launcher-actions {
+  display: flex;
+  gap: 6px;
+  padding: 6px 0 2px 16px;
+  flex-wrap: wrap;
+}
+
+.launcher-btn {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.launcher-btn:hover {
+  color: var(--text);
+  border-color: var(--text-dim);
+}
+
+.launcher-btn.primary {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.launcher-btn.primary:hover {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.launcher-btn.danger {
+  border-color: var(--danger);
+  color: var(--error-color);
+}
+
+.launcher-btn.danger:hover {
+  background: var(--danger-soft);
+}
+
+/* --- Launch config form --- */
+
+.launch-config {
+  padding: 8px 16px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--white-02);
+}
+
+.launch-config.hidden {
+  display: none;
+}
+
+.launch-config-field {
+  margin-bottom: 8px;
+}
+
+.launch-config-field label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin-bottom: 3px;
+}
+
+.launch-config-field input[type="text"],
+.launch-config-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.launch-config-field input[type="text"]:focus,
+.launch-config-field textarea:focus {
+  border-color: var(--accent);
+}
+
+.launch-config-field textarea {
+  resize: vertical;
+  min-height: 32px;
+  max-height: 80px;
+}
+
+/* --- Flag toggles --- */
+
+.launch-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.launch-flag-toggle {
+  font-family: inherit;
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.15s;
+  user-select: none;
+}
+
+.launch-flag-toggle.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.launch-flag-toggle:hover {
+  border-color: var(--text-dim);
+}
+
+/* --- Logs drawer --- */
+
+.launcher-logs {
+  max-height: 160px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin: 4px 16px 6px 16px;
+  padding: 6px 8px;
+  font-family: "Cascadia Code", "Fira Code", "JetBrains Mono", monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.launcher-logs.hidden {
+  display: none;
+}
+
+.launcher-logs-empty {
+  font-style: italic;
+  opacity: 0.5;
+}
+
+/* --- Add Agent form --- */
+
+#add-agent-form {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--white-02);
+}
+
+#add-agent-form.hidden {
+  display: none;
+}
+
+.add-agent-field {
+  margin-bottom: 8px;
+}
+
+.add-agent-field label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin-bottom: 3px;
+}
+
+.add-agent-field input[type="text"] {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.add-agent-field input[type="text"]:focus {
+  border-color: var(--accent);
+}
+
+/* --- Colour swatches --- */
+
+.colour-swatches {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.colour-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    transform 0.1s;
+}
+
+.colour-swatch:hover {
+  transform: scale(1.15);
+}
+
+.colour-swatch.selected {
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px var(--bg-header);
+}
+
+.add-agent-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+/* --- Restore banner --- */
+
+#restore-banner {
+  background: var(--bg-elevated);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  margin: 8px 16px;
+  padding: 10px 14px;
+}
+
+#restore-banner .restore-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+#restore-banner .restore-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+#restore-banner .restore-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+#restore-banner .restore-item input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+#restore-banner .restore-actions {
+  display: flex;
+  gap: 6px;
+}
+
+/* Badge on launcher toggle button */
+
+.launcher-badge-count {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  font-size: 9px;
+  font-weight: 700;
+  min-width: 14px;
+  height: 14px;
+  line-height: 14px;
+  text-align: center;
+  padding: 0 3px;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+.launcher-badge-count.hidden {
+  display: none;
+}

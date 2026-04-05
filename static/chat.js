@@ -721,6 +721,12 @@ function connectWebSocket() {
     } else if (event.type === "reload") {
       // Server requests full page reload (e.g. after import)
       location.reload();
+    } else if (event.type === "agent_processes") {
+      Hub.emit("agent_processes", event);
+    } else if (event.type === "agent_log") {
+      Hub.emit("agent_log", event);
+    } else if (event.type === "session_restore") {
+      Hub.emit("session_restore", event);
     }
   };
 
