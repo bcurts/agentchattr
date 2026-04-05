@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Launcher Panel — Mockup</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0f0a1a;
+    color: #e0d8f0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px;
+  }
+  h1 { font-size: 14px; color: #a090c0; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 2px; }
+  .note { font-size: 12px; color: #786898; margin-bottom: 24px; max-width: 900px; text-align: centre; }
+
+  /* === Layout: two views side by side === */
+  .views { display: flex; gap: 32px; flex-wrap: wrap; justify-content: centre; width: 100%; max-width: 1100px; }
+  .view { flex: 1; min-width: 420px; max-width: 520px; }
+  .view-label {
+    font-size: 11px; color: #8070a0; text-transform: uppercase; letter-spacing: 1.5px;
+    margin-bottom: 10px; padding-left: 4px;
+  }
+
+  /* === Panel frame === */
+  .panel {
+    background: #1a1228;
+    border: 1px solid #2a2040;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .panel-header {
+    display: flex; align-items: centre; justify-content: space-between;
+    padding: 14px 18px;
+    background: #201838;
+    border-bottom: 1px solid #2a2040;
+  }
+  .panel-header h2 { font-size: 15px; font-weight: 600; }
+  .panel-header .add-btn {
+    background: #6c3fc7; color: white; border: none; border-radius: 6px;
+    padding: 5px 14px; font-size: 12px; cursor: pointer; font-weight: 500;
+  }
+
+  /* === Agent card === */
+  .agent-card {
+    padding: 16px 18px;
+    border-bottom: 1px solid #1e1630;
+    display: flex; align-items: flex-start; gap: 14px;
+  }
+  .agent-card:last-child { border-bottom: none; }
+  .agent-dot {
+    width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; flex-shrink: 0;
+  }
+  .agent-dot.online { box-shadow: 0 0 6px currentColor; }
+  .agent-dot.offline { opacity: 0.35; }
+  .agent-info { flex: 1; }
+  .agent-name { font-size: 14px; font-weight: 600; }
+  .agent-meta { font-size: 11px; color: #786898; margin-top: 3px; }
+  .agent-flags { font-size: 11px; color: #a78bfa; margin-top: 4px; font-family: monospace; }
+  .agent-status {
+    font-size: 10px; padding: 2px 8px; border-radius: 10px;
+    text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;
+    white-space: nowrap; margin-top: 3px;
+  }
+  .status-running { background: #1a3a2a; color: #4ade80; }
+  .status-stopped { background: #2a1a1a; color: #888; }
+  .agent-actions { display: flex; gap: 6px; margin-top: 3px; }
+  .agent-actions button {
+    background: #2a2040; color: #c0b0e0; border: 1px solid #3a2860;
+    border-radius: 5px; padding: 3px 10px; font-size: 11px; cursor: pointer;
+  }
+  .agent-actions button.launch { background: #3a2870; color: #c8b8ff; border-color: #5040a0; }
+  .agent-actions button.stop { background: #3a1a1a; color: #f87171; border-color: #5a2020; }
+  .agent-actions button.logs { background: #1a2a3a; color: #60a5fa; border-color: #203050; }
+
+  /* === Launch config expanded === */
+  .launch-config {
+    background: #150f22;
+    border: 1px solid #2a2040;
+    border-radius: 8px;
+    margin: 10px 18px 16px 42px;
+    padding: 14px;
+  }
+  .launch-config h3 { font-size: 12px; color: #a090c0; margin-bottom: 10px; }
+  .config-row { display: flex; align-items: centre; gap: 10px; margin-bottom: 8px; }
+  .config-row label { font-size: 12px; color: #9080b0; min-width: 80px; }
+  .config-row input[type="text"] {
+    flex: 1; background: #0f0a1a; border: 1px solid #2a2040; border-radius: 4px;
+    color: #e0d8f0; padding: 4px 8px; font-size: 12px; font-family: monospace;
+  }
+  .toggle-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+  .flag-toggle {
+    display: flex; align-items: centre; gap: 5px;
+    background: #1a1228; border: 1px solid #2a2040; border-radius: 5px;
+    padding: 4px 10px; font-size: 11px; cursor: pointer;
+  }
+  .flag-toggle.active { border-color: #6c3fc7; background: #2a1848; color: #c8b8ff; }
+  .flag-toggle input { display: none; }
+  .flag-toggle .check { width: 14px; height: 14px; border: 1px solid #4a3870; border-radius: 3px; display: flex; align-items: centre; justify-content: centre; font-size: 10px; }
+  .flag-toggle.active .check { background: #6c3fc7; border-color: #6c3fc7; }
+  .launch-btn {
+    background: #6c3fc7; color: white; border: none; border-radius: 6px;
+    padding: 7px 20px; font-size: 12px; cursor: pointer; font-weight: 600;
+    margin-top: 6px;
+  }
+  .config-section-label { font-size: 10px; color: #685888; text-transform: uppercase; letter-spacing: 1px; margin: 10px 0 4px; }
+
+  /* === Logs panel === */
+  .logs-panel {
+    background: #0a0612;
+    border: 1px solid #2a2040;
+    border-radius: 8px;
+    margin: 0 18px 16px 42px;
+    padding: 10px 14px;
+    max-height: 180px;
+    overflow-y: auto;
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 11px;
+    line-height: 1.6;
+    color: #8a80a0;
+  }
+  .logs-panel .log-line { white-space: pre-wrap; }
+  .logs-panel .log-info { color: #60a5fa; }
+  .logs-panel .log-tool { color: #a78bfa; }
+  .logs-panel .log-ok { color: #4ade80; }
+  .logs-panel .log-dim { color: #504070; }
+
+  /* === Session restore banner === */
+  .restore-banner {
+    background: #1a1830;
+    border: 1px solid #3a2860;
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin-bottom: 24px;
+    max-width: 520px;
+    width: 100%;
+  }
+  .restore-banner h3 { font-size: 13px; color: #c8b8ff; margin-bottom: 10px; }
+  .restore-item {
+    display: flex; align-items: centre; gap: 10px; padding: 6px 0;
+    font-size: 12px;
+  }
+  .restore-item input[type="checkbox"] { accent-color: #6c3fc7; }
+  .restore-actions { display: flex; gap: 8px; margin-top: 12px; }
+  .restore-actions button {
+    padding: 6px 16px; border-radius: 6px; font-size: 12px; cursor: pointer; border: none;
+  }
+  .restore-actions .relaunch { background: #6c3fc7; color: white; font-weight: 600; }
+  .restore-actions .dismiss { background: #2a2040; color: #a090c0; }
+
+  /* Add agent form */
+  .add-form {
+    padding: 16px 18px;
+    border-top: 1px solid #2a2040;
+    background: #150f22;
+  }
+  .add-form h3 { font-size: 12px; color: #a090c0; margin-bottom: 10px; }
+  .colour-picker {
+    display: flex; gap: 6px; margin: 6px 0 10px;
+  }
+  .colour-swatch {
+    width: 22px; height: 22px; border-radius: 50%; cursor: pointer;
+    border: 2px solid transparent;
+  }
+  .colour-swatch.selected { border-color: white; }
+</style>
+</head>
+<body>
+
+<h1>Agent Launcher Panel — Design Mockup</h1>
+<p class="note">Two states shown: the main launcher panel (left) and the session-restore banner that appears on server restart (right, top).</p>
+
+<div class="views">
+
+  <!-- LEFT: Main launcher panel -->
+  <div class="view">
+    <div class="view-label">Launcher Panel (from header button)</div>
+    <div class="panel">
+      <div class="panel-header">
+        <h2>Agents</h2>
+        <button class="add-btn">+ Add Agent</button>
+      </div>
+
+      <!-- Running agent: Claude -->
+      <div class="agent-card">
+        <div class="agent-dot online" style="color: #da7756; background: #da7756;"></div>
+        <div class="agent-info">
+          <div class="agent-name">Claude</div>
+          <div class="agent-meta">claude &middot; C:\AI\MyProject &middot; 14m uptime</div>
+          <div class="agent-flags">--dangerously-skip-permissions</div>
+          <div class="agent-actions">
+            <button class="stop">Stop</button>
+            <button class="logs">Logs</button>
+          </div>
+        </div>
+        <div class="agent-status status-running">Running</div>
+      </div>
+
+      <!-- Logs expanded for Claude -->
+      <div class="logs-panel">
+        <div class="log-line log-dim">16:22:01</div>
+        <div class="log-line log-info">Registered as "claude" (slot 1)</div>
+        <div class="log-line log-info">MCP proxy on port 54321</div>
+        <div class="log-line log-dim">16:22:05</div>
+        <div class="log-line log-tool">mcp read #general</div>
+        <div class="log-line">Reading 3 new messages...</div>
+        <div class="log-line log-ok">Responded in #general (247 tokens)</div>
+        <div class="log-line log-dim">16:24:18</div>
+        <div class="log-line log-tool">mcp read #general</div>
+        <div class="log-line">Reading 1 new message...</div>
+        <div class="log-line log-ok">Responded in #general (182 tokens)</div>
+      </div>
+
+      <!-- Running agent: Codex -->
+      <div class="agent-card">
+        <div class="agent-dot online" style="color: #10a37f; background: #10a37f;"></div>
+        <div class="agent-info">
+          <div class="agent-name">Codex</div>
+          <div class="agent-meta">codex &middot; C:\AI\MyProject &middot; 8m uptime</div>
+          <div class="agent-flags">--dangerously-bypass-approvals-and-sandbox</div>
+          <div class="agent-actions">
+            <button class="stop">Stop</button>
+            <button class="logs">Logs</button>
+          </div>
+        </div>
+        <div class="agent-status status-running">Running</div>
+      </div>
+
+      <!-- Stopped agent: Gemini (with launch config expanded) -->
+      <div class="agent-card">
+        <div class="agent-dot offline" style="color: #4285f4; background: #4285f4;"></div>
+        <div class="agent-info">
+          <div class="agent-name">Gemini</div>
+          <div class="agent-meta">gemini &middot; not running</div>
+          <div class="agent-actions">
+            <button class="launch">Launch</button>
+          </div>
+        </div>
+        <div class="agent-status status-stopped">Stopped</div>
+      </div>
+
+      <!-- Launch config for Gemini -->
+      <div class="launch-config">
+        <h3>Launch Configuration</h3>
+
+        <div class="config-section-label">Working Directory</div>
+        <div class="config-row">
+          <input type="text" value="C:\AI\MyProject" style="width:100%;" />
+        </div>
+
+        <div class="config-section-label">Flags</div>
+        <div class="toggle-row">
+          <label class="flag-toggle active">
+            <input type="checkbox" checked /><span class="check">&#10003;</span> --yolo
+          </label>
+          <label class="flag-toggle">
+            <input type="checkbox" /><span class="check"></span> --sandbox
+          </label>
+        </div>
+
+        <div class="config-section-label">Extra Arguments</div>
+        <div class="config-row">
+          <input type="text" placeholder="e.g. --model gemini-2.5-pro" style="width:100%;" />
+        </div>
+
+        <button class="launch-btn">Launch Gemini</button>
+      </div>
+
+      <!-- Stopped agent: Kimi -->
+      <div class="agent-card">
+        <div class="agent-dot offline" style="color: #1783ff; background: #1783ff;"></div>
+        <div class="agent-info">
+          <div class="agent-name">Kimi</div>
+          <div class="agent-meta">kimi &middot; not running</div>
+          <div class="agent-actions">
+            <button class="launch">Launch</button>
+          </div>
+        </div>
+        <div class="agent-status status-stopped">Stopped</div>
+      </div>
+
+      <!-- Add agent form -->
+      <div class="add-form">
+        <h3>Add New Agent</h3>
+        <div class="config-row">
+          <label>Name</label>
+          <input type="text" placeholder="e.g. qwen" />
+        </div>
+        <div class="config-row">
+          <label>Command</label>
+          <input type="text" placeholder="e.g. qwen" />
+        </div>
+        <div class="config-row">
+          <label>Label</label>
+          <input type="text" placeholder="e.g. Qwen" />
+        </div>
+        <div class="config-section-label">Colour</div>
+        <div class="colour-picker">
+          <div class="colour-swatch" style="background:#da7756;"></div>
+          <div class="colour-swatch" style="background:#10a37f;"></div>
+          <div class="colour-swatch" style="background:#4285f4;"></div>
+          <div class="colour-swatch" style="background:#8b5cf6;" ></div>
+          <div class="colour-swatch selected" style="background:#facc15;"></div>
+          <div class="colour-swatch" style="background:#f43f5e;"></div>
+          <div class="colour-swatch" style="background:#2fe898;"></div>
+          <div class="colour-swatch" style="background:#1783ff;"></div>
+        </div>
+        <div class="config-row">
+          <label>MCP Mode</label>
+          <input type="text" placeholder="auto (flag/env/proxy)" value="auto" />
+        </div>
+        <button class="launch-btn" style="background:#3a2870;">Save Agent</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- RIGHT: Session restore + second view -->
+  <div class="view">
+    <div class="view-label">Session Restore (on server restart)</div>
+
+    <!-- Restore banner -->
+    <div class="restore-banner">
+      <h3>Previous session agents detected</h3>
+      <div class="restore-item">
+        <input type="checkbox" checked />
+        <div class="agent-dot online" style="color: #da7756; background: #da7756; width:8px; height:8px;"></div>
+        <span><strong>Claude</strong> &mdash; --dangerously-skip-permissions &middot; C:\AI\MyProject</span>
+      </div>
+      <div class="restore-item">
+        <input type="checkbox" checked />
+        <div class="agent-dot online" style="color: #10a37f; background: #10a37f; width:8px; height:8px;"></div>
+        <span><strong>Codex</strong> &mdash; --dangerously-bypass-approvals-and-sandbox &middot; C:\AI\MyProject</span>
+      </div>
+      <div class="restore-item">
+        <input type="checkbox" />
+        <div class="agent-dot offline" style="color: #4285f4; background: #4285f4; width:8px; height:8px;"></div>
+        <span><strong>Gemini</strong> &mdash; --yolo &middot; C:\AI\MyProject</span>
+      </div>
+      <div class="restore-actions">
+        <button class="relaunch">Relaunch Selected</button>
+        <button class="dismiss">Dismiss</button>
+      </div>
+    </div>
+
+    <div class="view-label" style="margin-top: 20px;">Agent card states</div>
+    <div class="panel">
+      <div class="panel-header">
+        <h2>State Reference</h2>
+      </div>
+
+      <!-- Working agent with activity indicator -->
+      <div class="agent-card">
+        <div class="agent-dot online" style="color: #da7756; background: #da7756; animation: pulse 1.5s infinite;"></div>
+        <div class="agent-info">
+          <div class="agent-name">Claude <span style="font-size:11px; color:#786898; font-weight:400;">(working)</span></div>
+          <div class="agent-meta">Responding to @mention in #general</div>
+          <div class="agent-actions">
+            <button class="stop">Stop</button>
+            <button class="logs">Logs</button>
+          </div>
+        </div>
+        <div class="agent-status" style="background:#2a2a10; color:#facc15;">Working</div>
+      </div>
+
+      <!-- Crashed / restarting -->
+      <div class="agent-card">
+        <div class="agent-dot" style="color: #f87171; background: #f87171; opacity:0.6;"></div>
+        <div class="agent-info">
+          <div class="agent-name">Codex <span style="font-size:11px; color:#f87171; font-weight:400;">(crashed)</span></div>
+          <div class="agent-meta">Exited 12s ago &middot; restart in 3s</div>
+          <div class="agent-actions">
+            <button class="launch">Relaunch</button>
+            <button class="logs">Logs</button>
+          </div>
+        </div>
+        <div class="agent-status" style="background:#3a1a1a; color:#f87171;">Crashed</div>
+      </div>
+
+      <!-- Editing agent config -->
+      <div class="agent-card">
+        <div class="agent-dot offline" style="color: #8b5cf6; background: #8b5cf6;"></div>
+        <div class="agent-info">
+          <div class="agent-name">Qwen</div>
+          <div class="agent-meta">qwen &middot; not configured</div>
+          <div class="agent-actions">
+            <button style="background:#2a1848; color:#a78bfa; border-color:#4a3870;">Edit</button>
+            <button style="background:#3a1a1a; color:#f87171; border-color:#5a2020;">Remove</button>
+          </div>
+        </div>
+        <div class="agent-status status-stopped">New</div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<style>
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+</style>
+
+</body>
+</html>
