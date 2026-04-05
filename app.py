@@ -214,8 +214,13 @@ def _install_security_middleware(token: str, cfg: dict):
                 if _self.registry and _self.registry.resolve_token(bearer):
                     return await call_next(request)
 
+            # Check session token from (in priority order):
+            #   1. HttpOnly cookie (browser — preferred, not readable by JS)
+            #   2. X-Session-Token header (programmatic clients)
+            #   3. ?token= query param (legacy fallback)
             req_token = (
-                request.headers.get("x-session-token")
+                request.cookies.get("session")
+                or request.headers.get("x-session-token")
                 or request.query_params.get("token")
             )
             if req_token != _self.session_token:
@@ -1013,7 +1018,11 @@ def _on_registry_change():
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     # --- Security: validate session token on WebSocket connect ---
-    token = websocket.query_params.get("token", "")
+    # Check cookie first (browser), then query param (legacy fallback).
+    token = (
+        websocket.cookies.get("session")
+        or websocket.query_params.get("token", "")
+    )
     if token != session_token:
         # Must accept before closing so the browser receives the close frame.
         # Code 4003 triggers an auto-reload in the client to pick up the new token.
