@@ -5,6 +5,7 @@ import json
 import re as _re
 import sys
 import threading
+import time as _time
 import uuid
 import logging
 from pathlib import Path
@@ -45,6 +46,28 @@ ws_clients: set[WebSocket] = set()
 
 # --- Security: session token (set by configure()) ---
 session_token: str = ""
+
+# --- Security: per-IP rate limiter for agent registration ---
+_REGISTER_RATE_LIMIT = 10       # max registrations per window
+_REGISTER_RATE_WINDOW = 60.0    # seconds
+_register_timestamps: dict[str, list[float]] = {}
+_register_lock = threading.Lock()
+
+
+def _check_register_rate(ip: str) -> bool:
+    """Return True if the request is within rate limits, False if exceeded."""
+    now = _time.monotonic()
+    with _register_lock:
+        timestamps = _register_timestamps.get(ip, [])
+        # Prune entries outside the window
+        timestamps = [t for t in timestamps if now - t < _REGISTER_RATE_WINDOW]
+        if len(timestamps) >= _REGISTER_RATE_LIMIT:
+            _register_timestamps[ip] = timestamps
+            return False
+        timestamps.append(now)
+        _register_timestamps[ip] = timestamps
+        return True
+
 
 # Room settings (persisted to data/settings.json)
 room_settings: dict = {
@@ -87,11 +110,64 @@ def _save_hats():
 
 
 def _sanitize_svg(svg: str) -> str:
-    """Strip dangerous content from SVG string."""
-    svg = _re.sub(r'<script[^>]*>.*?</script>', '', svg, flags=_re.DOTALL | _re.IGNORECASE)
-    svg = _re.sub(r'\bon\w+\s*=', '', svg, flags=_re.IGNORECASE)
-    svg = _re.sub(r'javascript\s*:', '', svg, flags=_re.IGNORECASE)
-    return svg
+    """Sanitise SVG using an element/attribute whitelist via ElementTree.
+
+    Blocks dangerous elements (script, foreignObject, iframe, etc.) and
+    dangerous attributes (on* event handlers, javascript:/data: URLs).
+    Falls back to empty string on parse failure.
+    """
+    import xml.etree.ElementTree as _ET
+
+    # XXE protection: strip DOCTYPE, ENTITY, and XML processing instructions
+    svg = _re.sub(r'<!DOCTYPE[^>]*>', '', svg, flags=_re.IGNORECASE)
+    svg = _re.sub(r'<!ENTITY[^>]*>', '', svg, flags=_re.IGNORECASE)
+    svg = _re.sub(r'<\?xml[^>]*\?>', '', svg, flags=_re.IGNORECASE)
+
+    # Register SVG namespaces so output doesn't get ns0: prefixes
+    _ET.register_namespace('', 'http://www.w3.org/2000/svg')
+    _ET.register_namespace('xlink', 'http://www.w3.org/1999/xlink')
+
+    try:
+        root = _ET.fromstring(svg.strip())
+    except _ET.ParseError:
+        return ''
+
+    # Root must be <svg>
+    tag = root.tag.split('}', 1)[-1].lower() if '}' in root.tag else root.tag.lower()
+    if tag != 'svg':
+        return ''
+
+    _FORBIDDEN_ELEMENTS = frozenset({
+        'script', 'foreignobject', 'iframe', 'embed', 'object', 'applet',
+        'image',       # can load external resources / trigger onerror
+        'animate', 'animatetransform', 'animatemotion', 'set',
+    })
+
+    def _local(tag_name: str) -> str:
+        return tag_name.split('}', 1)[-1].lower() if '}' in tag_name else tag_name.lower()
+
+    def _clean(elem):
+        # Remove forbidden child elements (iterate copy so removal is safe)
+        for child in list(elem):
+            if _local(child.tag) in _FORBIDDEN_ELEMENTS:
+                elem.remove(child)
+            else:
+                _clean(child)
+
+        # Remove dangerous attributes
+        for attr in list(elem.attrib):
+            attr_local = _local(attr)
+            value = (elem.attrib[attr] or '').lower().replace(' ', '').replace('\t', '')
+            # Block all event handlers (onclick, onload, onerror, …)
+            if attr_local.startswith('on'):
+                del elem.attrib[attr]
+            # Block javascript: and data: URLs in href/src attributes
+            elif attr_local in ('href', 'src') or attr_local.endswith(':href'):
+                if 'javascript:' in value or 'data:' in value:
+                    del elem.attrib[attr]
+
+    _clean(root)
+    return _ET.tostring(root, encoding='unicode')
 
 
 def set_agent_hat(agent: str, svg: str) -> str | None:
@@ -214,8 +290,13 @@ def _install_security_middleware(token: str, cfg: dict):
                 if _self.registry and _self.registry.resolve_token(bearer):
                     return await call_next(request)
 
+            # Check session token from (in priority order):
+            #   1. HttpOnly cookie (browser — preferred, not readable by JS)
+            #   2. X-Session-Token header (programmatic clients)
+            #   3. ?token= query param (legacy fallback)
             req_token = (
-                request.headers.get("x-session-token")
+                request.cookies.get("session")
+                or request.headers.get("x-session-token")
                 or request.query_params.get("token")
             )
             if req_token != _self.session_token:
@@ -1013,7 +1094,11 @@ def _on_registry_change():
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     # --- Security: validate session token on WebSocket connect ---
-    token = websocket.query_params.get("token", "")
+    # Check cookie first (browser), then query param (legacy fallback).
+    token = (
+        websocket.cookies.get("session")
+        or websocket.query_params.get("token", "")
+    )
     if token != session_token:
         # Must accept before closing so the browser receives the close frame.
         # Code 4003 triggers an auto-reload in the client to pick up the new token.
@@ -2080,6 +2165,13 @@ async def get_rules_freshness():
 @app.post("/api/register")
 async def register_agent(request: Request):
     """Wrapper calls this to register a new agent instance."""
+    # Rate limit: prevent registration spam (10 per 60s per IP).
+    client_ip = request.client.host if request.client else "unknown"
+    if not _check_register_rate(client_ip):
+        return JSONResponse(
+            {"error": "rate limit exceeded — too many registrations, try again later"},
+            status_code=429,
+        )
     try:
         body = await request.json()
     except Exception:

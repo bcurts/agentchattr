@@ -75,15 +75,19 @@ def main():
     @app.get("/")
     async def index():
         # Read index.html fresh each request so changes take effect without restart.
-        # Inject the session token into the HTML so the browser client can use it.
-        # This is safe: same-origin policy prevents cross-origin pages from reading
-        # the response body, so only the user's own browser tab gets the token.
+        # Session token is delivered via HttpOnly cookie (not a JS global) so that
+        # XSS cannot exfiltrate it.  The browser sends the cookie automatically on
+        # every same-origin fetch and WebSocket handshake.
         html = (static_dir / "index.html").read_text("utf-8")
-        injected = html.replace(
-            "</head>",
-            f'<script>window.__SESSION_TOKEN__="{session_token}";</script>\n</head>',
+        resp = HTMLResponse(html, headers={"Cache-Control": "no-store"})
+        resp.set_cookie(
+            key="session",
+            value=session_token,
+            httponly=True,
+            samesite="strict",
+            path="/",
         )
-        return HTMLResponse(injected, headers={"Cache-Control": "no-store"})
+        return resp
 
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
