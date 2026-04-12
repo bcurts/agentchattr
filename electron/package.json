@@ -1,0 +1,11 @@
+{
+  "name": "agentchattr-desktop",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {
+    "electron": "^35.0.0",
+    "electron-store": "^8.2.0"
+  }
+}

@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>agentchattr</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        background: #12121e;
+        color: #e0e0e0;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      }
+
+      body {
+        min-height: 100dvh;
+        overflow: hidden;
+      }
+
+      button {
+        font: inherit;
+      }
+
+      #app {
+        display: flex;
+        flex-direction: column;
+        height: 100dvh;
+        background: #12121e;
+      }
+
+      .tab-bar {
+        display: flex;
+        align-items: stretch;
+        height: 36px;
+        background: #1a1a2e;
+        border-bottom: 1px solid #2a2a3a;
+        padding: 0 8px;
+        gap: 8px;
+        flex-shrink: 0;
+      }
+
+      .tab-item {
+        display: flex;
+        align-items: center;
+        min-width: 0;
+      }
+
+      .tab-button {
+        height: 36px;
+        padding: 0 16px;
+        background: transparent;
+        border: none;
+        color: #888;
+        cursor: pointer;
+        font-size: 13px;
+        border-bottom: 2px solid transparent;
+      }
+
+      .tab-button.active {
+        color: #da7756;
+        border-bottom-color: #da7756;
+      }
+
+      .pop-out-button {
+        width: 20px;
+        height: 20px;
+        margin-left: 4px;
+        padding: 0;
+        border: none;
+        border-radius: 4px;
+        background: transparent;
+        color: #888;
+        cursor: pointer;
+        opacity: 0.5;
+      }
+
+      .pop-out-button:hover {
+        opacity: 1;
+        color: #e0e0e0;
+      }
+
+      .content-area {
+        flex: 1;
+        overflow: hidden;
+        position: relative;
+        background: #12121e;
+      }
+
+      webview {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        border: none;
+      }
+
+      #ports-container {
+        position: absolute;
+        inset: 0;
+        overflow: auto;
+        background: #12121e;
+      }
+
+      webview[hidden],
+      #ports-container[hidden] {
+        display: none;
+      }
+
+      .ports-shell {
+        box-sizing: border-box;
+        min-height: 100%;
+        padding: 20px;
+      }
+
+      .ports-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+
+      .ports-title {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 600;
+        color: #e0e0e0;
+      }
+
+      .ports-meta {
+        font-size: 12px;
+        color: #888;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .ports-empty,
+      .ports-notice {
+        border: 1px solid #2a2a3a;
+        border-radius: 10px;
+        background: #1a1a2e;
+        padding: 16px;
+      }
+
+      .ports-empty {
+        color: #b4b4c3;
+      }
+
+      .ports-empty strong {
+        display: block;
+        margin-bottom: 6px;
+        color: #e0e0e0;
+      }
+
+      .ports-notice {
+        margin-bottom: 16px;
+        font-size: 13px;
+        color: #e0e0e0;
+      }
+
+      .ports-notice.error {
+        border-color: #7a3d3d;
+        color: #ffb5b5;
+      }
+
+      .ports-table-wrap {
+        border: 1px solid #2a2a3a;
+        border-radius: 10px;
+        overflow: hidden;
+        background: #1a1a2e;
+      }
+
+      .ports-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .ports-table thead {
+        background: #171726;
+      }
+
+      .ports-table th,
+      .ports-table td {
+        padding: 12px 14px;
+        border-bottom: 1px solid #2a2a3a;
+        text-align: left;
+        vertical-align: middle;
+      }
+
+      .ports-table th {
+        color: #a7a7b7;
+        font-weight: 600;
+        position: sticky;
+        top: 0;
+        z-index: 1;
+      }
+
+      .ports-table tbody tr:hover {
+        background: rgba(218, 119, 86, 0.08);
+      }
+
+      .ports-table tbody tr:last-child td {
+        border-bottom: none;
+      }
+
+      .mono {
+        font-family: Consolas, "Courier New", monospace;
+      }
+
+      .muted {
+        color: #888;
+      }
+
+      .kill-button {
+        min-width: 56px;
+        padding: 6px 10px;
+        border: 1px solid #5b2f2f;
+        border-radius: 6px;
+        background: #2a1717;
+        color: #ffb5b5;
+        cursor: pointer;
+      }
+
+      .kill-button:hover:not(:disabled) {
+        border-color: #da7756;
+        color: #ffd3c8;
+      }
+
+      .kill-button:disabled {
+        cursor: not-allowed;
+        opacity: 0.45;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div class="tab-bar" role="tablist" aria-label="Desktop tabs">
+        <div class="tab-item">
+          <button
+            type="button"
+            class="tab-button active"
+            data-tab="chat"
+            role="tab"
+            aria-selected="true"
+          >
+            Chat
+          </button>
+          <button
+            type="button"
+            class="pop-out-button"
+            data-popout="chat"
+            aria-label="Pop out Chat"
+            title="Pop out Chat"
+          >
+            &#8599;
+          </button>
+        </div>
+        <div class="tab-item">
+          <button
+            type="button"
+            class="tab-button"
+            data-tab="ports"
+            role="tab"
+            aria-selected="false"
+          >
+            Ports
+          </button>
+          <button
+            type="button"
+            class="pop-out-button"
+            data-popout="ports"
+            aria-label="Pop out Ports"
+            title="Pop out Ports"
+          >
+            &#8599;
+          </button>
+        </div>
+      </div>
+
+      <div class="content-area">
+        <webview
+          id="chat-webview"
+          src="http://127.0.0.1:8300"
+          allowpopups
+          partition="persist:agentchattr"
+          preload=""
+        ></webview>
+        <div id="ports-container" hidden></div>
+      </div>
+    </div>
+
+    <script src="./renderer.js"></script>
+  </body>
+</html>

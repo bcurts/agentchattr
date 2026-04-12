@@ -22,3 +22,6 @@ docs/
 goals.py
 pr-reviews/
 agentchattr-*.zip
+electron/node_modules/
+electron/dist/
+electron/config.json
