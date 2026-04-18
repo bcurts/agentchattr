@@ -65,7 +65,7 @@ label = "Copilot"
 [routing]
 # "none" = only route on explicit @mention. "all" = route to all agents by default.
 default = "none"
-max_agent_hops = 4
+max_agent_hops = 50
 
 [mcp]
 http_port = 8200
