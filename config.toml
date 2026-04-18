@@ -56,10 +56,16 @@ label = "MiniMax"
 api_key_env = "MINIMAX_API_KEY"
 temperature = 1.0
 
+[agents.copilot]
+command = "copilot"
+cwd = ".."
+color = "#6e40c9"
+label = "Copilot"
+
 [routing]
 # "none" = only route on explicit @mention. "all" = route to all agents by default.
 default = "none"
-max_agent_hops = 4
+max_agent_hops = 50
 
 [mcp]
 http_port = 8200

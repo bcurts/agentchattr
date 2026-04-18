@@ -1,0 +1,44 @@
+{
+  "name": "agentchattr-desktop",
+  "version": "0.1.0",
+  "description": "Electron desktop shell for agentchattr",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.agentchattr.desktop",
+    "productName": "agentchattr",
+    "files": [
+      "main.js",
+      "offline.html",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../static/logo.png",
+        "to": "logo.png"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "../static/logo.png"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "../static/logo.png"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "../static/logo.png"
+    }
+  }
+}

@@ -1,5 +1,5 @@
 @echo off
-REM agentchattr — starts server (if not running) + Claude wrapper
+REM agentchattr — starts server (if not running) + Copilot wrapper (auto-approve mode)
 cd /d "%~dp0.."
 
 REM Auto-create venv and install deps on first run
@@ -8,17 +8,6 @@ if not exist ".venv" (
     .venv\Scripts\pip install -q -r requirements.txt >nul 2>nul
 )
 call .venv\Scripts\activate.bat
-
-REM Pre-flight: check that claude CLI is installed
-where claude >nul 2>&1
-if %errorlevel% neq 0 (
-    echo.
-    echo   Error: "claude" was not found on PATH.
-    echo   Install it first, then try again.
-    echo.
-    pause
-    exit /b 1
-)
 
 REM Start server if not already running, then wait for it
 netstat -ano | findstr :8300 | findstr LISTENING >nul 2>&1
@@ -38,9 +27,4 @@ timeout /t 1 /nobreak >nul
 goto :wait_server
 :server_ready
 
-python wrapper.py claude
-if %errorlevel% neq 0 (
-    echo.
-    echo   Agent exited unexpectedly. Check the output above.
-    pause
-)
+python wrapper.py copilot -- --yolo

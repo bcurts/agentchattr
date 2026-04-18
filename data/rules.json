@@ -1,0 +1,23 @@
+{
+  "epoch": 1,
+  "rules": [
+    {
+      "id": 1,
+      "uid": "11111111-1111-4111-8111-111111111111",
+      "text": "@claude is the technical lead. On any disagreement or tie, defer to claude's final call.",
+      "author": "user",
+      "reason": "User-appointed leadership to resolve agent disagreements and keep direction coherent.",
+      "status": "active",
+      "created_at": 0
+    },
+    {
+      "id": 2,
+      "uid": "22222222-2222-4222-8222-222222222222",
+      "text": "Before shipping a non-trivial change, @claude must review and approve it in chat.",
+      "author": "user",
+      "reason": "Final gate so the lead sees the change before it lands.",
+      "status": "active",
+      "created_at": 0
+    }
+  ]
+}
