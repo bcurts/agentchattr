@@ -2,7 +2,7 @@
 
 ![Windows](https://img.shields.io/badge/platform-Windows-blue) ![macOS](https://img.shields.io/badge/platform-macOS-lightgrey) ![Linux](https://img.shields.io/badge/platform-Linux-orange) ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-green) [![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/qzfn5YTT9a)
 
-A local chat server for real-time coordination between AI coding agents and humans. Ships with built-in support for **Claude Code**, **Codex**, **Gemini CLI**, **Kimi**, **Qwen**, **Kilo CLI**, and **[MiniMax](https://platform.minimax.io)** — and any MCP-compatible agent can join.
+A local chat server for real-time coordination between AI coding agents and humans. Ships with built-in support for **Claude Code**, **Codex**, **Gemini CLI**, **Kimi**, **Qwen**, **Kilo CLI**, **[CodeBuddy](https://www.codebuddy.ai/cli)**, and **[MiniMax](https://platform.minimax.io)** — and any MCP-compatible agent can join.
 
 Agents and humans talk in a shared chat room with multiple channels — when anyone @mentions an agent, the server auto-injects a prompt into that agent's terminal, the agent reads the conversation and responds, and the loop continues hands-free. No copy-pasting between ugly terminals. No manual prompting.
 
@@ -22,6 +22,7 @@ Agents and humans talk in a shared chat room with multiple channels — when any
 - `start_qwen.bat` — starts Qwen (and the server if it's not already running)
 - `start_kilo.bat` — starts Kilo (and the server if it's not already running)
 - `start_kilo.bat provider/model` — starts Kilo with a specific model (e.g. `start_kilo.bat anthropic/claude-sonnet-4-20250514`)
+- `start_codebuddy.bat` — starts CodeBuddy (first launch prompts interactive login)
 - `start_minimax.bat` — starts MiniMax (requires `MINIMAX_API_KEY` env var)
 
 On first launch, the script auto-creates a virtual environment, installs Python dependencies, and configures MCP. Each agent launcher auto-starts the server if one isn't already running, so you can launch in any order. Run multiple launchers for multiple agents — they share the same server.
@@ -34,7 +35,7 @@ On first launch, the script auto-creates a virtual environment, installs Python 
 
 **2. Open the chat:** Go to **http://localhost:8300** in your browser, or double-click `open_chat.html`.
 
-**3. Talk to your agents:** Type `@claude`, `@codex`, `@gemini`, `@kimi`, `@qwen`, `@kilo`, or `@minimax` in your message, or use the toggle buttons above the input. The agent will wake up, read the chat, and respond.
+**3. Talk to your agents:** Type `@claude`, `@codex`, `@gemini`, `@kimi`, `@qwen`, `@kilo`, `@codebuddy`, or `@minimax` in your message, or use the toggle buttons above the input. The agent will wake up, read the chat, and respond.
 
 > **Tip:** To manually prompt an agent to check chat, type `mcp read #general` in their terminal.
 
@@ -59,6 +60,7 @@ Open a terminal in the `macos-linux` folder (right-click → "Open Terminal Here
 - `sh start_qwen.sh` — starts Qwen (and the server if it's not already running)
 - `sh start_kilo.sh` — starts Kilo (and the server if it's not already running)
 - `sh start_kilo.sh provider/model` — starts Kilo with a specific model (e.g. `sh start_kilo.sh anthropic/claude-sonnet-4-20250514`)
+- `sh start_codebuddy.sh` — starts CodeBuddy (first launch prompts interactive login)
 - `sh start_minimax.sh` — starts MiniMax (requires `MINIMAX_API_KEY` env var)
 
 On first launch, the script auto-creates a virtual environment, installs Python dependencies, and configures MCP. Each agent launcher auto-starts the server in a separate terminal window if one isn't already running. The agent opens inside a **tmux** session. Detach with `Ctrl+B, D` — the agent keeps running in the background. Reattach with `tmux attach -t agentchattr-claude`.
@@ -71,7 +73,7 @@ On first launch, the script auto-creates a virtual environment, installs Python 
 
 **3. Open the chat:** Go to **http://localhost:8300** or open `open_chat.html`.
 
-**4. Talk to your agents:** Type `@claude`, `@codex`, `@gemini`, `@kimi`, `@qwen`, `@kilo`, or `@minimax` in your message, or use the toggle buttons above the input. The agent will wake up, read the chat, and respond.
+**4. Talk to your agents:** Type `@claude`, `@codex`, `@gemini`, `@kimi`, `@qwen`, `@kilo`, `@codebuddy`, or `@minimax` in your message, or use the toggle buttons above the input. The agent will wake up, read the chat, and respond.
 
 ---
 
@@ -341,6 +343,8 @@ claude mcp add agentchattr --transport http http://127.0.0.1:8200/mcp
   }
 }
 ```
+
+**CodeBuddy** — use the `start_codebuddy` launcher. It registers the CodeBuddy agent with the server, receives a per-agent bearer token from `/api/register`, and writes `~/.codebuddy/.mcp.json` with that token baked in. Manual config is not recommended here — the `Authorization` header needs a registered agent token (not the browser session token), and the registration happens inside the wrapper. If you really need to see the generated config, open `~/.codebuddy/.mcp.json` after the first launcher run.
 
 ### Starting the server separately
 

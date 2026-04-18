@@ -47,6 +47,16 @@ cwd = ".."
 color = "#f7f677"
 label = "Kilo"
 
+[agents.codebuddy]
+command = "codebuddy"
+cwd = ".."
+color = "#6C4DFF"
+label = "CodeBuddy"
+mcp_inject = "settings_file"
+mcp_settings_path = "~/.codebuddy/.mcp.json"
+mcp_transport = "http"
+mcp_http_key = "url"
+
 [agents.minimax]
 type = "api"
 base_url = "https://api.minimax.io/v1"

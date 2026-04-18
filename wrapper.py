@@ -36,7 +36,7 @@ SERVER_NAME = "agentchattr"
 # ---------------------------------------------------------------------------
 
 def _write_json_mcp_settings(config_file: Path, url: str, transport: str = "http",
-                              *, token: str = "") -> Path:
+                              *, token: str = "", http_key: str = "httpUrl") -> Path:
     """Write/merge a settings-style JSON file with nested mcpServers config.
 
     Preserves existing servers in the file — only updates the agentchattr entry.
@@ -45,6 +45,12 @@ def _write_json_mcp_settings(config_file: Path, url: str, transport: str = "http
       - "httpUrl" key (not "url") for streamable-http transport
       - "url" key for SSE transport
       - "trust": true to skip per-call approval prompts
+
+    `http_key` controls which JSON key names the HTTP transport URL. Defaults
+    to "httpUrl" (Gemini/Qwen). Providers like CodeBuddy that follow the
+    standard MCP shape should set `mcp_http_key = "url"` in their config.
+    Only affects settings_file / env injector modes (not the Claude flag
+    writer or Kilo env_content writer).
     """
     config_file.parent.mkdir(parents=True, exist_ok=True)
     existing: dict = {}
@@ -54,9 +60,10 @@ def _write_json_mcp_settings(config_file: Path, url: str, transport: str = "http
         except Exception:
             pass
     servers = existing.get("mcpServers", {})
-    # Gemini CLI uses "httpUrl" for streamable-http, "url" for SSE
+    # Default: Gemini-style "httpUrl" for HTTP. Override with http_key="url"
+    # for providers that follow the standard MCP shape (e.g. CodeBuddy).
     if transport in ("http", "streamable-http"):
-        entry: dict = {"type": "http", "httpUrl": url, "trust": True}
+        entry: dict = {"type": "http", http_key: url, "trust": True}
     else:
         entry = {"type": transport, "url": url, "trust": True}
     if token:
@@ -203,17 +210,23 @@ def _apply_mcp_inject(
     transport = inject_cfg.get("mcp_transport", "http")
     server_url = _get_server_url(mcp_cfg or {}, transport)
 
+    http_key = inject_cfg.get("mcp_http_key", "httpUrl")
+
     if mode == "settings_file":
-        # Write a settings JSON file at a user-specified path (e.g. .qwen/settings.json)
+        # Write a settings JSON file at a user-specified path (e.g. .qwen/settings.json,
+        # or ~/.codebuddy/.mcp.json for user-scope configs).
         raw_path = inject_cfg.get("mcp_settings_path", "")
         if not raw_path:
             raise ValueError(f"mcp_inject = 'settings_file' requires mcp_settings_path")
-        target = Path(raw_path)
+        # Expand ~ to user home (e.g. ~/.codebuddy/.mcp.json), then resolve
+        # relative paths against project_dir/CWD as before.
+        target = Path(raw_path).expanduser()
         if not target.is_absolute():
             base = Path(project_dir) if project_dir else Path.cwd()
             target = base / target
         settings_path = _write_json_mcp_settings(target, server_url,
-                                                  transport=transport, token=token)
+                                                  transport=transport, token=token,
+                                                  http_key=http_key)
         # Optionally set an env var pointing to the settings file
         env_var = inject_cfg.get("mcp_env_var")
         if env_var:
@@ -226,7 +239,7 @@ def _apply_mcp_inject(
             raise ValueError(f"mcp_inject = 'env' requires mcp_env_var")
         settings_path = _write_json_mcp_settings(
             config_dir / f"{instance_name}-settings.json",
-            server_url, transport=transport, token=token,
+            server_url, transport=transport, token=token, http_key=http_key,
         )
         # Merge project .mcp.json servers into the settings file
         merge_project = inject_cfg.get("mcp_merge_project", False)
@@ -238,11 +251,14 @@ def _apply_mcp_inject(
                     servers = data.get("mcpServers", {})
                     for name, cfg in project_servers.items():
                         if name not in servers:
-                            # Normalize for Gemini: url → httpUrl for HTTP transport
+                            # Normalize url key for providers that expect "httpUrl"
+                            # (Gemini/Qwen). For standard-MCP providers with
+                            # http_key="url", leave existing "url" entries as-is.
                             entry = dict(cfg)
                             srv_type = entry.get("type", "http")
-                            if srv_type in ("http", "streamable-http") and "url" in entry and "httpUrl" not in entry:
-                                entry["httpUrl"] = entry.pop("url")
+                            if srv_type in ("http", "streamable-http") and http_key != "url":
+                                if "url" in entry and http_key not in entry:
+                                    entry[http_key] = entry.pop("url")
                             entry.setdefault("trust", True)
                             servers[name] = entry
                     data["mcpServers"] = servers
