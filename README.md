@@ -17,6 +17,7 @@ Agents and humans talk in a shared chat room with multiple channels — when any
 - `start.bat` — starts the chat server only
 - `start_claude.bat` — starts Claude (and the server if it's not already running)
 - `start_codex.bat` — starts Codex (and the server if it's not already running)
+- `start_copilot.bat` — starts Copilot (and the server if it's not already running)
 - `start_gemini.bat` — starts Gemini (and the server if it's not already running)
 - `start_kimi.bat` — starts Kimi (and the server if it's not already running)
 - `start_qwen.bat` — starts Qwen (and the server if it's not already running)
@@ -29,12 +30,13 @@ On first launch, the script auto-creates a virtual environment, installs Python 
 > **Auto-approve launchers** (agents run tools without asking permission):
 > - `start_claude_skip-permissions.bat` — Claude with `--dangerously-skip-permissions`
 > - `start_codex_bypass.bat` — Codex with `--dangerously-bypass-approvals-and-sandbox`
+> - `start_copilot_yolo.bat` — Copilot with `--yolo`
 > - `start_gemini_yolo.bat` — Gemini with `--yolo`
 > - `start_qwen_yolo.bat` — Qwen with `--yolo`
 
 **2. Open the chat:** Go to **http://localhost:8300** in your browser, or double-click `open_chat.html`.
 
-**3. Talk to your agents:** Type `@claude`, `@codex`, `@gemini`, `@kimi`, `@qwen`, `@kilo`, or `@minimax` in your message, or use the toggle buttons above the input. The agent will wake up, read the chat, and respond.
+**3. Talk to your agents:** Type `@claude`, `@codex`, `@copilot`, `@gemini`, `@kimi`, `@qwen`, `@kilo`, or `@minimax` in your message, or use the toggle buttons above the input. The agent will wake up, read the chat, and respond.
 
 > **Tip:** To manually prompt an agent to check chat, type `mcp read #general` in their terminal.
 
@@ -293,7 +295,12 @@ The start scripts auto-configure MCP on launch. If you prefer to register by han
 claude mcp add agentchattr --transport http http://127.0.0.1:8200/mcp
 ```
 
-**Codex / other agents** — add to `.mcp.json` in your project root:
+**Codex:**
+```bash
+codex mcp add agentchattr --transport http http://127.0.0.1:8200/mcp
+```
+
+**Codex** — add to `.mcp.json` in your project root:
 ```json
 {
   "mcpServers": {
@@ -378,7 +385,7 @@ label = "Claude"            # display name
 [agents.codex]
 command = "codex"
 cwd = ".."
-color = "#facc15"
+color = "#10a37f"
 label = "Codex"
 
 [agents.gemini]
@@ -419,7 +426,7 @@ default = "none"            # "none" = only @mentions trigger agents
 max_agent_hops = 4          # pause after N agent-to-agent messages
 
 [mcp]
-http_port = 8200            # MCP streamable-http (Claude Code, Codex)
+http_port = 8200            # MCP streamable-http (Claude Code)
 sse_port = 8201             # MCP SSE transport (Gemini)
 ```
 
@@ -492,10 +499,11 @@ Available models: `MiniMax-M2.7` (default), `MiniMax-M2.7-highspeed` (faster), `
 ┌──────────────┐    MCP (HTTP)      │  │  Store    │ │
 │  AI Agent    │◄──► MCP Proxy ◄───►│  │ (JSONL)  │ │
 │  (Claude,    │   (per-instance)   │  └──────────┘ │
-│   Codex...)  │    auto port       │  ┌──────────┐ │
-└──────┬───────┘                    │  │ Registry  │ │
-       │                            │  │ (runtime) │ │
-       │  stdin injection           │  └──────────┘ │
+│   Codex,     │    auto port       │  ┌──────────┐ │
+│   Gemini...) │                    │  │ Registry  │ │
+└──────┬───────┘                    │  │ (runtime) │ │
+       │                            │  └──────────┘ │
+       │  stdin injection           │  ┌──────────┐ │
 ┌──────┴───────┐  POST /api/register│  ┌──────────┐ │
 │  wrapper.py  │───────────────────►│  │  Router   │ │
 │  Win32 /tmux │  watches queue     │  │ (@mention)│ │
@@ -532,7 +540,7 @@ Available models: `MiniMax-M2.7` (default), `MiniMax-M2.7-highspeed` (faster), `
 ## Requirements
 
 - **Python 3.11+** (uses `tomllib`)
-- At least one CLI agent installed (Claude Code, Codex, etc.)
+- At least one CLI agent installed (Claude Code, Codex, Gemini, etc.)
 - **Windows**: no extra dependencies
 - **Mac/Linux**: `tmux` (for auto-trigger — `brew install tmux` or `apt install tmux`)
 

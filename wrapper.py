@@ -128,6 +128,13 @@ _BUILTIN_DEFAULTS: dict[str, dict] = {
         "mcp_transport": "http",
         "mcp_merge_project": True,  # include unity-mcp etc.
     },
+    "copilot": {
+        "mcp_inject": "flag",
+        "mcp_flag": "--additional-mcp-config",
+        "mcp_flag_path_prefix": "@",  # copilot expects --additional-mcp-config @<path>
+        "mcp_transport": "http",
+        "mcp_merge_project": True,
+    },
     "gemini": {
         "mcp_inject": "env",
         "mcp_env_var": "GEMINI_CLI_SYSTEM_SETTINGS_PATH",
@@ -252,15 +259,18 @@ def _apply_mcp_inject(
         inject_env[env_var] = str(settings_path)
 
     elif mode == "flag":
-        # Write a config file, pass it as a CLI flag
+        # Write a config file, pass it as a CLI flag.
+        # mcp_flag_path_prefix supports CLIs that require a sigil on the path
+        # (e.g. Copilot uses "--additional-mcp-config @<path>").
         flag = inject_cfg.get("mcp_flag", "--mcp-config")
+        path_prefix = inject_cfg.get("mcp_flag_path_prefix", "")
         merge_project = inject_cfg.get("mcp_merge_project", False)
         project_servers = _read_project_mcp_servers(project_dir) if (merge_project and project_dir) else {}
         settings_path = _write_claude_mcp_config(
             config_dir / f"{instance_name}-mcp.json",
             server_url, token=token, project_servers=project_servers,
         )
-        launch_args = [flag, str(settings_path)]
+        launch_args = [flag, f"{path_prefix}{settings_path}"]
 
     elif mode == "env_content":
         # Build JSON config content and set it as an env var directly (no file written).
