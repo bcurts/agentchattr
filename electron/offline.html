@@ -1,0 +1,59 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>agentchattr — server not running</title>
+    <style>
+      :root { color-scheme: dark; }
+      html, body {
+        margin: 0;
+        height: 100%;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: #13151a;
+        color: #e6e8eb;
+      }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .card {
+        max-width: 480px;
+        padding: 32px 36px;
+        background: #1c1f26;
+        border: 1px solid #2a2e38;
+        border-radius: 12px;
+        text-align: center;
+      }
+      h1 { margin: 0 0 8px; font-size: 22px; }
+      p { margin: 8px 0; line-height: 1.5; color: #b8bcc4; }
+      code {
+        background: #0f1115;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 13px;
+      }
+      button {
+        margin-top: 20px;
+        padding: 10px 22px;
+        font-size: 14px;
+        border: 0;
+        border-radius: 6px;
+        background: #4f7cff;
+        color: white;
+        cursor: pointer;
+      }
+      button:hover { background: #6389ff; }
+      .hint { font-size: 12px; color: #7b8090; margin-top: 18px; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>agentchattr server isn't running</h1>
+      <p>This window connects to <code>http://127.0.0.1:8300</code>, but nothing is listening there yet.</p>
+      <p>Start the server (e.g. <code>start.bat</code> on Windows or <code>sh start.sh</code> on Mac/Linux), then hit retry.</p>
+      <button onclick="window.__agentchattrRetry && window.__agentchattrRetry()">Retry</button>
+      <div class="hint">Tip: any agent launcher (<code>start_claude</code>, <code>start_codex</code>, …) also starts the server.</div>
+    </div>
+  </body>
+</html>
