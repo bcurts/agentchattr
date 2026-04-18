@@ -25,9 +25,10 @@ class Router:
 
     def _build_pattern(self):
         # Sort longest-first so "gemini-2" is tried before "gemini"
-        names = "|".join(re.escape(n) for n in sorted(self.agent_names, key=len, reverse=True))
+        names = [re.escape(n) for n in sorted(self.agent_names, key=len, reverse=True)]
+        alternatives = "|".join(names + ["both", "all"])
         self._mention_re = re.compile(
-            rf"@({names}|both|all)\b", re.IGNORECASE
+            rf"@({alternatives})(?![\w-])", re.IGNORECASE
         )
 
     def parse_mentions(self, text: str) -> list[str]:

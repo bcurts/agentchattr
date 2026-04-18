@@ -745,7 +745,7 @@ function appendMessage(msg) {
 
         // Update last mentioned agent if message is from user (Ben)
         if (msg.sender.toLowerCase() === username.toLowerCase()) {
-            const mentions = msg.text.match(/@(\w+)/g);
+            const mentions = msg.text.match(/@(\w[\w-]*)/g);
             if (mentions) {
                 const lastMention = mentions[mentions.length - 1].slice(1).toLowerCase();
                 // Check against registered agents (agentConfig keys are name labels)
@@ -2256,7 +2256,7 @@ function sendMessage() {
             skipMentions = true;
         }
         // Commands that need an @mention — show hint and keep command in input
-        if (matchedCmd && matchedCmd.needsMention && !/@\w/.test(text)) {
+        if (matchedCmd && matchedCmd.needsMention && !/@\w[\w-]*/.test(text)) {
             const canonical = matchedCmd.cmd.split(/\s/)[0];  // e.g. '/summary'
             input.value = canonical + ' @';
             input.focus();
@@ -3450,7 +3450,7 @@ function updateSchedulePopoverState() {
     const submitBtn = pop.querySelector('.sched-pop-submit');
     const input = document.getElementById('input');
     const text = input ? input.value.trim() : '';
-    const mentionMatches = text.match(/@(\w+)/g) || [];
+    const mentionMatches = text.match(/@(\w[\w-]*)/g) || [];
     const targets = new Set(mentionMatches.map(m => m.slice(1)));
     for (const name of activeMentions) targets.add(name);
     if (targets.size === 0) {
@@ -3467,10 +3467,10 @@ async function submitSchedulePopover() {
     const text = input ? input.value.trim() : '';
 
     // Gather targets
-    const mentionMatches = text.match(/@(\w+)/g) || [];
+    const mentionMatches = text.match(/@(\w[\w-]*)/g) || [];
     const targets = new Set(mentionMatches.map(m => m.slice(1)));
     for (const name of activeMentions) targets.add(name);
-    let prompt = text.replace(/@\w+/g, '').trim();
+    let prompt = text.replace(/@\w[\w-]*/g, '').trim();
 
     const errEl = document.getElementById('sched-pop-error');
 
