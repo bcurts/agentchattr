@@ -545,7 +545,12 @@ def main():
     import urllib.error
     import urllib.request
 
-    from config_loader import load_config
+    from config_loader import apply_cli_overrides, load_config
+
+    # Apply AGENTCHATTR_* overrides (from CLI flags or env) BEFORE loading
+    # config so the wrapper connects to the same data_dir/ports as a server
+    # launched with matching flags.
+    apply_cli_overrides()
     config = load_config(ROOT)
 
     agent_names = list(config.get("agents", {}).keys())
@@ -554,6 +559,14 @@ def main():
     parser.add_argument("agent", choices=agent_names, help=f"Agent to wrap ({', '.join(agent_names)})")
     parser.add_argument("--no-restart", action="store_true", help="Do not restart on exit")
     parser.add_argument("--label", type=str, default=None, help="Custom display label")
+    # Per-project isolation flags (must match the server's flags so wrappers
+    # launched separately connect to the right instance). Values are consumed
+    # by apply_cli_overrides() above; listing here so --help shows them.
+    parser.add_argument("--data-dir",      default=None, help="Override server.data_dir (path)")
+    parser.add_argument("--port",          default=None, help="Override server.port (int)")
+    parser.add_argument("--mcp-http-port", default=None, help="Override mcp.http_port (int)")
+    parser.add_argument("--mcp-sse-port",  default=None, help="Override mcp.sse_port (int)")
+    parser.add_argument("--upload-dir",    default=None, help="Override images.upload_dir (path)")
     args, extra = parser.parse_known_args()
 
     agent = args.agent

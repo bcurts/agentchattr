@@ -423,6 +423,40 @@ http_port = 8200            # MCP streamable-http (Claude Code, Codex)
 sse_port = 8201             # MCP SSE transport (Gemini)
 ```
 
+### Per-project isolation
+
+If you keep one agentchattr install shared across several repos (e.g. via dotfiles), you can run an isolated instance per project without editing `config.toml` — override the data directory and ports at launch time.
+
+**CLI flags** (accepted by `run.py`, `wrapper.py`, and `wrapper_api.py`):
+
+```bash
+# Start the server for project A
+python run.py \
+  --data-dir ./project-a/.agentchattr \
+  --port 8310 \
+  --mcp-http-port 8210 \
+  --mcp-sse-port 8211
+
+# Launch a wrapper that connects to that same instance
+python wrapper.py claude \
+  --data-dir ./project-a/.agentchattr \
+  --port 8310 \
+  --mcp-http-port 8210 \
+  --mcp-sse-port 8211
+```
+
+**Env vars** (equivalent — set once in your shell and every process picks them up):
+
+- `AGENTCHATTR_DATA_DIR` — overrides `server.data_dir`
+- `AGENTCHATTR_PORT` — overrides `server.port`
+- `AGENTCHATTR_MCP_HTTP_PORT` — overrides `mcp.http_port`
+- `AGENTCHATTR_MCP_SSE_PORT` — overrides `mcp.sse_port`
+- `AGENTCHATTR_UPLOAD_DIR` — overrides `images.upload_dir`
+
+Relative paths resolve against the shell's current directory (not agentchattr's install location), so `./.agentchattr` ends up inside your project folder.
+
+Server and wrappers share the same `AGENTCHATTR_*` env vars and the same flag names, so a launcher/profile can run multiple isolated instances by passing matching values to each process. If no flags or env vars are set, `config.toml` is used exactly as before — zero change for existing setups.
+
 ### API agents (local models)
 
 Connect any local model with an OpenAI-compatible API (Ollama, llama-server, LM Studio, vLLM, etc.) to the chat room. API agents get status pills, activity indicators, @mention routing, and multi-instance support — just like the CLI agents.

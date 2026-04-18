@@ -1,5 +1,6 @@
 """Entry point — starts MCP server (port 8200) + web UI (port 8300)."""
 
+import argparse
 import asyncio
 import secrets
 import sys
@@ -13,6 +14,24 @@ ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 
 
+def _parse_args():
+    parser = argparse.ArgumentParser(
+        description="Start agentchattr (web UI + MCP server).",
+        epilog="Flags override config.toml for this invocation. The same flags "
+               "are also accepted by wrapper.py and wrapper_api.py so a launcher "
+               "can isolate per-project instances by passing matching values to "
+               "each process.",
+    )
+    parser.add_argument("--data-dir",      default=None, help="Override server.data_dir (path)")
+    parser.add_argument("--port",          default=None, help="Override server.port (int)")
+    parser.add_argument("--mcp-http-port", default=None, help="Override mcp.http_port (int)")
+    parser.add_argument("--mcp-sse-port",  default=None, help="Override mcp.sse_port (int)")
+    parser.add_argument("--upload-dir",    default=None, help="Override images.upload_dir (path)")
+    parser.add_argument("--allow-network", action="store_true",
+                        help="Allow binding to non-localhost hosts (with confirmation).")
+    return parser.parse_args()
+
+
 def main():
     logging.basicConfig(
         level=logging.INFO,
@@ -20,7 +39,14 @@ def main():
         datefmt="%H:%M:%S",
     )
 
-    from config_loader import load_config
+    # Parse flags for --help support; the actual env propagation happens via
+    # the shared config_loader.apply_cli_overrides helper so run.py and the
+    # wrappers use identical extraction logic.
+    _parse_args()
+
+    from config_loader import apply_cli_overrides, load_config
+    apply_cli_overrides()
+
     config_path = ROOT / "config.toml"
     if not config_path.exists():
         print(f"Error: {config_path} not found")
@@ -129,6 +155,7 @@ def main():
     print(f"  Web UI:  http://{host}:{port}")
     print(f"  MCP HTTP: http://{host}:{http_port}/mcp  (Claude, Codex)")
     print(f"  MCP SSE:  http://{host}:{sse_port}/sse   (Gemini)")
+    print(f"  Data:    {data_dir}")
     print(f"  Agents auto-trigger on @mention")
     print(f"\n  Session token: {session_token}\n")
 

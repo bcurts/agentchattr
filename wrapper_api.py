@@ -39,9 +39,13 @@ def _auth_headers(token: str, *, include_json: bool = False) -> dict[str, str]:
 
 
 def main():
-    from config_loader import load_config
+    from config_loader import apply_cli_overrides, load_config
     from wrapper import _register_instance
 
+    # Apply AGENTCHATTR_* overrides (from CLI flags or env) BEFORE loading
+    # config so the API wrapper connects to the same data_dir/ports as a
+    # server launched with matching flags.
+    apply_cli_overrides()
     config = load_config(ROOT)
     agent_names = list(config.get("agents", {}).keys())
     api_agents = [n for n in agent_names if config["agents"][n].get("type") == "api"]
@@ -58,6 +62,13 @@ def main():
     parser.add_argument("agent", choices=api_agents,
                         help=f"API agent to run ({', '.join(api_agents)})")
     parser.add_argument("--label", type=str, default=None, help="Custom display label")
+    # Per-project isolation flags (consumed by apply_cli_overrides above;
+    # listed here so --help shows them and argparse doesn't error on them).
+    parser.add_argument("--data-dir",      default=None, help="Override server.data_dir (path)")
+    parser.add_argument("--port",          default=None, help="Override server.port (int)")
+    parser.add_argument("--mcp-http-port", default=None, help="Override mcp.http_port (int)")
+    parser.add_argument("--mcp-sse-port",  default=None, help="Override mcp.sse_port (int)")
+    parser.add_argument("--upload-dir",    default=None, help="Override images.upload_dir (path)")
     args = parser.parse_args()
 
     agent = args.agent
