@@ -35,6 +35,13 @@ _renamed_from: set[str] = set()    # old names from renames — suppress leave m
 _cursors: dict[str, dict[str, int]] = {}  # agent_name → {channel_name → last_id}
 _cursors_lock = threading.Lock()
 _empty_read_count: dict[str, int] = {}  # sender → consecutive empty reads
+# Last channel (or job_id) each agent explicitly read from. chat_send
+# falls back to this when the caller omits the channel/job_id, so agents
+# mentioned in #X don't accidentally reply in #general just because
+# they forgot the channel param. Closes #58.
+_last_read_channel: dict[str, str] = {}
+_last_read_job_id: dict[str, int] = {}
+_last_read_lock = threading.Lock()
 PRESENCE_TIMEOUT = 10  # ~2 missed heartbeats (5s interval) = offline
 
 # Roles — per-instance, persisted to roles.json
@@ -189,15 +196,20 @@ def chat_send(
     choices: list[str] = [],
     image_path: str = "",
     reply_to: int = -1,
-    channel: str = "general",
+    channel: str = "",
     job_id: int = 0,
     ctx: Context | None = None,
 ) -> str:
     """Send a message to the agentchattr chat. Use your name as sender (claude/codex/user).
     Optionally attach a local image by providing image_path (absolute path).
     Optionally reply to a message by providing reply_to (message ID).
-    Optionally specify a channel (default: 'general').
-    Optionally specify a job_id to post into a job conversation instead of the main timeline.
+    Channel/job_id resolution:
+      - If you pass channel or job_id explicitly, that target is honored.
+      - If you omit both, the message is routed to the last channel or
+        job this sender read from via chat_read (so replying after
+        `chat_read(channel="bugfixing")` lands in #bugfixing, not #general).
+      - If this sender has never read anything, the message falls back to
+        the 'general' channel.
     IMPORTANT: Always include the choices parameter. When asking a yes/no or
     multiple-choice question, provide the options so the user can respond with
     a single click:
@@ -207,6 +219,21 @@ def chat_send(
     sender, err = _resolve_tool_identity(sender, ctx, field_name="sender", required=True)
     if err:
         return err
+
+    # Fallback routing: if caller omitted both channel and job_id, use
+    # whatever target this sender last read from. Prevents agents that
+    # forget the channel param from accidentally replying in #general.
+    if sender and not channel and not job_id:
+        with _last_read_lock:
+            fallback_job = _last_read_job_id.get(sender, 0)
+            fallback_channel = _last_read_channel.get(sender, "")
+        if fallback_job:
+            job_id = fallback_job
+        elif fallback_channel:
+            channel = fallback_channel
+    # Final fallback if still nothing: original 'general' behavior.
+    if not channel and not job_id:
+        channel = "general"
     # Block pending instances (identity not yet confirmed)
     if registry and registry.is_pending(sender):
         return "Error: identity not confirmed. Call chat_claim(sender=your_base_name) to get your identity."
@@ -557,6 +584,11 @@ def chat_read(
         msgs = jobs.get_messages(job_id)
         if job is None or msgs is None:
             return f"Error: job #{job_id} not found."
+        # Remember so chat_send defaults back to this job thread.
+        if sender:
+            with _last_read_lock:
+                _last_read_job_id[sender] = job_id
+                _last_read_channel.pop(sender, None)
         title = (job.get("title") or "").strip()
         body = (job.get("body") or "").strip()
         header_text = f"Job: {title}" if title else f"Job #{job_id}"
@@ -589,6 +621,14 @@ def chat_read(
         return json.dumps(out, ensure_ascii=False)
 
     ch = channel if channel else None
+    # Remember the channel this agent just read so chat_send without an
+    # explicit channel defaults here instead of falling back to "general".
+    # Only record when a specific channel was requested — broad reads
+    # (no channel) shouldn't overwrite a useful last-read.
+    if sender and ch:
+        with _last_read_lock:
+            _last_read_channel[sender] = ch
+            _last_read_job_id.pop(sender, None)
     if since_id:
         msgs = store.get_since(since_id, channel=ch)
     elif sender:
