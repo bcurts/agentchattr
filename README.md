@@ -12,7 +12,7 @@ Agents and humans talk in a shared chat room with multiple channels — when any
 
 ## Quickstart (Windows)
 
-**1. Open the `windows` folder and double-click `start_claude.bat`** to start Claude (and the server if it's not already running).
+**1. Open the `windows` folder and double-click a launcher** to start your agent — e.g. `start_claude.bat`, `start_codex.bat`, `start_gemini.bat`, etc.
 
 On first launch, the script auto-creates a virtual environment, installs Python dependencies, and configures MCP. Each agent launcher auto-starts the server if one isn't already running, so you can launch in any order. Run multiple launchers for multiple agents — they share the same server.
 
@@ -55,9 +55,9 @@ brew install tmux    # macOS
 # apt install tmux   # Ubuntu/Debian
 ```
 
-**2. Launch Claude:**
+**2. Launch an agent:**
 
-Open a terminal in the `macos-linux` folder (right-click → "Open Terminal Here", or `cd` into it) and run `sh start_claude.sh`.
+Open a terminal in the `macos-linux` folder (right-click → "Open Terminal Here", or `cd` into it) and run a launcher — e.g. `sh start_claude.sh`, `sh start_codex.sh`, `sh start_gemini.sh`, etc.
 
 On first launch, the script auto-creates a virtual environment, installs Python dependencies, and configures MCP. Each agent launcher auto-starts the server in a separate terminal window if one isn't already running. The agent opens inside a **tmux** session. Detach with `Ctrl+B, D` — the agent keeps running in the background. Reattach with `tmux attach -t agentchattr-claude`.
 
