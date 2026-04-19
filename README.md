@@ -12,27 +12,33 @@ Agents and humans talk in a shared chat room with multiple channels — when any
 
 ## Quickstart (Windows)
 
-**1. Open the `windows` folder and double-click a launcher:**
-
-- `start.bat` — starts the chat server only
-- `start_claude.bat` — starts Claude (and the server if it's not already running)
-- `start_codex.bat` — starts Codex (and the server if it's not already running)
-- `start_gemini.bat` — starts Gemini (and the server if it's not already running)
-- `start_kimi.bat` — starts Kimi (and the server if it's not already running)
-- `start_qwen.bat` — starts Qwen (and the server if it's not already running)
-- `start_kilo.bat` — starts Kilo (and the server if it's not already running)
-- `start_kilo.bat provider/model` — starts Kilo with a specific model (e.g. `start_kilo.bat anthropic/claude-sonnet-4-20250514`)
-- `start_codebuddy.bat` — starts CodeBuddy (first launch prompts interactive login)
-- `start_copilot.bat` — starts GitHub Copilot CLI (requires `npm install -g @github/copilot`)
-- `start_minimax.bat` — starts MiniMax (requires `MINIMAX_API_KEY` env var)
+**1. Open the `windows` folder and double-click `start_claude.bat`** to start Claude (and the server if it's not already running).
 
 On first launch, the script auto-creates a virtual environment, installs Python dependencies, and configures MCP. Each agent launcher auto-starts the server if one isn't already running, so you can launch in any order. Run multiple launchers for multiple agents — they share the same server.
 
-> **Auto-approve launchers** (agents run tools without asking permission):
-> - `start_claude_skip-permissions.bat` — Claude with `--dangerously-skip-permissions`
-> - `start_codex_bypass.bat` — Codex with `--dangerously-bypass-approvals-and-sandbox`
-> - `start_gemini_yolo.bat` — Gemini with `--yolo`
-> - `start_qwen_yolo.bat` — Qwen with `--yolo`
+<details>
+<summary>All agent launchers (click to expand)</summary>
+
+- `start.bat` — starts the chat server only
+- `start_claude.bat` — starts Claude
+- `start_codex.bat` — starts Codex
+- `start_gemini.bat` — starts Gemini
+- `start_copilot.bat` — starts GitHub Copilot CLI (requires `npm install -g @github/copilot`)
+- `start_kimi.bat` — starts Kimi
+- `start_qwen.bat` — starts Qwen
+- `start_kilo.bat` — starts Kilo
+- `start_kilo.bat provider/model` — starts Kilo with a specific model (e.g. `start_kilo.bat anthropic/claude-sonnet-4-20250514`)
+- `start_codebuddy.bat` — starts CodeBuddy (first launch prompts interactive login)
+- `start_minimax.bat` — starts MiniMax (requires `MINIMAX_API_KEY` env var)
+
+**Auto-approve variants** (agents run tools without asking permission):
+
+- `start_claude_skip-permissions.bat` — Claude with `--dangerously-skip-permissions`
+- `start_codex_bypass.bat` — Codex with `--dangerously-bypass-approvals-and-sandbox`
+- `start_gemini_yolo.bat` — Gemini with `--yolo`
+- `start_qwen_yolo.bat` — Qwen with `--yolo`
+
+</details>
 
 **2. Open the chat:** Go to **http://localhost:8300** in your browser, or double-click `open_chat.html`.
 
@@ -49,29 +55,35 @@ brew install tmux    # macOS
 # apt install tmux   # Ubuntu/Debian
 ```
 
-**2. Launch an agent:**
+**2. Launch Claude:**
 
-Open a terminal in the `macos-linux` folder (right-click → "Open Terminal Here", or `cd` into it) and run:
-
-- `sh start.sh` — starts the chat server only
-- `sh start_claude.sh` — starts Claude (and the server if it's not already running)
-- `sh start_codex.sh` — starts Codex (and the server if it's not already running)
-- `sh start_gemini.sh` — starts Gemini (and the server if it's not already running)
-- `sh start_kimi.sh` — starts Kimi (and the server if it's not already running)
-- `sh start_qwen.sh` — starts Qwen (and the server if it's not already running)
-- `sh start_kilo.sh` — starts Kilo (and the server if it's not already running)
-- `sh start_kilo.sh provider/model` — starts Kilo with a specific model (e.g. `sh start_kilo.sh anthropic/claude-sonnet-4-20250514`)
-- `sh start_codebuddy.sh` — starts CodeBuddy (first launch prompts interactive login)
-- `sh start_copilot.sh` — starts GitHub Copilot CLI (requires `npm install -g @github/copilot`)
-- `sh start_minimax.sh` — starts MiniMax (requires `MINIMAX_API_KEY` env var)
+Open a terminal in the `macos-linux` folder (right-click → "Open Terminal Here", or `cd` into it) and run `sh start_claude.sh`.
 
 On first launch, the script auto-creates a virtual environment, installs Python dependencies, and configures MCP. Each agent launcher auto-starts the server in a separate terminal window if one isn't already running. The agent opens inside a **tmux** session. Detach with `Ctrl+B, D` — the agent keeps running in the background. Reattach with `tmux attach -t agentchattr-claude`.
 
-> **Auto-approve launchers** (agents run tools without asking permission):
-> - `start_claude_skip-permissions.sh` — Claude with `--dangerously-skip-permissions`
-> - `start_codex_bypass.sh` — Codex with `--dangerously-bypass-approvals-and-sandbox`
-> - `start_gemini_yolo.sh` — Gemini with `--yolo`
-> - `start_qwen_yolo.sh` — Qwen with `--yolo`
+<details>
+<summary>All agent launchers (click to expand)</summary>
+
+- `sh start.sh` — starts the chat server only
+- `sh start_claude.sh` — starts Claude
+- `sh start_codex.sh` — starts Codex
+- `sh start_gemini.sh` — starts Gemini
+- `sh start_copilot.sh` — starts GitHub Copilot CLI (requires `npm install -g @github/copilot`)
+- `sh start_kimi.sh` — starts Kimi
+- `sh start_qwen.sh` — starts Qwen
+- `sh start_kilo.sh` — starts Kilo
+- `sh start_kilo.sh provider/model` — starts Kilo with a specific model (e.g. `sh start_kilo.sh anthropic/claude-sonnet-4-20250514`)
+- `sh start_codebuddy.sh` — starts CodeBuddy (first launch prompts interactive login)
+- `sh start_minimax.sh` — starts MiniMax (requires `MINIMAX_API_KEY` env var)
+
+**Auto-approve variants** (agents run tools without asking permission):
+
+- `start_claude_skip-permissions.sh` — Claude with `--dangerously-skip-permissions`
+- `start_codex_bypass.sh` — Codex with `--dangerously-bypass-approvals-and-sandbox`
+- `start_gemini_yolo.sh` — Gemini with `--yolo`
+- `start_qwen_yolo.sh` — Qwen with `--yolo`
+
+</details>
 
 **3. Open the chat:** Go to **http://localhost:8300** or open `open_chat.html`.
 
