@@ -167,15 +167,26 @@ def _resolve_authenticated_agent(request: Request) -> dict | None:
 _PUBLIC_PREFIXES = ("/", "/static/")
 
 
+def _build_allowed_origins(cfg: dict) -> set[str]:
+    server_cfg = cfg.get("server", {})
+    port = server_cfg.get("port", 8300)
+    allowed = {
+        f"http://127.0.0.1:{port}",
+        f"http://localhost:{port}",
+    }
+    for origin in server_cfg.get("trusted_origins", []):
+        if isinstance(origin, str):
+            cleaned = origin.strip().rstrip("/")
+            if cleaned:
+                allowed.add(cleaned)
+    return allowed
+
+
 def _install_security_middleware(token: str, cfg: dict):
     """Add token validation and origin checking middleware to the app."""
     import app as _self
     _self.session_token = token
-    port = cfg.get("server", {}).get("port", 8300)
-    allowed_origins = {
-        f"http://127.0.0.1:{port}",
-        f"http://localhost:{port}",
-    }
+    allowed_origins = _build_allowed_origins(cfg)
 
     class SecurityMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):

@@ -388,6 +388,7 @@ Edit `config.toml` to customize agents, ports, and routing:
 [server]
 port = 8300                 # web UI port
 host = "127.0.0.1"
+trusted_origins = []        # optional HTTPS origins for reverse proxy / Tailscale access
 
 [agents.claude]
 command = "claude"          # CLI command (must be on PATH)
@@ -614,6 +615,143 @@ agentchattr is designed for **localhost use only** and includes several protecti
 The session token is displayed in the terminal on startup and is only accessible to processes on the same machine.
 
 > **`--allow-network` warning:** Network mode binds to a LAN IP, which exposes the server to your local network over unencrypted HTTP. Anyone on the same network can sniff the session token and gain full access — including the ability to @mention agents and trigger tool execution. If agents are running with auto-approve flags, this effectively grants remote code execution on your machine. **Only use `--allow-network` on a trusted home network. Never on public or shared WiFi.**
+
+### Remote access via Tailscale
+
+If you want to open agentchattr from your phone or another personal device while it keeps running only on your local machine, use Tailscale instead of binding the app to a network interface.
+
+This is the recommended remote-access setup because:
+
+- agentchattr stays bound to `127.0.0.1`
+- Tailscale provides the private HTTPS entrypoint
+- only explicitly trusted HTTPS origins are allowed by the app
+
+#### What this requires
+
+- Tailscale installed on the host machine running agentchattr
+- Tailscale installed on the remote device (Android, iPhone, laptop, etc.)
+- both devices signed into the same tailnet
+
+#### 1. Install Tailscale
+
+**macOS**
+
+- Install Tailscale from the App Store, the official `.pkg`, or Homebrew:
+  ```bash
+  brew install --cask tailscale
+  ```
+- Open Tailscale and sign in.
+
+**Linux**
+
+- Install Tailscale using the official package instructions for your distro.
+- Then bring it up:
+  ```bash
+  sudo tailscale up
+  ```
+
+**Android**
+
+- Install the Tailscale app from Google Play.
+- Sign in with the same tailnet account.
+
+#### 2. Keep agentchattr local-only
+
+Do **not** change the server bind to `0.0.0.0`.
+
+Keep `config.toml` like this:
+
+```toml
+[server]
+host = "127.0.0.1"
+port = 8300
+```
+
+This preserves the project's localhost-only security model.
+
+#### 3. Add the Tailscale HTTPS origin
+
+Create a local config file if you do not already have one:
+
+```bash
+cp config.local.toml.example config.local.toml
+```
+
+Then add your Tailscale HTTPS hostname under `[server]` in `config.local.toml`:
+
+```toml
+[server]
+trusted_origins = ["https://your-machine.your-tailnet.ts.net"]
+```
+
+`config.local.toml` is gitignored, so your machine-specific tailnet hostname stays local.
+
+#### 4. Start agentchattr normally
+
+Start the app the same way you normally do:
+
+```bash
+# Mac / Linux
+./macos-linux/start.sh
+
+# or run an agent launcher, which starts the server if needed
+./macos-linux/start_claude.sh
+```
+
+Or on Windows:
+
+```bat
+windows\start.bat
+```
+
+#### 5. Enable Tailscale Serve
+
+Publish the local web UI through your tailnet:
+
+```bash
+tailscale serve --bg 8300
+```
+
+If Tailscale tells you `Serve is not enabled on your tailnet`, enable it from the URL it prints, then run the command again.
+
+Find the HTTPS URL:
+
+```bash
+tailscale serve status
+```
+
+You should see something like:
+
+```text
+https://your-machine.your-tailnet.ts.net (tailnet only)
+|-- / proxy http://127.0.0.1:8300
+```
+
+#### 6. Open from your phone
+
+- Make sure Tailscale is enabled on your phone.
+- Open the Tailscale HTTPS URL in your mobile browser.
+- If the page looks stale after CSS/UI changes, hard refresh or reopen the tab.
+
+#### Day-to-day usage
+
+- Start agentchattr normally via the launcher scripts.
+- Keep Tailscale running on the host machine.
+- `tailscale serve` stays active until you turn it off.
+- Your remote URL remains the same unless your tailnet hostname changes.
+
+To disable the remote endpoint:
+
+```bash
+tailscale serve --https=443 off
+```
+
+#### Security notes
+
+- Prefer Tailscale over `--allow-network`.
+- Keep `host = "127.0.0.1"`.
+- Only add exact HTTPS origins you control to `trusted_origins`.
+- If you run agents with bypass / yolo / skip-permission modes, remember that remote access still gives real control over those agents.
 
 ## Community
 
