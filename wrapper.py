@@ -620,7 +620,24 @@ def main():
 
     agent = args.agent
     agent_cfg = config.get("agents", {}).get(agent, {})
-    cwd = agent_cfg.get("cwd", ".")
+    
+    # Resolve project root (global) vs agent cwd (specific)
+    global_root = config.get("server", {}).get("project_root")
+    agent_cwd = agent_cfg.get("cwd", ".")
+    
+    if global_root:
+        # Resolve agent_cwd relative to global_root.
+        # We ignore ".." as it's usually a legacy value relative to the wrapper's ROOT.
+        project_dir = Path(global_root).expanduser().resolve()
+        if Path(agent_cwd).is_absolute():
+            project_dir = Path(agent_cwd).resolve()
+        elif agent_cwd not in (".", ".."):
+            project_dir = (project_dir / agent_cwd).resolve()
+    else:
+        # Maintain existing behavior: resolve agent_cwd relative to ROOT
+        project_dir = (ROOT / agent_cwd).resolve()
+    
+    cwd = str(project_dir)
     command = agent_cfg.get("command", agent)
     data_dir = ROOT / config.get("server", {}).get("data_dir", "./data")
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -698,7 +715,7 @@ def main():
             _apply_mcp_inject(
                 inject_cfg, instance_name, data_dir, proxy_url,
                 token=new_token, mcp_cfg=mcp_cfg,
-                project_dir=(ROOT / cwd).resolve(),
+                project_dir=project_dir,
             )
         except Exception:
             pass
@@ -772,6 +789,7 @@ def main():
     elif proxy_url:
         print(f"  Local MCP proxy: {proxy_url}")
     print(f"  @{assigned_name} mentions auto-inject MCP reads")
+    # Start the agent in the resolved directory
     print(f"  Starting {command} in {cwd}...\n")
 
     def _heartbeat():

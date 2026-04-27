@@ -2,6 +2,7 @@
 port = 8300
 host = "127.0.0.1"
 data_dir = "./data"
+project_root = "/home/hamdan/Desktop/Meta-Heuristic-Feature-Selection/" # Global root directory for all agents. If set, agent 'cwd' is relative to this.
 
 # Add agents here. Each gets a status pill, @mention routing, and color.
 # "cwd" is the working directory for the agent's terminal session.
