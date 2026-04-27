@@ -47,6 +47,12 @@ cwd = ".."
 color = "#f7f677"
 label = "Kilo"
 
+[agents.opencode]
+command = "opencode"
+cwd = ".."
+color = "#808080"
+label = "OpenCode"
+
 [agents.codebuddy]
 command = "codebuddy"
 cwd = ".."
