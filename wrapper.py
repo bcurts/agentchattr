@@ -31,9 +31,33 @@ ROOT = Path(__file__).parent
 SERVER_NAME = "agentchattr"
 
 
-# ---------------------------------------------------------------------------
-# Per-instance provider config
-# ---------------------------------------------------------------------------
+def _write_opencode_mcp_settings(config_file: Path, url: str,
+                                    *, token: str = "") -> Path:
+    """Write/merge an OpenCode-specific config file with 'mcp' key.
+    
+    OpenCode expects:
+      - "mcp" key instead of "mcpServers"
+      - "type": "remote" for remote servers
+      - "enabled": true
+    """
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    existing: dict = {}
+    if config_file.exists():
+        try:
+            existing = json.loads(config_file.read_text("utf-8"))
+        except Exception:
+            pass
+    
+    mcp_servers = existing.get("mcp", {})
+    entry: dict = {"type": "remote", "url": url, "enabled": True, "oauth": False}
+    if token:
+        entry["headers"] = {"Authorization": f"Bearer {token}"}
+    
+    mcp_servers[SERVER_NAME] = entry
+    existing["mcp"] = mcp_servers
+    
+    config_file.write_text(json.dumps(existing, indent=2) + "\n", "utf-8")
+    return config_file
 
 def _write_json_mcp_settings(config_file: Path, url: str, transport: str = "http",
                               *, token: str = "", http_key: str = "httpUrl") -> Path:
@@ -160,7 +184,7 @@ _BUILTIN_DEFAULTS: dict[str, dict] = {
     },
 }
 
-_VALID_INJECT_MODES = {"settings_file", "env", "flag", "proxy_flag", "env_content"}
+_VALID_INJECT_MODES = {"settings_file", "env", "flag", "proxy_flag", "env_content", "opencode_json"}
 
 
 def _resolve_mcp_inject(agent: str, agent_cfg: dict) -> dict:
@@ -290,12 +314,21 @@ def _apply_mcp_inject(
         payload = {"mcp": {SERVER_NAME: entry}}
         inject_env[env_var] = json.dumps(payload)
 
-    elif mode == "proxy_flag":
-        # Pass the proxy URL as CLI flags (e.g. codex -c ...)
-        template = inject_cfg.get("mcp_proxy_flag_template",
-                                  '-c mcp_servers.{server}.url="{url}"')
-        expanded = template.format(server=SERVER_NAME, url=proxy_url or "")
-        launch_args = expanded.split()
+    elif mode == "opencode_json":
+        # OpenCode specific config format (mcp key, type=remote, enabled=true)
+        raw_path = inject_cfg.get("mcp_settings_path", "")
+        if not raw_path:
+            raise ValueError(f"mcp_inject = 'opencode_json' requires mcp_settings_path")
+        target = Path(raw_path).expanduser()
+        if not target.is_absolute():
+            base = Path(project_dir) if project_dir else Path.cwd()
+            target = base / target
+        settings_path = _write_opencode_mcp_settings(target, server_url, token=token)
+        
+        env_var = inject_cfg.get("mcp_env_var")
+        if env_var:
+            inject_env[env_var] = str(settings_path)
+
 
     return launch_args, inject_env, settings_path
 

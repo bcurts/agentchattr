@@ -52,6 +52,9 @@ command = "opencode"
 cwd = ".."
 color = "#808080"
 label = "OpenCode"
+mcp_inject = "opencode_json"
+mcp_settings_path = "opencode.json"
+mcp_transport = "http"
 
 [agents.codebuddy]
 command = "codebuddy"
