@@ -33,6 +33,9 @@ ensure_venv() {
 
 ensure_venv
 
+# Kill any existing tmux sessions to ensure a clean start
+tmux kill-server 2>/dev/null
+
 .venv/bin/python run.py
 code=$?
 echo ""

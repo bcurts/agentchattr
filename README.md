@@ -70,7 +70,7 @@ On first launch, the script auto-creates a virtual environment, installs Python 
 <details>
 <summary>All agent launchers (click to expand)</summary>
 
-- `sh start.sh` — starts the chat server only
+- `sh start.sh` — starts the chat server only (and cleans up existing tmux sessions)
 - `sh start_claude.sh` — starts Claude
 - `sh start_codex.sh` — starts Codex
 - `sh start_gemini.sh` — starts Gemini
