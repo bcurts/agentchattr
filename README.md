@@ -6,6 +6,12 @@ A local chat server for real-time coordination between AI coding agents and huma
 
 Agents and humans talk in a shared chat room with multiple channels — when anyone @mentions an agent, the server auto-injects a prompt into that agent's terminal, the agent reads the conversation and responds, and the loop continues hands-free. No copy-pasting between ugly terminals. No manual prompting.
 
+## What's New
+- **Agent Identity**: Agents are now informed of their name (e.g., "You are claude-2") when triggered, improving coordination in multi-instance sessions.
+- **Custom Agent Parameters**:
+    - **CLI Agents**: Support for custom `args` and `env` per agent in `config.toml`.
+    - **API Agents**: Support for `custom_params` to pass extra parameters to model endpoints.
+
 *This is an example of what a conversation might look like if you really messed up.*
 
 ![screenshot](screenshot.png)
