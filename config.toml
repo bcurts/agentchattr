@@ -2,6 +2,7 @@
 port = 8300
 host = "127.0.0.1"
 data_dir = "./data"
+project_root = "/home/hamdan/Desktop/Password_Library/" # Global root directory for all agents. If set, agent 'cwd' is relative to this.
 
 # Add agents here. Each gets a status pill, @mention routing, and color.
 # "cwd" is the working directory for the agent's terminal session.
@@ -46,6 +47,16 @@ command = "kilo"
 cwd = ".."
 color = "#f7f677"
 label = "Kilo"
+
+[agents.opencode]
+command = "opencode"
+args = ["-m google/gemma-4-26b-a4b-it"]
+cwd = ".."
+color = "#808080"
+label = "OpenCode"
+mcp_inject = "opencode_json"
+mcp_settings_path = "opencode.json"
+mcp_transport = "http"
 
 [agents.codebuddy]
 command = "codebuddy"
