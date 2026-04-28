@@ -2,7 +2,8 @@
 
 ## Developer Commands
 
-- **Setup**: `python -m venv venv && source venv/bin/activate && pip install -r requirements.txt`
+- **Quickstart**: Use scripts in `windows/` or `macos-linux/` (e.g., `sh start_claude.sh`) to auto-setup venv and MCP.
+- **Manual Setup**: `python -m venv venv && source venv/bin/activate && pip install -r requirements.txt`
 - **Start server**: `python run.py`
 - **Start agent wrapper**: `python wrapper.py <agent_name>`
 - **Start API agent**: `python wrapper_api.py <agent_name>`
@@ -21,11 +22,13 @@
 - **MCP Layer**: `mcp_bridge.py` (tool definitions) and `mcp_proxy.py` (identity injection).
 - **Persistence**: `store.py` (messages), `jobs.py` (tasks), `rules.py` (rules), `summaries.py` (summaries) use JSONL/JSON files in `data/`.
 - **Routing**: `router.py` handles @mention parsing and agent targeting.
+- **Sessions**: `session_engine.py` and `session_store.py` orchestrate multi-agent workflows using templates in `session_templates/`.
 
 ## Configuration
 
 - **`config.toml`**: Primary configuration for agents, ports, and routing (including `max_agent_hops` for loop guard).
 - **`config.local.toml`**: Local overrides (gitignored), used for API endpoints and local model settings.
+- **Isolation**: Use `AGENTCHATTR_DATA_DIR`, `AGENTCHATTR_PORT`, `AGENTCHATTR_MCP_HTTP_PORT`, and `AGENTCHATTR_MCP_SSE_PORT` env vars to run isolated project instances.
 
 ## Conventions & Constraints
 

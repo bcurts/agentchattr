@@ -381,7 +381,7 @@ def _build_provider_launch(
     project_dir: Path | None = None,
 ) -> tuple[list[str], dict[str, str], dict[str, str], Path | None]:
     """Return provider-specific launch args/env/inject_env/settings_path.
-
+    
     inject_env: env vars that must propagate INTO the agent process.  On
     Mac/Linux these are prefixed onto the tmux command via ``env VAR=val``
     because subprocess.run(env=...) only affects the tmux client binary.
@@ -393,10 +393,20 @@ def _build_provider_launch(
         token=token, mcp_cfg=mcp_cfg, project_dir=project_dir,
     )
 
-    launch_args = [*mcp_args, *extra_args]
-    launch_env = dict(env)
+    # Merge config-defined args and env
+    config_args = agent_cfg.get("args", [])
+    if not isinstance(config_args, list):
+        config_args = [str(config_args)]
+        
+    config_env = agent_cfg.get("env", {})
+    if not isinstance(config_env, dict):
+        config_env = {}
+
+    launch_args = [*mcp_args, *config_args, *extra_args]
+    launch_env = {**env, **config_env}
 
     return launch_args, launch_env, inject_env, settings_path
+
 
 
 def _register_instance(server_port: int, base: str, label: str | None = None) -> dict:
@@ -489,7 +499,8 @@ def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = Fals
                    refresh_interval: int = 10):
     """Poll queue file and inject an MCP read task when triggered."""
     first_mention = True
-    last_rules_epoch = 0  # 0 = unknown/cold start — will inject on first trigger
+    last_rules_epoch = 0
+    last_injected_name = None
     trigger_count = 0
     while True:
         try:
@@ -546,6 +557,12 @@ def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = Fals
 
                     # Use current identity (may have changed via rename)
                     current_name, _ = get_identity_fn()
+                    
+                    # Inform agent of its identity if it's the first time or name has changed
+                    if last_injected_name != current_name:
+                        prompt = f"You are {current_name}. {prompt}"
+                        last_injected_name = current_name
+
                     # Append role if set — check both current name and base name
                     role = _fetch_role(server_port, current_name)
                     if not role and current_name != agent_name:
