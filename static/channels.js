@@ -63,14 +63,14 @@ function renderChannelTabs() {
 
             const editBtn = document.createElement('button');
             editBtn.className = 'ch-edit-btn';
-            editBtn.title = 'Rename';
+            editBtn.title = t('channel.rename.title');
             editBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M11.5 2.5l2 2L5 13H3v-2L11.5 2.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>';
             editBtn.onclick = (e) => { e.stopPropagation(); showChannelRenameDialog(name); };
             actions.appendChild(editBtn);
 
             const delBtn = document.createElement('button');
             delBtn.className = 'ch-delete-btn';
-            delBtn.title = 'Delete';
+            delBtn.title = t('channel.delete.title');
             delBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 4h10M6 4V3h4v1M5 4v8.5h6V4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
             delBtn.onclick = (e) => { e.stopPropagation(); deleteChannel(name); };
             actions.appendChild(delBtn);
@@ -142,13 +142,13 @@ function renderChannelSidebar() {
             actions.className = 'channel-sidebar-row-actions';
 
             const editBtn = document.createElement('button');
-            editBtn.title = 'Rename';
+            editBtn.title = t('channel.rename.title');
             editBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M11.5 2.5l2 2L5 13H3v-2L11.5 2.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>';
             editBtn.onclick = (e) => { e.stopPropagation(); _showSidebarRenameDialog(name); };
             actions.appendChild(editBtn);
 
             const delBtn = document.createElement('button');
-            delBtn.title = 'Delete';
+            delBtn.title = t('channel.delete.title');
             delBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 4h10M6 4V3h4v1M5 4v8.5h6V4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
             delBtn.onclick = (e) => { e.stopPropagation(); _sidebarConfirmDelete(name, row, label); };
             actions.appendChild(delBtn);
@@ -198,7 +198,7 @@ function _showSidebarRenameDialog(oldName) {
     const confirm = document.createElement('button');
     confirm.className = 'confirm-btn';
     confirm.innerHTML = '&#10003;';
-    confirm.title = 'Rename';
+    confirm.title = t('channel.rename.title');
     confirm.onclick = () => {
         const newName = input.value.trim().toLowerCase();
         if (!newName || !/^[a-z0-9][a-z0-9\-]{0,19}$/.test(newName)) return;
@@ -217,7 +217,7 @@ function _showSidebarRenameDialog(oldName) {
     const cancel = document.createElement('button');
     cancel.className = 'cancel-btn';
     cancel.innerHTML = '&#10005;';
-    cancel.title = 'Cancel';
+    cancel.title = t('common.cancel');
     cancel.onclick = cleanup;
     wrapper.appendChild(cancel);
 
@@ -245,7 +245,7 @@ function _sidebarConfirmDelete(name, row, label) {
     const originalOnclick = row.onclick;
 
     row.classList.add('confirm-delete');
-    label.textContent = `delete #${name}?`;
+    label.textContent = t('channel.deleteConfirm', { name });
     if (actions) actions.style.display = 'none';
 
     const confirmBar = document.createElement('span');
@@ -253,11 +253,11 @@ function _sidebarConfirmDelete(name, row, label) {
     confirmBar.style.display = 'flex';
 
     const tickBtn = document.createElement('button');
-    tickBtn.title = 'Confirm delete';
+    tickBtn.title = t('common.confirm');
     tickBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3.5 3.5 6.5-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
     const crossBtn = document.createElement('button');
-    crossBtn.title = 'Cancel';
+    crossBtn.title = t('common.cancel');
     crossBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
 
     confirmBar.appendChild(tickBtn);
@@ -360,14 +360,14 @@ function showChannelCreateDialog() {
     const confirm = document.createElement('button');
     confirm.className = 'confirm-btn';
     confirm.innerHTML = '&#10003;';
-    confirm.title = 'Create';
+    confirm.title = t('common.create');
     confirm.onclick = () => { _submitInlineCreate(input, wrapper); if (addBtn) addBtn.style.display = ''; };
     wrapper.appendChild(confirm);
 
     const cancel = document.createElement('button');
     cancel.className = 'cancel-btn';
     cancel.innerHTML = '&#10005;';
-    cancel.title = 'Cancel';
+    cancel.title = t('common.cancel');
     cancel.onclick = cleanup;
     wrapper.appendChild(cancel);
 
@@ -425,7 +425,7 @@ function showChannelRenameDialog(oldName) {
     const confirm = document.createElement('button');
     confirm.className = 'confirm-btn';
     confirm.innerHTML = '&#10003;';
-    confirm.title = 'Rename';
+    confirm.title = t('channel.rename.title');
     confirm.onclick = () => {
         const newName = input.value.trim().toLowerCase();
         if (!newName || !/^[a-z0-9][a-z0-9\-]{0,19}$/.test(newName)) return;
@@ -444,7 +444,7 @@ function showChannelRenameDialog(oldName) {
     const cancel = document.createElement('button');
     cancel.className = 'cancel-btn';
     cancel.innerHTML = '&#10005;';
-    cancel.title = 'Cancel';
+    cancel.title = t('common.cancel');
     cancel.onclick = cleanup;
     wrapper.appendChild(cancel);
 
@@ -482,7 +482,7 @@ function deleteChannel(name) {
 
     tab.classList.add('confirm-delete');
     tab.classList.remove('editing');
-    label.textContent = `delete #${name}?`;
+    label.textContent = t('channel.deleteConfirm', { name });
     if (actions) actions.style.display = 'none';
 
     const confirmBar = document.createElement('span');
@@ -490,12 +490,12 @@ function deleteChannel(name) {
 
     const tickBtn = document.createElement('button');
     tickBtn.className = 'ch-confirm-yes';
-    tickBtn.title = 'Confirm delete';
+    tickBtn.title = t('common.confirm');
     tickBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3.5 3.5 6.5-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
     const crossBtn = document.createElement('button');
     crossBtn.className = 'ch-confirm-no';
-    crossBtn.title = 'Cancel';
+    crossBtn.title = t('common.cancel');
     crossBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
 
     confirmBar.appendChild(tickBtn);
@@ -577,12 +577,12 @@ function _updateSupportLabel() {
     if (!label) return;
     const inSidebar = document.body.classList.contains('channels-in-sidebar');
     if (!inSidebar) {
-        label.textContent = ' Support development';
+        label.textContent = t('header.support');
         return;
     }
     const panel = document.getElementById('channel-sidebar');
     const w = panel ? panel.offsetWidth : 200;
-    label.textContent = w < 200 ? ' Support' : ' Support development';
+    label.textContent = w < 200 ? t('header.support.short') : t('header.support');
 }
 
 function setupChannelSidebarGrip() {

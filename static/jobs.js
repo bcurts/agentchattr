@@ -55,7 +55,7 @@ window._messageRenderers['job_created'] = function (el, msg) {
     if (actId) {
         el.innerHTML = `<span class="job-breadcrumb-link" onclick="openJobFromBreadcrumb(${actId})" title="Open job">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="vertical-align:-2px;margin-right:4px;opacity:0.6"><rect x="2" y="1" width="5" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="9" y="8" width="5" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
-            New job: <em>${window.escapeHtml(msg.text.replace('Job created: ', ''))}</em></span>`;
+            ${t('jobs.newJob')} <em>${window.escapeHtml(msg.text.replace('Job created: ', ''))}</em></span>`;
     } else {
         el.innerHTML = `<span class="msg-text">${window.escapeHtml(msg.text)}</span>`;
     }
@@ -116,7 +116,7 @@ function _collapseJobBreadcrumbs(container, newEl) {
     group.className = 'job-group';
     const summary = document.createElement('div');
     summary.className = 'job-group-summary';
-    summary.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="vertical-align:-2px;margin-right:4px;opacity:0.6"><rect x="2" y="1" width="5" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="9" y="8" width="5" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>${crumbs.length} jobs were started`;
+    summary.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="vertical-align:-2px;margin-right:4px;opacity:0.6"><rect x="2" y="1" width="5" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="9" y="8" width="5" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>${t('jobs.started', { count: crumbs.length })}`;
     summary.onclick = () => {
         group.classList.toggle('expanded');
     };
@@ -146,7 +146,7 @@ function _repairJobGroup(group) {
         // Update the count text
         const summary = group.querySelector('.job-group-summary');
         if (summary) {
-            summary.innerHTML = summary.innerHTML.replace(/\d+ jobs were started/, `${remaining.length} jobs were started`);
+            summary.innerHTML = summary.innerHTML.replace(/[^<]*$/, t('jobs.started', { count: remaining.length }));
         }
     }
 }
@@ -322,8 +322,8 @@ function updateJobReplyTargetUI() {
         nameEl.textContent = selected.label || selected.name;
         btn.title = `Reply target: ${selected.label || selected.name} (Tab to cycle)`;
     } else {
-        nameEl.textContent = 'none';
-        btn.title = 'Reply target: none (Tab to choose)';
+        nameEl.textContent = t('jobs.none');
+        btn.title = t('jobs.replyTarget.title') + ': ' + t('jobs.none');
     }
     btn.classList.toggle('no-target', !selected);
     clearBtn.classList.toggle('hidden', !selected);
@@ -586,9 +586,9 @@ function renderJobsList() {
 
     // Group by status: open first, then done, then archived
     const groups = [
-        { key: 'open', label: 'TO DO', items: [] },
-        { key: 'done', label: 'ACTIVE', items: [] },
-        { key: 'archived', label: 'CLOSED', items: [] },
+        { key: 'open', label: t('common.todo'), items: [] },
+        { key: 'done', label: t('common.active'), items: [] },
+        { key: 'archived', label: t('common.closed'), items: [] },
     ];
     for (const a of channelJobs) {
         const g = groups.find(g => g.key === a.status);
@@ -600,8 +600,8 @@ function renderJobsList() {
         const ghost = document.createElement('div');
         ghost.className = 'sb-ghost-card';
         ghost.innerHTML = `
-            <div class="sb-ghost-title">Create your first job</div>
-            <div class="sb-ghost-meta">Track work items with threaded conversations. Use @mentions to loop in agents.</div>
+            <div class="sb-ghost-title">${t('jobs.empty.title')}</div>
+            <div class="sb-ghost-meta">${t('jobs.empty.meta')}</div>
         `;
         ghost.onclick = () => {
             const btn = document.querySelector('.jobs-create-btn');
@@ -685,7 +685,7 @@ function renderJobsList() {
             const unread = jobUnread[a.id] || 0;
 
             const unreadHtml = unread > 0
-                ? `<span class="job-unread-dot" title="Unread messages">${unread > 99 ? '99+' : unread}</span>`
+                ? `<span class="job-unread-dot" title="${t('jobs.unread.title')}">${unread > 99 ? '99+' : unread}</span>`
                 : '';
 
             card.innerHTML = `
@@ -732,7 +732,7 @@ function renderJobsList() {
                     if (trash) {
                         trash.classList.add('drop-ready');
                         const hint = trash.querySelector('.archive-trash-hint');
-                        if (hint) hint.textContent = ids.length > 1 ? `Drop to delete ${ids.length} jobs` : 'Drop to delete job';
+                        if (hint) hint.textContent = ids.length > 1 ? t('jobs.dropDeleteMany', { count: ids.length }) : t('jobs.dropDeleteOne');
                     }
                 } else {
                     itemsContainer.classList.add('job-reorder-active');
@@ -828,7 +828,7 @@ function renderJobsList() {
         if (group.key === 'archived' && group.items.length > 0) {
             const trashZone = document.createElement('div');
             trashZone.className = 'archive-trash-zone visible';
-            trashZone.innerHTML = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 4h10M6 4V3h4v1M5 4v8.5h6V4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="archive-trash-hint">Drag here to delete</span>`;
+            trashZone.innerHTML = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 4h10M6 4V3h4v1M5 4v8.5h6V4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="archive-trash-hint">${t('jobs.dragDelete')}</span>`;
 
             // Click to delete selected items
             trashZone.addEventListener('click', async () => {
@@ -923,12 +923,12 @@ async function openJobConversation(jobId) {
     if (msgCount === 0 && target) {
         const starterText = `@${target} start this job`;
         jobInput.value = starterText;
-        jobInput.placeholder = 'Send to assign · click to edit';
+        jobInput.placeholder = t('jobs.assign.placeholder');
         jobInput.classList.add('job-starter-prefill');
         const clearStarter = () => {
             if (jobInput.classList.contains('job-starter-prefill')) {
                 jobInput.value = '';
-                jobInput.placeholder = 'Message...';
+                jobInput.placeholder = t('jobs.message.placeholder');
                 jobInput.classList.remove('job-starter-prefill');
             }
             jobInput.removeEventListener('focus', clearStarter);
@@ -937,7 +937,7 @@ async function openJobConversation(jobId) {
         jobInput.addEventListener('focus', clearStarter);
         jobInput.addEventListener('click', clearStarter);
     } else {
-        jobInput.placeholder = 'Message...';
+        jobInput.placeholder = t('jobs.message.placeholder');
         jobInput.classList.remove('job-starter-prefill');
         jobInput.focus();
     }
@@ -960,7 +960,7 @@ async function loadJobMessages(jobId) {
             const convView = document.getElementById('jobs-conversation-view');
             const hasBrief = !!convView.querySelector('.job-brief-card');
             if (!hasBrief) {
-                container.innerHTML = '<div class="jobs-empty" style="font-size:12px; padding:16px">No messages yet. Start the conversation!</div>';
+                container.innerHTML = `<div class="jobs-empty" style="font-size:12px; padding:16px">${t('jobs.emptyMessages')}</div>`;
             }
             return msgs;
         }
@@ -973,7 +973,7 @@ async function loadJobMessages(jobId) {
         container.scrollTop = container.scrollHeight;
         return msgs;
     } catch (e) {
-        container.innerHTML = '<div class="jobs-empty">Failed to load messages.</div>';
+        container.innerHTML = `<div class="jobs-empty">${t('jobs.loadFailed')}</div>`;
         return [];
     }
 }
@@ -1015,7 +1015,7 @@ function _animateRemoveJobMessage(msgEl) {
 function _renderJobMsgDeleteDefault(actions, jobId, msgId) {
     if (!actions) return;
     actions.classList.remove('confirming');
-    actions.innerHTML = `<button class="job-msg-del-btn" onclick="startDeleteJobMessage(${jobId}, ${msgId})">DEL</button>`;
+    actions.innerHTML = `<button class="job-msg-del-btn" onclick="startDeleteJobMessage(${jobId}, ${msgId})">${t('jobs.deleteShort')}</button>`;
 }
 
 function startDeleteJobMessage(jobId, msgId, event) {
@@ -1037,9 +1037,9 @@ function startDeleteJobMessage(jobId, msgId, event) {
 
     actions.classList.add('confirming');
     actions.innerHTML = `
-        <span class="job-msg-delete-label">Delete?</span>
-        <button class="job-msg-confirm-yes" onclick="confirmDeleteJobMessage(${jobId}, ${msgId})">Yes</button>
-        <button class="job-msg-confirm-no" onclick="cancelDeleteJobMessage(${jobId}, ${msgId})">No</button>
+        <span class="job-msg-delete-label">${t('common.delete?')}</span>
+        <button class="job-msg-confirm-yes" onclick="confirmDeleteJobMessage(${jobId}, ${msgId})">${t('common.yes')}</button>
+        <button class="job-msg-confirm-no" onclick="cancelDeleteJobMessage(${jobId}, ${msgId})">${t('common.no')}</button>
     `;
     _clearJobMsgDeleteTimer(jobId, msgId);
     const key = `${jobId}:${msgId}`;
@@ -1093,7 +1093,7 @@ function appendJobMessage(msg) {
     const msgId = Number(msg.id);
     const canDelete = Number.isFinite(msgId);
     const deleteActionHtml = canDelete
-        ? `<div class="job-msg-actions"><button class="job-msg-del-btn" onclick="startDeleteJobMessage(${activeJobId}, ${msgId})">DEL</button></div>`
+        ? `<div class="job-msg-actions"><button class="job-msg-del-btn" onclick="startDeleteJobMessage(${activeJobId}, ${msgId})">${t('jobs.deleteShort')}</button></div>`
         : '';
 
     if (msg.type === 'suggestion') {
@@ -1108,7 +1108,7 @@ function appendJobMessage(msg) {
             <div class="job-msg-text">${window.renderMarkdown(msg.text)}</div>
             <div class="suggestion-actions">${resolved
                 ? `<span class="suggestion-resolved">${window.escapeHtml(resolved)}</span>`
-                : `<button class="suggestion-accept" onclick="acceptSuggestion(${activeJobId}, ${msg.id})">Accept</button><button class="suggestion-dismiss" onclick="dismissSuggestion(${activeJobId}, ${msg.id})">Dismiss</button>`
+                : `<button class="suggestion-accept" onclick="acceptSuggestion(${activeJobId}, ${msg.id})">${t('jobs.accept')}</button><button class="suggestion-dismiss" onclick="dismissSuggestion(${activeJobId}, ${msg.id})">${t('common.dismiss')}</button>`
             }</div>
         `;
     } else {
@@ -1299,11 +1299,11 @@ function showCreateJob() {
     const form = document.createElement('div');
     form.className = 'job-create-form';
     form.innerHTML = `
-        <input type="text" placeholder="Job title" class="job-create-title" maxlength="120" autofocus>
-        <textarea placeholder="Description (optional)" class="job-create-body" maxlength="1000" rows="2"></textarea>
+        <input type="text" placeholder="${t('jobs.title.placeholder')}" class="job-create-title" maxlength="120" autofocus>
+        <textarea placeholder="${t('jobs.body.placeholder')}" class="job-create-body" maxlength="1000" rows="2"></textarea>
         <div class="job-create-actions">
-            <button class="cancel-btn" onclick="this.closest('.job-create-form').remove()">Cancel</button>
-            <button class="create-btn" onclick="submitCreateJob(this)">Create</button>
+            <button class="cancel-btn" onclick="this.closest('.job-create-form').remove()">${t('common.cancel')}</button>
+            <button class="create-btn" onclick="submitCreateJob(this)">${t('common.create')}</button>
         </div>
     `;
     list.prepend(form);
@@ -1503,14 +1503,14 @@ function showConvertToJobModal(msgId) {
         modal.className = 'convert-job-modal hidden';
         modal.innerHTML = `
             <div class="convert-job-dialog">
-                <h3 class="convert-job-title">Convert to Job</h3>
-                <p class="convert-job-subtitle">An agent will write a job proposal for you to accept</p>
+                <h3 class="convert-job-title">${t('jobs.convertTitle')}</h3>
+                <p class="convert-job-subtitle">${t('jobs.convertSubtitle')}</p>
                 <div class="convert-job-preview"></div>
-                <label class="convert-job-label">Ask agent to write proposal</label>
+                <label class="convert-job-label">${t('jobs.convertLabel')}</label>
                 <select class="convert-job-agent"></select>
                 <div class="convert-job-actions">
-                    <button class="convert-job-cancel">Cancel</button>
-                    <button class="convert-job-confirm">Convert</button>
+                    <button class="convert-job-cancel">${t('common.cancel')}</button>
+                    <button class="convert-job-confirm">${t('jobs.convert')}</button>
                 </div>
             </div>`;
         modal.addEventListener('click', (e) => {
@@ -1571,7 +1571,7 @@ async function _doConvertToJob() {
         id: Date.now(),
         sender: 'system',
         type: 'system',
-        text: `Asking @${agent} to create a job card\u2026`,
+        text: t('jobs.askingAgent', { agent }),
         channel: window.activeChannel,
         time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
     };
@@ -1612,12 +1612,12 @@ function showDeleteJobModal(jobId) {
         modal.className = 'convert-job-modal hidden';
         modal.innerHTML = `
             <div class="convert-job-dialog delete-job-dialog">
-                <h3 class="convert-job-title">Delete Job Permanently?</h3>
-                <p class="convert-job-subtitle">This removes the job and its messages permanently. This cannot be undone.</p>
+                <h3 class="convert-job-title">${t('jobs.deletePermanentTitle')}</h3>
+                <p class="convert-job-subtitle">${t('jobs.deletePermanentSubtitle')}</p>
                 <div class="delete-job-target"></div>
                 <div class="convert-job-actions">
-                    <button class="convert-job-cancel">Cancel</button>
-                    <button class="delete-job-confirm">Delete</button>
+                    <button class="convert-job-cancel">${t('common.cancel')}</button>
+                    <button class="delete-job-confirm">${t('common.delete')}</button>
                 </div>
             </div>`;
         modal.addEventListener('click', (e) => {
@@ -1689,7 +1689,7 @@ async function acceptProposal(msgId) {
             if (card) {
                 card.classList.add('proposal-resolved');
                 const actions = card.querySelector('.proposal-actions');
-                if (actions) actions.innerHTML = '<div class="proposal-status-resolved">Accepted</div>';
+                if (actions) actions.innerHTML = `<div class="proposal-status-resolved">${t('jobs.accepted')}</div>`;
             }
             // Open the job (don't push to jobsData — WS 'create' event handles that)
             const panel = document.getElementById('jobs-panel');
@@ -1910,10 +1910,10 @@ function updateArchiveTrashHint(container) {
     const hint = trash.querySelector('.archive-trash-hint');
     if (count > 0) {
         trash.classList.add('has-selection');
-        hint.textContent = `Delete ${count} selected`;
+        hint.textContent = t('jobs.deleteSelected', { count });
     } else {
         trash.classList.remove('has-selection');
-        hint.textContent = 'Drag here to delete';
+        hint.textContent = t('jobs.dragDelete');
     }
 }
 

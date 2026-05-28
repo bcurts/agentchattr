@@ -1283,3 +1283,22 @@ body.archive-no-select * {
 .job-group.expanded .job-group-list {
     display: block;
 }
+
+html[data-theme="light"] .convert-job-preview,
+html[data-theme="light"] .delete-job-message-preview {
+    color: var(--text-dim);
+}
+
+html[data-theme="light"] .convert-job-modal,
+html[data-theme="light"] .delete-job-modal {
+    background: rgba(15, 23, 42, 0.30);
+}
+
+html[data-theme="light"] .convert-job-dialog,
+html[data-theme="light"] .delete-job-dialog {
+    box-shadow: var(--shadow-lg);
+}
+
+html[data-theme="light"] .job-group-summary:hover {
+    background: var(--white-08);
+}

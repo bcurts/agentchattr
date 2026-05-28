@@ -132,7 +132,7 @@ function remindAgents() {
         .then(() => {
             if (btn) {
                 const orig = btn.textContent;
-                btn.textContent = 'Queued — next trigger';
+                btn.textContent = t('rules.queued');
                 setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2500);
             }
         })
@@ -178,15 +178,15 @@ function renderRulesPanel() {
         const ghost = document.createElement('div');
         ghost.className = 'sb-ghost-card';
         ghost.innerHTML = `
-            <div class="sb-ghost-title">No rules yet</div>
-            <div class="sb-ghost-meta">Tell your agents how to work</div>
+            <div class="sb-ghost-title">${t('rules.empty.title')}</div>
+            <div class="sb-ghost-meta">${t('rules.empty.meta')}</div>
         `;
         ghost.onclick = () => showCreateRule();
         list.appendChild(ghost);
         // Centered helper text
         const helper = document.createElement('div');
         helper.className = 'rules-centered-hint';
-        helper.textContent = 'New rules are sent on the next agent trigger';
+        helper.textContent = t('rules.nextTrigger');
         list.appendChild(helper);
         if (savedForm) {
             list.prepend(savedForm);
@@ -200,9 +200,9 @@ function renderRulesPanel() {
 
     // Group order: drafts, active, archive (mirrors jobs: to-do, active, closed)
     const groups = [
-        { key: 'draft', label: 'DRAFTS', items: [] },
-        { key: 'active', label: 'ACTIVE', items: [] },
-        { key: 'archived', label: 'ARCHIVE', items: [] },
+        { key: 'draft', label: t('common.drafts'), items: [] },
+        { key: 'active', label: t('common.active'), items: [] },
+        { key: 'archived', label: t('common.archive'), items: [] },
     ];
     for (const r of panelRules) {
         const status = normalize(r.status);
@@ -215,7 +215,7 @@ function renderRulesPanel() {
     if (activeCount >= 7) {
         const warning = document.createElement('div');
         warning.className = 'rules-soft-warning';
-        warning.textContent = 'Less than seven active rules tends to work better';
+        warning.textContent = t('rules.softWarning');
         list.appendChild(warning);
     }
 
@@ -305,7 +305,7 @@ function renderRulesPanel() {
         if (group.key === 'archived' && group.items.length > 0) {
             const trashZone = document.createElement('div');
             trashZone.className = 'archive-trash-zone visible';
-            trashZone.innerHTML = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 4h10M6 4V3h4v1M5 4v8.5h6V4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="archive-trash-hint">Drag here to delete</span>`;
+            trashZone.innerHTML = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 4h10M6 4V3h4v1M5 4v8.5h6V4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="archive-trash-hint">${t('rules.dragDelete')}</span>`;
 
             trashZone.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; trashZone.classList.add('hover'); });
             trashZone.addEventListener('dragleave', () => { trashZone.classList.remove('hover'); });
@@ -331,7 +331,7 @@ function renderRulesPanel() {
     // Centered helper text at bottom
     const helper = document.createElement('div');
     helper.className = 'rules-centered-hint';
-    helper.textContent = 'New rules are sent on the next agent trigger';
+    helper.textContent = t('rules.nextTrigger');
     list.appendChild(helper);
 
     // Re-insert preserved create form at top
@@ -379,10 +379,10 @@ function showCreateRule() {
     const form = document.createElement('div');
     form.className = 'job-create-form';
     form.innerHTML = `
-        <input type="text" placeholder="Write a short rule agents should follow" class="rule-create-text" maxlength="160" autofocus>
+        <input type="text" placeholder="${t('rules.create.placeholder')}" class="rule-create-text" maxlength="160" autofocus>
         <div class="job-create-actions">
-            <button class="cancel-btn" onclick="this.closest('.job-create-form').remove()">Cancel</button>
-            <button class="create-btn" onclick="submitCreateRule(this)">Create</button>
+            <button class="cancel-btn" onclick="this.closest('.job-create-form').remove()">${t('common.cancel')}</button>
+            <button class="create-btn" onclick="submitCreateRule(this)">${t('common.create')}</button>
         </div>
     `;
     list.prepend(form);
@@ -441,10 +441,10 @@ function editRule(id) {
         <textarea class="rule-edit-field" maxlength="${RULE_MAX_CHARS}" rows="1" data-limit="${RULE_MAX_CHARS}">${window.escapeHtml(d.text || '')}</textarea>
         <div class="char-counter">${(d.text || '').length}/${RULE_MAX_CHARS}</div>
         <div class="rule-edit-actions">
-            <button class="save-btn" onclick="event.stopPropagation();saveRuleEdit(${id})">Save</button>
-            <button class="cancel-btn" onclick="event.stopPropagation();cancelRuleEdit(${id})">Cancel</button>
+            <button class="save-btn" onclick="event.stopPropagation();saveRuleEdit(${id})">${t('common.save')}</button>
+            <button class="cancel-btn" onclick="event.stopPropagation();cancelRuleEdit(${id})">${t('common.cancel')}</button>
             <span style="flex:1"></span>
-            <button class="delete-inline-btn" onclick="event.stopPropagation();deleteRule(${id})">Delete</button>
+            <button class="delete-inline-btn" onclick="event.stopPropagation();deleteRule(${id})">${t('common.delete')}</button>
         </div>
     `;
     card.appendChild(editArea);
@@ -501,9 +501,9 @@ function startDeleteRule(id) {
     actions.dataset.confirming = '1';
     actions.style.opacity = '1';
     actions.innerHTML = `
-        <span style="font-size:11px;color:var(--error-color);white-space:nowrap;margin-right:4px">Delete?</span>
-        <button class="confirm-yes" style="background:var(--error-color);color:#fff;border:none;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit" onclick="deleteRule(${id})">Yes</button>
-        <button class="confirm-no" style="background:transparent;color:var(--text-dim);border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit" onclick="cancelDeleteRule(${id})">No</button>
+        <span style="font-size:11px;color:var(--error-color);white-space:nowrap;margin-right:4px">${t('rules.deleteConfirm')}</span>
+        <button class="confirm-yes" style="background:var(--error-color);color:#fff;border:none;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit" onclick="deleteRule(${id})">${t('common.yes')}</button>
+        <button class="confirm-no" style="background:transparent;color:var(--text-dim);border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit" onclick="cancelDeleteRule(${id})">${t('common.no')}</button>
     `;
 }
 
@@ -517,7 +517,7 @@ function deleteRule(id) {
     if (d && author && author.toLowerCase() !== window.username.toLowerCase()) {
         const input = document.getElementById('input');
         const reasonBit = d.reason ? ` (reason: ${d.reason})` : '';
-        input.value = `@${author} Rule rejected: "${d.text || d.decision || ''}"${reasonBit} — `;
+        input.value = `@${author} ${t('rules.rejectedPrefix')}: "${d.text || d.decision || ''}"${reasonBit} -- `;
         input.focus();
         input.selectionStart = input.selectionEnd = input.value.length;
         input.dispatchEvent(new Event('input'));
