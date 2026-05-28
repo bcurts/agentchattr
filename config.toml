@@ -19,12 +19,20 @@ cwd = ".."
 color = "#10a37f"
 label = "Codex"
 
+mcp_inject = "proxy_flag"
+mcp_proxy_flag_template = "-c mcp_servers.{server}.url=\"{url}\" -c mcp_servers.{server}.default_tools_approval_mode=\"approve\" -c mcp_servers.{server}.tools.chat_channels.approval_mode=\"approve\" -c mcp_servers.{server}.tools.chat_claim.approval_mode=\"approve\" -c mcp_servers.{server}.tools.chat_decision.approval_mode=\"approve\" -c mcp_servers.{server}.tools.chat_join.approval_mode=\"approve\" -c mcp_servers.{server}.tools.chat_propose_job.approval_mode=\"approve\" -c mcp_servers.{server}.tools.chat_read.approval_mode=\"approve\" -c mcp_servers.{server}.tools.chat_resync.approval_mode=\"approve\" -c mcp_servers.{server}.tools.chat_rules.approval_mode=\"approve\" -c mcp_servers.{server}.tools.chat_send.approval_mode=\"approve\" -c mcp_servers.{server}.tools.chat_set_hat.approval_mode=\"approve\" -c mcp_servers.{server}.tools.chat_summary.approval_mode=\"approve\" -c mcp_servers.{server}.tools.chat_who.approval_mode=\"approve\""
+
 [agents.gemini]
-command = "gemini"
+command = "env"
 cwd = ".."
 color = "#4285f4"
 label = "Gemini"
 
+mcp_inject = "settings_file"
+mcp_settings_path = "~/.gemini/config/mcp_config.json"
+mcp_transport = "http"
+mcp_http_key = "serverURL"
+mcp_merge_project = true
 [agents.kimi]
 command = "kimi"
 cwd = ".."
