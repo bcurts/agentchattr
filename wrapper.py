@@ -587,6 +587,17 @@ def main():
 
     agent = args.agent
     agent_cfg = config.get("agents", {}).get(agent, {})
+    # Per-invocation per-agent overrides via env vars.
+    # Format: AGENTCHATTR_AGENT_<KEY_UPPER> overrides agent_cfg[<key_lower>].
+    # Whitelisted to prevent committed project.env files from overriding
+    # security-sensitive keys like `command` or `mcp_inject`.
+    _AGENT_OVERRIDE_ALLOWED = {"cwd", "mcp_settings_path"}
+    for _env_key, _env_val in os.environ.items():
+        if not _env_key.startswith("AGENTCHATTR_AGENT_") or not _env_val:
+            continue
+        _cfg_key = _env_key[len("AGENTCHATTR_AGENT_"):].lower()
+        if _cfg_key in _AGENT_OVERRIDE_ALLOWED:
+            agent_cfg[_cfg_key] = _env_val
     cwd = agent_cfg.get("cwd", ".")
     command = agent_cfg.get("command", agent)
     data_dir = ROOT / config.get("server", {}).get("data_dir", "./data")
@@ -868,7 +879,11 @@ def main():
     else:
         from wrapper_unix import get_activity_checker, run_agent
 
-        unix_session_name = f"agentchattr-{assigned_name}"
+        _slug = os.environ.get("AGENTCHATTR_REPO_SLUG", "").strip()
+        unix_session_name = (
+            f"agentchattr-{_slug}-{assigned_name}" if _slug
+            else f"agentchattr-{assigned_name}"
+        )
         _set_activity_checker(get_activity_checker(unix_session_name, trigger_flag=_trigger_flag))
 
     run_kwargs = dict(
