@@ -4568,4 +4568,20 @@ footer {
     }
     /* #channel-sidebar.hidden already uses display:none, which keeps it out of
        flow on mobile too — no override needed. */
+
+    /* --- 4. Message box: on a phone the sender label + session/mic/send/
+       schedule controls crowded the textarea down to ~100px. Let the row wrap
+       and give the textarea its own full-width line above the controls, with a
+       finger-friendly height and a >=16px font (smaller fonts make iOS zoom the
+       page on focus). All controls stay present, just on the line below. --- */
+    #input-row {
+        flex-wrap: wrap;
+    }
+    #input {
+        order: -1;
+        flex: 1 1 100%;
+        font-size: 16px;
+        min-height: 44px;
+        max-height: 140px;
+    }
 }

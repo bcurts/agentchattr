@@ -101,6 +101,28 @@ def test_mobile_channel_sidebar_does_not_squeeze_timeline(page, server):
     assert _doc_overflow(page) <= 1, "sidebar mode causes horizontal scroll on mobile"
 
 
+def test_mobile_input_box_is_usable_size(page, server):
+    """The message box must be a comfortable size to type in on a phone.
+
+    On a 375px screen the surrounding controls (sender label, session/mic/
+    send/schedule buttons) crowded the textarea down to ~102px wide. It needs
+    real width, a finger-friendly height, and a >=16px font so iOS does not
+    zoom the page when it gets focus.
+    """
+    _load(page, MOBILE, server)
+    box = _box(page, "#input")
+    assert box is not None
+    assert box["width"] >= MOBILE["width"] * 0.7, (
+        f"input only {box['width']}px wide of {MOBILE['width']}px; "
+        "surrounding controls are crowding the text box"
+    )
+    assert box["height"] >= 44, f"input only {box['height']}px tall; too small to tap"
+    font_px = page.evaluate(
+        "() => parseFloat(getComputedStyle(document.querySelector('#input')).fontSize)"
+    )
+    assert font_px >= 16, f"input font {font_px}px; <16px makes iOS zoom on focus"
+
+
 # --------------------------------------------------------------------------
 # DESKTOP - characterization of behavior that must NOT change
 # --------------------------------------------------------------------------
