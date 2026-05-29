@@ -123,6 +123,31 @@ def test_mobile_input_box_is_usable_size(page, server):
     assert font_px >= 16, f"input font {font_px}px; <16px makes iOS zoom on focus"
 
 
+def test_mobile_send_and_mic_align_right(page, server):
+    """On a phone, the send button and the mic button sit at the right edge.
+
+    After the input wraps to its own line, the controls were left-packed,
+    leaving the send group ending ~57px short of the row's right edge. Send
+    and the audio (mic) button should hug the right, with mic just left of send.
+    """
+    _load(page, MOBILE, server)
+    row = _box(page, "#input-row")
+    group = _box(page, ".send-group")
+    mic = _box(page, "#mic")
+    assert row and group and mic
+    row_right = row["x"] + row["width"]
+    group_right = group["x"] + group["width"]
+    mic_right = mic["x"] + mic["width"]
+    # send group hugs the right edge of the row
+    assert group_right >= row_right - 8, (
+        f"send group ends at {group_right}px but row right edge is {row_right}px"
+    )
+    # mic sits immediately to the left of the send group (grouped on the right)
+    gap = group["x"] - mic_right
+    assert 0 <= gap <= 16, f"mic not adjacent to send (gap {gap}px)"
+    assert mic["x"] >= row["x"] + row["width"] * 0.45, "mic is not on the right side"
+
+
 # --------------------------------------------------------------------------
 # DESKTOP - characterization of behavior that must NOT change
 # --------------------------------------------------------------------------

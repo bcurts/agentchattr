@@ -4584,4 +4584,10 @@ footer {
         min-height: 44px;
         max-height: 140px;
     }
+    /* Group the audio + send buttons at the right edge of the controls line.
+       margin-left:auto pushes the mic and everything after it (the send group)
+       to the right; the sender label + session button stay on the left. */
+    #input-row #mic {
+        margin-left: auto;
+    }
 }
