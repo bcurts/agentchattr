@@ -41,6 +41,11 @@ def _open_rules(page):
     page.wait_for_timeout(400)  # css margin transition
 
 
+def _open_jobs(page):
+    page.evaluate("toggleJobsPanel()")
+    page.wait_for_timeout(400)
+
+
 def _enable_sidebar(page):
     page.evaluate("setChannelSidebarMode('sidebar')")
     page.wait_for_timeout(400)
@@ -68,6 +73,19 @@ def test_mobile_rules_panel_does_not_squeeze_timeline(page, server):
         "rules panel is stealing horizontal space instead of overlaying"
     )
     assert _doc_overflow(page) <= 1, "rules panel causes horizontal scroll on mobile"
+
+
+def test_mobile_jobs_panel_does_not_squeeze_timeline(page, server):
+    """Opening the jobs panel on a phone must overlay, not shrink the chat."""
+    _load(page, MOBILE, server)
+    _open_jobs(page)
+    timeline = _box(page, TIMELINE)
+    assert timeline is not None
+    assert timeline["width"] >= MOBILE["width"] * 0.85, (
+        f"timeline only {timeline['width']}px of {MOBILE['width']}px; "
+        "jobs panel is stealing horizontal space instead of overlaying"
+    )
+    assert _doc_overflow(page) <= 1, "jobs panel causes horizontal scroll on mobile"
 
 
 def test_mobile_channel_sidebar_does_not_squeeze_timeline(page, server):

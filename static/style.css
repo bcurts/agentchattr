@@ -4473,3 +4473,99 @@ footer {
     50% { box-shadow: 0 0 8px 2px var(--accent); }
 }
 .help-pulse { animation: helpPulse 1s ease 3; }
+
+/* ==========================================================================
+   Mobile responsiveness (<= 768px). Desktop layout (> 768px) is untouched.
+   Goals: (1) kill horizontal overflow in the header / channel bar,
+   (2) make rules + jobs panels overlay the timeline instead of squeezing it,
+   (3) make the channel sidebar overlay the timeline instead of pushing it.
+   ========================================================================== */
+@media (max-width: 768px) {
+
+    /* --- 1. Header + channel bar must not overflow the viewport width --- */
+
+    /* The header is a flex row of .header-left and .header-right; both must be
+       allowed to shrink so the button cluster wraps/scrolls instead of pushing
+       the document wider than the screen. */
+    .header-left {
+        min-width: 0;
+        flex: 0 1 auto;
+        overflow: hidden;
+    }
+    header h1 {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .header-right {
+        min-width: 0;
+        flex: 1 1 auto;
+        gap: 6px;
+        overflow-x: auto;
+        scrollbar-width: none;
+        justify-content: flex-end;
+    }
+    .header-right::-webkit-scrollbar { display: none; }
+    /* agent-status pills were capped at 60vw; shrink further on a phone so the
+       toggle buttons stay reachable without sideways document scroll. */
+    #agent-status {
+        max-width: 40vw;
+    }
+
+    /* The channel bar is a 1fr/auto/1fr grid; the right column did not shrink.
+       Let it shrink and scroll its own content instead of widening the page. */
+    .channel-bar-right {
+        min-width: 0;
+    }
+
+    /* --- 2 & 3. Panels + sidebar overlay the chat instead of taking a column.
+       #content-area is a flex row; make it the positioning context so the
+       panels can be absolutely positioned over the timeline. The timeline keeps
+       full width because absolutely-positioned siblings leave the flow. --- */
+    #content-area {
+        position: relative;
+    }
+
+    /* Rules + jobs panels: full-height drawer over the right of the timeline.
+       The existing JS still toggles .hidden; the .hidden rules below keep the
+       slide-out + fade hide working, just translated instead of margin so they
+       never occupy inline space. */
+    /* Scoped under #content-area so the override out-specifies the base
+       #jobs-panel rule, which lives in jobs.css and loads AFTER this file —
+       equal specificity would otherwise lose on source order. */
+    #content-area #rules-panel,
+    #content-area #jobs-panel {
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        height: 100%;
+        width: min(var(--panel-w), 90vw);
+        min-width: 0;
+        max-width: 90vw;
+        z-index: 30;
+        margin-right: 0;
+        box-shadow: -4px 0 16px rgba(0, 0, 0, 0.4);
+        transition: transform 0.25s ease, opacity 0.2s ease;
+    }
+    #content-area #rules-panel.hidden,
+    #content-area #jobs-panel.hidden {
+        margin-right: 0;
+        transform: translateX(100%);
+    }
+
+    /* Channel sidebar: full-height drawer over the left of the timeline. */
+    #channel-sidebar {
+        position: absolute;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        height: 100%;
+        width: min(var(--channel-sidebar-w, 200px), 80vw);
+        max-width: 80vw;
+        z-index: 30;
+        box-shadow: 4px 0 16px rgba(0, 0, 0, 0.4);
+    }
+    /* #channel-sidebar.hidden already uses display:none, which keeps it out of
+       flow on mobile too — no override needed. */
+}
