@@ -1,0 +1,5 @@
+# Test-only dependencies (browser-based responsive tests).
+# Install with:  pip install -r requirements.txt -r requirements-dev.txt
+#                python -m playwright install chromium
+pytest>=8.0
+pytest-playwright>=0.5
