@@ -8,12 +8,22 @@ Thread-safe: a single threading.Lock guards all mutations.
 
 import colorsys
 import json
+import re
 import secrets
 import threading
 import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
+
+
+def canonicalize_name(raw: str) -> str:
+    """Return the stable internal agent id for a user/agent supplied name."""
+    value = (raw or "").strip().lower()
+    value = re.sub(r"\s+", "-", value)
+    value = re.sub(r"[^a-z0-9-]", "", value)
+    value = re.sub(r"-+", "-", value).strip("-")
+    return value
 
 
 @dataclass
@@ -50,7 +60,12 @@ class RuntimeRegistry:
         """Load base templates from config.toml [agents.*] section."""
         with self._lock:
             for name, cfg in agents_config.items():
-                self._bases[name] = dict(cfg)
+                canonical = canonicalize_name(name)
+                if canonical:
+                    self._bases[canonical] = dict(cfg)
+            changed = self._clean_renames_locked()
+        if changed:
+            self._save_renames()
 
     def on_change(self, cb):
         """Register a callback fired after any registry mutation."""
@@ -72,7 +87,14 @@ class RuntimeRegistry:
         p = self._renames_path()
         if p.exists():
             try:
-                self._renames = json.loads(p.read_text("utf-8"))
+                raw = json.loads(p.read_text("utf-8"))
+                self._renames = {}
+                if isinstance(raw, dict):
+                    for key, value in raw.items():
+                        src = canonicalize_name(str(key))
+                        dst = canonicalize_name(str(value))
+                        if src and dst and src != dst:
+                            self._renames[src] = dst
             except Exception:
                 self._renames = {}
 
@@ -88,6 +110,48 @@ class RuntimeRegistry:
         except Exception:
             pass
 
+    def _clean_renames_locked(self) -> bool:
+        """Normalize persisted rename chains. Caller must hold the lock."""
+        before = dict(self._renames)
+
+        cleaned: dict[str, str] = {}
+        for key, value in self._renames.items():
+            src = canonicalize_name(key)
+            dst = canonicalize_name(value)
+            if src and dst and src != dst:
+                cleaned[src] = dst
+        self._renames = cleaned
+
+        # Break two-way loops caused by display-name case drift, preferring
+        # base-family -> custom-id mappings such as codex -> planner.
+        for src, dst in list(self._renames.items()):
+            if self._renames.get(dst) != src:
+                continue
+            if src in self._bases and dst not in self._bases:
+                self._renames.pop(dst, None)
+            elif dst in self._bases and src not in self._bases:
+                self._renames.pop(src, None)
+            elif src > dst:
+                self._renames.pop(src, None)
+            else:
+                self._renames.pop(dst, None)
+
+        # Collapse acyclic chains and drop any remaining cycle.
+        for src in list(self._renames):
+            seen = {src}
+            current = self._renames[src]
+            while current in self._renames:
+                if current in seen:
+                    self._renames.pop(src, None)
+                    break
+                seen.add(current)
+                current = self._renames[current]
+            else:
+                if src in self._renames and self._renames[src] != current:
+                    self._renames[src] = current
+
+        return before != self._renames
+
     # --- Registration ---
 
     def register(self, base: str, label: str | None = None) -> dict | None:
@@ -96,6 +160,7 @@ class RuntimeRegistry:
         When a 2nd instance registers, slot 1 is renamed from 'base' to 'base-1'
         to prevent identity ambiguity. The rename info is returned as '_renamed_slot1'.
         """
+        base = canonicalize_name(base)
         with self._lock:
             if base not in self._bases:
                 return None
@@ -162,7 +227,11 @@ class RuntimeRegistry:
         Returns result dict with 'ok' and optional '_renamed_back' info,
         or None if instance not found.
         """
+        original = canonicalize_name(name)
+        name = canonicalize_name(self.resolve_name(name))
         with self._lock:
+            if name not in self._instances and original in self._instances:
+                name = original
             if name not in self._instances:
                 return None
             base = self._instances[name].base
@@ -206,6 +275,78 @@ class RuntimeRegistry:
         - sender='claude', target='claude-music': assign unclaimed instance AND rename
         - sender='claude-2' (exact match): confirm that specific instance
         """
+        sender_id = canonicalize_name(sender)
+        target_label = target_name.strip() if isinstance(target_name, str) and target_name.strip() else None
+        target_id = canonicalize_name(target_label or "") if target_label else None
+
+        with self._lock:
+            if sender_id not in self._instances and sender_id not in self._bases:
+                sender_id = self._resolve_name_locked(sender_id)
+            inst = None
+
+            if sender_id in self._bases:
+                for candidate in self._instances.values():
+                    if candidate.base == sender_id and candidate.state == "pending":
+                        inst = candidate
+                        break
+                if not inst:
+                    for candidate in self._instances.values():
+                        if candidate.base == sender_id:
+                            inst = candidate
+                            break
+            else:
+                inst = self._instances.get(sender_id)
+
+            if not inst:
+                return f"No available {sender_id or sender} instance. Is a wrapper registered?"
+
+            if target_id and target_id != inst.name:
+                if target_id in self._instances:
+                    return f"Already claimed: {target_id}"
+                if family_err := self._conflicts_with_other_family(target_id, inst.base):
+                    return family_err
+
+                t_base, t_slot = self._parse_name(target_id)
+                if t_base == inst.base:
+                    slot_taken = any(
+                        i.slot == t_slot and i.name != inst.name
+                        for i in self._instances.values() if i.base == inst.base
+                    )
+                    if slot_taken:
+                        return f"Slot {t_slot} already occupied in {inst.base} family"
+
+                self._reserved.pop(target_id, None)
+                old_name = inst.name
+                del self._instances[old_name]
+                inst.name = target_id
+                inst.state = "active"
+
+                base_cfg = self._bases.get(inst.base, {})
+                if t_base == inst.base:
+                    inst.slot = t_slot
+                    inst.color = _derive_color(base_cfg.get("color", "#888"), t_slot)
+                    inst.label = target_label or (
+                        base_cfg.get("label", inst.base.capitalize())
+                        if t_slot == 1
+                        else f"{base_cfg.get('label', inst.base.capitalize())} {t_slot}"
+                    )
+                else:
+                    inst.label = target_label or target_id
+
+                self._instances[target_id] = inst
+                self._renames[old_name] = target_id
+                result = _inst_dict(inst)
+            else:
+                if target_label:
+                    inst.label = target_label
+                if inst.state != "pending" or target_name is not None:
+                    inst.state = "active"
+                result = _inst_dict(inst)
+
+        self._notify()
+        self._save_renames()
+        return result
+
         error = None
         result = None
         with self._lock:
@@ -290,6 +431,7 @@ class RuntimeRegistry:
 
     def confirm_pending(self, name: str) -> bool:
         """Auto-confirm a pending instance (10s timeout path)."""
+        name = canonicalize_name(self.resolve_name(name))
         with self._lock:
             inst = self._instances.get(name)
             if not inst or inst.state != "pending":
@@ -308,12 +450,20 @@ class RuntimeRegistry:
         Changes the sender ID, label, and tracks the rename for wrapper sync.
         If new_name == old_name, falls back to a label-only change.
         """
+        old_name = canonicalize_name(self.resolve_name(old_name))
+        new_name = canonicalize_name(new_name)
+        label = label.strip() if isinstance(label, str) and label.strip() else None
         with self._lock:
             inst = self._instances.get(old_name)
             if not inst:
                 return f"Not found: {old_name}"
 
-            if new_name == old_name:
+            if not new_name:
+                if label:
+                    inst.label = label
+                result = _inst_dict(inst)
+
+            elif new_name == old_name:
                 # Same identity — just update label
                 if label:
                     inst.label = label
@@ -365,8 +515,12 @@ class RuntimeRegistry:
 
     def set_label(self, name: str, label: str) -> bool:
         """Set display label only (no identity change)."""
+        original = canonicalize_name(name)
+        name = canonicalize_name(self.resolve_name(name))
         with self._lock:
             inst = self._instances.get(name)
+            if not inst and original:
+                inst = self._instances.get(original)
             if not inst:
                 return False
             inst.label = label
@@ -378,8 +532,12 @@ class RuntimeRegistry:
     # --- Queries ---
 
     def get_instance(self, name: str) -> dict | None:
+        original = canonicalize_name(name)
+        name = canonicalize_name(self.resolve_name(name))
         with self._lock:
             inst = self._instances.get(name)
+            if not inst and original:
+                inst = self._instances.get(original)
             return _inst_dict(inst) if inst else None
 
     def get_all(self) -> dict[str, dict]:
@@ -404,6 +562,7 @@ class RuntimeRegistry:
             return [n for n, i in self._instances.items() if i.state == "active"]
 
     def get_instances_for(self, base: str) -> list[dict]:
+        base = canonicalize_name(base)
         with self._lock:
             return [_inst_dict(i) for i in self._instances.values() if i.base == base]
 
@@ -412,16 +571,21 @@ class RuntimeRegistry:
             return dict(self._bases)
 
     def get_base_config(self, base: str) -> dict | None:
+        base = canonicalize_name(base)
         with self._lock:
             return dict(self._bases[base]) if base in self._bases else None
 
     def is_agent_family(self, name: str) -> bool:
         """Check if a name belongs to any agent family (base, slot, or custom alias)."""
+        original = canonicalize_name(name)
+        name = canonicalize_name(self.resolve_name(name))
         with self._lock:
             # Check registered instance first (handles custom names like 'claude-music')
-            inst = self._instances.get(name)
+            inst = self._instances.get(name) or self._instances.get(original)
             if inst:
                 return inst.base in self._bases
+            if original in self._bases:
+                return True
             # Fall back to name parsing for slot names like 'claude-2'
             base, _ = self._parse_name(name)
             if base in self._bases:
@@ -432,22 +596,27 @@ class RuntimeRegistry:
 
     def family_instance_count(self, name: str) -> int:
         """Count registered instances in the same family as `name`."""
+        original = canonicalize_name(name)
+        name = canonicalize_name(self.resolve_name(name))
         with self._lock:
             # Check registered instance first (handles custom names)
-            inst = self._instances.get(name)
+            inst = self._instances.get(name) or self._instances.get(original)
             if inst:
                 base = inst.base
             else:
-                base, _ = self._parse_name(name)
+                base, _ = self._parse_name(original if original in self._bases else name)
                 if base not in self._bases:
+                    resolved_base = None
                     for family in self._bases:
                         if name.startswith(f"{family}-"):
-                            base = family
+                            resolved_base = family
                             break
+                    base = resolved_base or base
             return sum(1 for i in self._instances.values() if i.base == base)
 
     def has_claimed_instances(self, base: str) -> bool:
         """Check if any instance in this family has been claimed (state=active)."""
+        base = canonicalize_name(base)
         with self._lock:
             return any(
                 i.state == "active" and i.base == base
@@ -457,6 +626,7 @@ class RuntimeRegistry:
     def get_family_instance(self, base: str) -> dict | None:
         """Return the instance dict for a family if exactly one exists.
         Used by heartbeat to find renamed instances after server restart."""
+        base = canonicalize_name(base)
         with self._lock:
             matches = [i for i in self._instances.values() if i.base == base]
             if len(matches) == 1:
@@ -471,20 +641,28 @@ class RuntimeRegistry:
         active instances in that family (e.g. 'claude' → ['claude-prime']).
         Otherwise returns [name] unchanged (for non-agent names like 'ben').
         """
+        original = name
+        original_id = canonicalize_name(name)
+        name = original_id
         with self._lock:
+            name = self._resolve_name_locked(name)
             if name in self._instances:
                 return [name]
+            if original_id in self._instances:
+                return [original_id]
             # Check if it's a base name with registered family members
-            if name in self._bases:
+            base_name = original_id if original_id in self._bases else name if name in self._bases else None
+            if base_name is not None:
                 members = [i.name for i in self._instances.values()
-                           if i.base == name and i.state == "active"]
+                           if i.base == base_name and i.state == "active"]
                 if members:
                     return members
-            return [name]
+            return [name or original_id or original]
 
     def resolve_name(self, name: str) -> str:
         """Follow rename chain to find current canonical name."""
         with self._lock:
+            return self._resolve_name_locked(name)
             # Follow renames (e.g. claude-2 → claude-music)
             seen = set()
             current = name
@@ -494,12 +672,18 @@ class RuntimeRegistry:
             return current
 
     def is_registered(self, name: str) -> bool:
+        original = canonicalize_name(name)
+        name = canonicalize_name(self.resolve_name(name))
         with self._lock:
-            return name in self._instances
+            return name in self._instances or original in self._instances
 
     def is_pending(self, name: str) -> bool:
+        original = canonicalize_name(name)
+        name = canonicalize_name(self.resolve_name(name))
         with self._lock:
             i = self._instances.get(name)
+            if not i and original:
+                i = self._instances.get(original)
             return i is not None and i.state == "pending"
 
     def resolve_token(self, token: str) -> dict | None:
@@ -517,6 +701,15 @@ class RuntimeRegistry:
                     if i.state == "pending"]
 
     # --- Internal ---
+
+    def _resolve_name_locked(self, name: str) -> str:
+        """Follow canonical rename chains. Caller must hold the lock."""
+        current = canonicalize_name(name)
+        seen = set()
+        while current in self._renames and current not in seen:
+            seen.add(current)
+            current = canonicalize_name(self._renames[current])
+        return current
 
     def _conflicts_with_other_family(self, name: str, own_base: str) -> str | None:
         """Check if `name` stomps on another family's namespace.
@@ -546,6 +739,7 @@ class RuntimeRegistry:
 
     def clean_renames_for(self, name: str):
         """Remove all rename chain entries pointing to or from `name`."""
+        name = canonicalize_name(name)
         with self._lock:
             # Remove entries where name is a key (old name → ...)
             self._renames.pop(name, None)

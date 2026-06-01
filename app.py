@@ -21,7 +21,7 @@ from jobs import JobStore
 from schedules import ScheduleStore, parse_schedule_spec
 from router import Router
 from agents import AgentTrigger
-from registry import RuntimeRegistry
+from registry import RuntimeRegistry, canonicalize_name
 from session_store import SessionStore, validate_session_template
 from session_engine import SessionEngine
 
@@ -360,7 +360,7 @@ def configure(cfg: dict, session_token: str = ""):
 
                 # Crash timeout: if a wrapper hasn't heartbeated for 60s,
                 # it's dead — deregister it to free the slot.
-                _CRASH_TIMEOUT = 15
+                _CRASH_TIMEOUT = 90
                 registered = set(registry.get_all_names())
                 for name in registered:
                     with mcp_bridge._presence_lock:
@@ -1279,6 +1279,10 @@ async def websocket_endpoint(websocket: WebSocket):
                 agent_name = (event.get("name") or "").strip()
                 new_label = (event.get("label") or "").strip()
                 if agent_name and new_label and registry:
+                    registry.set_label(agent_name, new_label)
+                    await broadcast_agents()
+                    await broadcast_status()
+                    continue
                     # Derive a sanitized sender ID from the label
                     import re as _re
                     new_id = _re.sub(r'[^a-z0-9-]', '', new_label.lower().replace(' ', '-')).strip('-')
@@ -1312,6 +1316,32 @@ async def websocket_endpoint(websocket: WebSocket):
                 agent_name = (event.get("name") or "").strip()
                 new_label = (event.get("label") or "").strip()
                 if agent_name and registry:
+                    if not new_label:
+                        registry.confirm_pending(agent_name)
+                    else:
+                        new_id = canonicalize_name(new_label)
+                        if new_id and new_id != canonicalize_name(agent_name):
+                            result = registry.rename(agent_name, new_id, new_label)
+                            if isinstance(result, str):
+                                registry.set_label(agent_name, new_label)
+                                registry.confirm_pending(agent_name)
+                            else:
+                                registry.confirm_pending(new_id)
+                                import mcp_bridge
+                                mcp_bridge.migrate_identity(agent_name, new_id)
+                                store.rename_sender(agent_name, new_id)
+                                rename_event = json.dumps({
+                                    "type": "agent_renamed",
+                                    "old_name": agent_name,
+                                    "new_name": new_id,
+                                })
+                                await _broadcast(rename_event)
+                        else:
+                            registry.set_label(agent_name, new_label)
+                            registry.confirm_pending(agent_name)
+                    await broadcast_status()
+                    await broadcast_agents()
+                    continue
                     if not new_label:
                         # Accept default name
                         registry.confirm_pending(agent_name)
@@ -2093,8 +2123,7 @@ async def register_agent(request: Request):
         return JSONResponse({"error": f"unknown base: {base}"}, status_code=400)
     # Touch presence so the instance doesn't immediately time out
     import mcp_bridge
-    with mcp_bridge._presence_lock:
-        mcp_bridge._presence[result["name"]] = __import__("time").time()
+    mcp_bridge._touch_presence(result["name"])
     # If slot 1 was renamed (e.g. "claude" → "claude-1"), migrate state
     renamed = result.pop("_renamed_slot1", None)
     if renamed:
@@ -2165,6 +2194,15 @@ async def rename_agent_label(name: str, request: Request):
     if not label:
         return JSONResponse({"error": "label is required"}, status_code=400)
 
+    if registry.set_label(name, label):
+        inst = registry.get_instance(name)
+        return JSONResponse({
+            "ok": True,
+            "name": inst["name"] if inst else registry.resolve_name(name),
+            "label": inst.get("label", label) if inst else label,
+        })
+    return JSONResponse({"error": "not found"}, status_code=404)
+
     import re as _re
     new_id = _re.sub(r'[^a-z0-9-]', '', label.lower().replace(' ', '-')).strip('-')
     if not new_id:
@@ -2205,9 +2243,12 @@ async def heartbeat(agent_name: str, request: Request):
     if registry and registry.is_agent_family(agent_name) and not auth_inst:
         return JSONResponse({"error": "authenticated agent session required"}, status_code=403)
 
-    current_name = auth_inst["name"] if auth_inst else agent_name
-    with mcp_bridge._presence_lock:
-        mcp_bridge._presence[current_name] = __import__("time").time()
+    if auth_inst:
+        current_name = auth_inst["name"]
+    else:
+        resolved_name = registry.resolve_name(agent_name)
+        current_name = resolved_name if registry.is_registered(resolved_name) else canonicalize_name(agent_name)
+    mcp_bridge._touch_presence(current_name)
     # Optional activity report from wrapper's terminal monitor
     _activity_changed = False
     try:

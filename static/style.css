@@ -3031,6 +3031,11 @@ pre:hover .code-copy-btn { opacity: 1; }
     font-family: inherit;
 }
 .pill-popover-input:focus { border-color: var(--accent); outline: none; }
+.pill-popover-id-hint {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--text-dim);
+}
 .pill-popover-confirm {
     background: var(--agent-color, var(--accent));
     color: var(--text-on-accent, #000);

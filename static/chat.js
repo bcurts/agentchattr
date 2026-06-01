@@ -417,9 +417,12 @@ function connectWebSocket() {
             document.querySelectorAll('#messages .message').forEach(el => {
                 // Regular chat messages
                 const senderEl = el.querySelector('.msg-sender');
-                if (senderEl && senderEl.textContent === event.old_name) {
+                const senderId = senderEl?.dataset.sender || el.dataset.sender || senderEl?.textContent || '';
+                if (senderEl && senderId === event.old_name) {
 
-                    senderEl.textContent = event.new_name;
+                    el.dataset.sender = event.new_name;
+                    senderEl.dataset.sender = event.new_name;
+                    senderEl.textContent = getDisplayName(event.new_name);
                     senderEl.style.color = newColor;
                     // Update bubble accent color
                     const bubble = el.querySelector('.chat-bubble');
@@ -450,9 +453,11 @@ function connectWebSocket() {
                 }
                 // Join/leave messages (separate structure, no .msg-sender)
                 const joinText = el.querySelector('.join-text strong');
-                if (joinText && joinText.textContent === event.old_name) {
+                const joinId = el.dataset.sender || joinText?.textContent || '';
+                if (joinText && joinId === event.old_name) {
 
-                    joinText.textContent = event.new_name;
+                    el.dataset.sender = event.new_name;
+                    joinText.textContent = getDisplayName(event.new_name);
                     joinText.style.color = newColor;
                     const joinDot = el.querySelector('.join-dot');
                     if (joinDot) joinDot.style.background = newColor;
@@ -670,17 +675,18 @@ function appendMessage(msg) {
     const el = document.createElement('div');
     el.className = 'message';
     el.dataset.id = msg.id;
+    el.dataset.sender = msg.sender || '';
     const msgChannel = msg.channel || 'general';
     el.dataset.channel = msgChannel;
 
     if (msg.type === 'join' || msg.type === 'leave') {
         el.classList.add('join-msg');
         const color = getColor(msg.sender);
-        el.innerHTML = `<span class="join-dot" style="background: ${color}"></span><span class="join-text"><strong style="color: ${color}">${escapeHtml(msg.sender)}</strong> ${msg.type === 'join' ? t('timeline.joined') : t('timeline.left')}</span>`;
+        el.innerHTML = `<span class="join-dot" style="background: ${color}"></span><span class="join-text"><strong style="color: ${color}">${escapeHtml(getDisplayName(msg.sender))}</strong> ${msg.type === 'join' ? t('timeline.joined') : t('timeline.left')}</span>`;
     } else if (msg.type === 'summary') {
         el.classList.add('summary-msg');
         const color = getColor(msg.sender);
-        el.innerHTML = `<div class="summary-card"><span class="summary-pill">${t('timeline.summary')}</span><span class="summary-author" style="color: ${color}">${escapeHtml(msg.sender)}</span><div class="summary-text">${escapeHtml(msg.text)}</div></div>`;
+        el.innerHTML = `<div class="summary-card"><span class="summary-pill">${t('timeline.summary')}</span><span class="summary-author" style="color: ${color}">${escapeHtml(getDisplayName(msg.sender))}</span><div class="summary-text">${escapeHtml(msg.text)}</div></div>`;
     } else if (msg.type === 'job_proposal') {
         el.classList.add('proposal-msg');
         const meta = msg.metadata || {};
@@ -696,7 +702,7 @@ function appendMessage(msg) {
             <div class="proposal-card ${isPending ? '' : 'proposal-resolved'}">
                 <div class="proposal-header">
                     <span class="proposal-pill">${t('jobs.proposal')}</span>
-                    <span class="proposal-author" style="color: ${color}">${escapeHtml(msg.sender)}</span>
+                    <span class="proposal-author" style="color: ${color}">${escapeHtml(getDisplayName(msg.sender))}</span>
                 </div>
                 <div class="proposal-title">${title}</div>
                 ${body ? `<div class="proposal-body">${body}</div>` : ''}
@@ -722,7 +728,7 @@ function appendMessage(msg) {
             <div class="proposal-card rule-proposal-card ${isPending ? '' : 'proposal-resolved'}">
                 <div class="proposal-header">
                     <span class="proposal-pill rule-proposal-pill">${t('rules.proposal')}</span>
-                    <span class="proposal-author" style="color: ${color}">${escapeHtml(msg.sender)}</span>
+                    <span class="proposal-author" style="color: ${color}">${escapeHtml(getDisplayName(msg.sender))}</span>
                 </div>
                 <div class="rule-proposal-text">${ruleText}</div>
                 ${isPending ? `
@@ -810,7 +816,7 @@ function appendMessage(msg) {
                 ).join('') + '</div>';
             }
         }
-        el.innerHTML = `<div class="todo-strip"></div>${isSelf ? '' : avatarHtml}<div class="chat-bubble" style="--bubble-color: ${senderColor}">${replyHtml}<div class="bubble-header"><span class="msg-sender" style="color: ${senderColor}">${escapeHtml(msg.sender)}</span>${rolePillHtml}<span class="msg-time">${msg.time || ''}</span></div><div class="msg-text">${textHtml}</div>${choicesHtml}${attachmentsHtml}<button class="convert-job-pill" onclick="startJobFromMessage(${msg.id}); event.stopPropagation();" title="${t('timeline.convertJob')}">${t('timeline.convertJob')}</button><button class="bubble-copy" onclick="copyMessage(${msg.id}, event)" title="${t('timeline.copy')}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div><div class="msg-actions"><button class="reply-btn" onclick="startReply(${msg.id}, event)">${t('timeline.reply')}</button><button class="todo-hint" onclick="todoCycle(${msg.id}); event.stopPropagation();">${statusLabel}</button><button class="delete-btn" onclick="deleteClick(${msg.id}, event)" title="${t('common.delete')}">${t('timeline.deleteShort')}</button></div>`;
+        el.innerHTML = `<div class="todo-strip"></div>${isSelf ? '' : avatarHtml}<div class="chat-bubble" style="--bubble-color: ${senderColor}">${replyHtml}<div class="bubble-header"><span class="msg-sender" data-sender="${escapeHtml(msg.sender)}" style="color: ${senderColor}">${escapeHtml(getDisplayName(msg.sender))}</span>${rolePillHtml}<span class="msg-time">${msg.time || ''}</span></div><div class="msg-text">${textHtml}</div>${choicesHtml}${attachmentsHtml}<button class="convert-job-pill" onclick="startJobFromMessage(${msg.id}); event.stopPropagation();" title="${t('timeline.convertJob')}">${t('timeline.convertJob')}</button><button class="bubble-copy" onclick="copyMessage(${msg.id}, event)" title="${t('timeline.copy')}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div><div class="msg-actions"><button class="reply-btn" onclick="startReply(${msg.id}, event)">${t('timeline.reply')}</button><button class="todo-hint" onclick="todoCycle(${msg.id}); event.stopPropagation();">${statusLabel}</button><button class="delete-btn" onclick="deleteClick(${msg.id}, event)" title="${t('common.delete')}">${t('timeline.deleteShort')}</button></div>`;
         if (todoStatus) el.classList.add('msg-todo', `msg-todo-${todoStatus}`);
         if (msg.metadata?.session_output) el.classList.add('session-output');
 
@@ -867,6 +873,15 @@ function resolveAgent(name) {
         if (s.startsWith(key)) return key;
     }
     return null;
+}
+
+function getDisplayName(sender) {
+    const s = (sender || '').toLowerCase();
+    const resolved = resolveAgent(s);
+    if (resolved && agentConfig[resolved]) {
+        return agentConfig[resolved].label || resolved;
+    }
+    return sender || '';
 }
 
 function getColor(sender) {
@@ -961,9 +976,10 @@ function recolorMessages() {
     for (const el of msgs) {
         const sender = el.querySelector('.msg-sender');
         if (!sender) continue;
-        const name = sender.textContent.trim();
+        const name = sender.dataset.sender || el.dataset.sender || sender.textContent.trim();
         const color = getColor(name);
         sender.style.color = color;
+        sender.textContent = getDisplayName(name);
         // Update bubble color
         const bubble = el.querySelector('.chat-bubble');
         if (bubble) bubble.style.setProperty('--bubble-color', color);
@@ -1325,11 +1341,12 @@ function showPillPopover(pillEl, opts) {
 
     popover.innerHTML = `
         <div class="pill-popover-section">
-            <label class="pill-popover-label">${opts.mode === 'pending' ? t('agent.nameThis') : t('common.rename')}</label>
+            <label class="pill-popover-label">${t('agent.displayTitle')}</label>
             <div class="pill-popover-rename-row">
                 <input type="text" class="pill-popover-input" value="${escapeHtml(opts.label)}" maxlength="24" spellcheck="false" />
                 <button class="pill-popover-confirm">${opts.mode === 'pending' ? t('common.confirm') : t('common.rename')}</button>
             </div>
+            <div class="pill-popover-id-hint">${t('agent.mentionId', { name: opts.name })}</div>
         </div>
         <div class="pill-popover-section">
             <label class="pill-popover-label">${t('agent.role')}</label>
@@ -1635,7 +1652,8 @@ function _syncBubbleRolePills(agentName) {
     document.querySelectorAll('.message').forEach(msg => {
         const senderEl = msg.querySelector('.msg-sender');
         const btn = msg.querySelector('.bubble-role');
-        if (!btn || !senderEl || senderEl.textContent !== agentName) return;
+        const senderId = senderEl?.dataset.sender || msg.dataset.sender || senderEl?.textContent;
+        if (!btn || !senderEl || senderId !== agentName) return;
         btn.textContent = pillText;
         btn.title = role || 'Set role';
         btn.classList.toggle('has-role', !!role);
@@ -2577,12 +2595,13 @@ function startReply(msgId, event) {
     const el = document.querySelector(`.message[data-id="${msgId}"]`);
     if (!el) return;
     const sender = el.querySelector('.msg-sender')?.textContent?.trim() || '?';
+    const senderId = el.querySelector('.msg-sender')?.dataset.sender || el.dataset.sender || sender;
     const text = el.dataset.rawText || el.querySelector('.msg-text')?.textContent || '';
     replyingTo = { id: msgId, sender, text };
     renderReplyPreview();
 
     // Auto-activate mention chip for the replied-to sender, deactivate others
-    const resolved = resolveAgent(sender.toLowerCase());
+    const resolved = resolveAgent(senderId.toLowerCase());
     if (resolved) {
         for (const btn of document.querySelectorAll('.mention-toggle')) {
             const agent = btn.dataset.agent;

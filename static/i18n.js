@@ -158,6 +158,8 @@
             'agent.newInstance': 'A new {family} instance connected',
             'agent.rename': 'Rename agent',
             'agent.currentId': 'Current ID: @{name}',
+            'agent.displayTitle': 'Display title',
+            'agent.mentionId': 'Mention ID: @{name}',
             'agent.role': 'Role',
             'agent.customRole.placeholder': 'Custom role...',
             'agent.color': 'Color',
@@ -788,6 +790,8 @@
             'help.scheduling.recur': '每 1 小时',
             'help.scheduling.tomorrow9': '明天上午 9 点',
             'help.scheduling.tip': '点击发送按钮旁边的时钟，可以设置一次性或重复定时消息。',
+            'agent.displayTitle': '\u663e\u793a\u6807\u9898',
+            'agent.mentionId': '\u63d0\u53ca ID: @{name}',
         },
     };
 
