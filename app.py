@@ -54,6 +54,7 @@ room_settings: dict = {
     "channels": ["general"],
     "history_limit": "all",
     "contrast": "normal",
+    "show_msg_numbers": False,
     "custom_roles": [],
 }
 
@@ -1251,6 +1252,8 @@ async def websocket_endpoint(websocket: WebSocket):
                         pass
                 if "contrast" in new and new["contrast"] in ("normal", "high"):
                     room_settings["contrast"] = new["contrast"]
+                if "show_msg_numbers" in new:
+                    room_settings["show_msg_numbers"] = bool(new["show_msg_numbers"])
                 if "rules_refresh_interval" in new:
                     try:
                         ri = int(new["rules_refresh_interval"])

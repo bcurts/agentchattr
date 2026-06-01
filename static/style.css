@@ -2127,6 +2127,20 @@ body.channels-in-sidebar #channel-bar {
     color: var(--text-dim);
 }
 
+/* Message id badge (toggled via Settings -> "Msg numbers"). Always rendered so
+   the id stays in the DOM; visibility is gated by a body class. */
+.msg-num {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+    opacity: 0.6;
+    display: none;
+}
+
+body.show-msg-numbers .msg-num {
+    display: inline;
+}
+
 .msg-sender {
     font-weight: 700;
     font-size: 13px;
