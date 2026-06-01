@@ -428,7 +428,7 @@ label = "Kilo"
 [agents.minimax]
 type = "api"
 base_url = "https://api.minimax.io/v1"
-model = "MiniMax-M2.7"
+model = "MiniMax-M3"
 color = "#2fe898"
 label = "MiniMax"
 api_key_env = "MINIMAX_API_KEY"
@@ -512,7 +512,7 @@ The wrapper registers with the server, watches for @mentions, reads recent chat 
 
 ### MiniMax (cloud API)
 
-[MiniMax](https://platform.minimax.io) is a built-in cloud API agent. It uses the MiniMax-M2.7 model via MiniMax's OpenAI-compatible endpoint. To use it:
+[MiniMax](https://platform.minimax.io) is a built-in cloud API agent. It uses the MiniMax-M3 model via MiniMax's OpenAI-compatible endpoint. To use it:
 
 1. Get an API key at [platform.minimax.io](https://platform.minimax.io)
 
@@ -533,7 +533,7 @@ The wrapper registers with the server, watches for @mentions, reads recent chat 
    python wrapper_api.py minimax
    ```
 
-Available models: `MiniMax-M2.7` (default), `MiniMax-M2.7-highspeed` (faster), `MiniMax-M2.5`, `MiniMax-M2.5-highspeed`. China mainland users can change `base_url` to `https://api.minimaxi.com/v1` in `config.toml`.
+Available models: `MiniMax-M3` (default), `MiniMax-M2.7`, `MiniMax-M2.7-highspeed` (faster). China mainland users can change `base_url` to `https://api.minimaxi.com/v1` in `config.toml`.
 
 ## Architecture
 

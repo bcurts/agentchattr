@@ -41,13 +41,13 @@
 # --- Example: MiniMax (cloud API) ---
 # MiniMax offers OpenAI-compatible endpoints. Get an API key at https://platform.minimax.io
 # Set MINIMAX_API_KEY in your environment before launching.
-# Available models: MiniMax-M2.7 (default), MiniMax-M2.7-highspeed, MiniMax-M2.5, MiniMax-M2.5-highspeed
+# Available models: MiniMax-M3 (default), MiniMax-M2.7, MiniMax-M2.7-highspeed
 # China mainland users: change base_url to https://api.minimaxi.com/v1
 #
 # [agents.minimax]
 # type = "api"
 # base_url = "https://api.minimax.io/v1"
-# model = "MiniMax-M2.7"
+# model = "MiniMax-M3"
 # color = "#2fe898"
 # label = "MiniMax"
 # api_key_env = "MINIMAX_API_KEY"
