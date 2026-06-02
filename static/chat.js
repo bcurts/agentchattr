@@ -293,6 +293,30 @@ function renderMarkdown(text) {
     return html;
 }
 
+function localizeSystemMessage(text) {
+    const value = String(text || '');
+    let match = value.match(/^Agent routing for (.+?) interrupted\s+.*auto-recovered\.\s+If agents aren't responding, try sending your message again\.$/);
+    if (match) return t('system.agentRoutingRecovered', { agent: match[1] });
+
+    match = value.match(/^Routing resumed by (.+)\.$/);
+    if (match) return t('system.routingResumed', { sender: match[1] });
+
+    if (value === 'Resuming agent conversation...') {
+        return t('system.resumingConversation');
+    }
+
+    match = value.match(/^(.+?) appears offline\s+.*message queued\.$/);
+    if (match) return t('system.offlineQueued', { agent: match[1] });
+
+    match = value.match(/^Loop guard: only humans can \/continue\. (.+?) tried to self-resume\.$/);
+    if (match) return t('system.loopGuardContinueHumanOnly', { sender: match[1] });
+
+    match = value.match(/^Loop guard: (\d+) agent-to-agent hops reached\. Type \/continue to resume\.$/);
+    if (match) return t('system.loopGuardHopsReached', { count: match[1] });
+
+    return value;
+}
+window.localizeSystemMessage = localizeSystemMessage;
 function linkifyUrls(html) {
     // Match http/https URLs not already inside an <a> tag.
     // We match tags first to skip them, then capture URLs in the same pass.
@@ -746,7 +770,7 @@ function appendMessage(msg) {
         window._messageRenderers[msg.type](el, msg);
     } else if (msg.type === 'system' || msg.sender === 'system') {
         el.classList.add('system-msg');
-        el.innerHTML = `<span class="msg-text">${escapeHtml(msg.text)}</span>`;
+        el.innerHTML = `<span class="msg-text">${escapeHtml(localizeSystemMessage(msg.text))}</span>`;
     } else {
         const isError = msg.text.startsWith('[') && msg.text.includes('error');
         if (isError) el.classList.add('error-msg');

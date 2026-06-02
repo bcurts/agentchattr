@@ -53,7 +53,7 @@ window._messageRenderers['job_created'] = function (el, msg) {
         el.dataset.hiddenReason = 'no-job-data';
     }
     if (actId) {
-        el.innerHTML = `<span class="job-breadcrumb-link" onclick="openJobFromBreadcrumb(${actId})" title="Open job">
+        el.innerHTML = `<span class="job-breadcrumb-link" onclick="openJobFromBreadcrumb(${actId})" title="${t('jobs.openJob.title')}">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="vertical-align:-2px;margin-right:4px;opacity:0.6"><rect x="2" y="1" width="5" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="9" y="8" width="5" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
             ${t('jobs.newJob')} <em>${window.escapeHtml(msg.text.replace('Job created: ', ''))}</em></span>`;
     } else {
@@ -921,7 +921,7 @@ async function openJobConversation(jobId) {
     const jobInput = document.getElementById('jobs-conv-input-text');
     const msgCount = (job.messages || []).filter(m => !m?.deleted).length;
     if (msgCount === 0 && target) {
-        const starterText = `@${target} start this job`;
+        const starterText = t('jobs.startJobPrompt', { agent: target });
         jobInput.value = starterText;
         jobInput.placeholder = t('jobs.assign.placeholder');
         jobInput.classList.add('job-starter-prefill');
@@ -1100,7 +1100,7 @@ function appendJobMessage(msg) {
         const resolved = msg.resolved;
         div.innerHTML = `
             <div class="job-msg-header">
-                <span class="suggestion-pill">Suggestion</span>
+                <span class="suggestion-pill">${t('jobs.suggestion')}</span>
                 <span class="job-msg-sender" style="color: ${senderColor}">${window.escapeHtml(msg.sender)}</span>
                 <span class="job-msg-time">${msg.time || ''}</span>
                 ${deleteActionHtml}

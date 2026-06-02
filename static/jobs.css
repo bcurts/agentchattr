@@ -513,17 +513,20 @@ body.archive-no-select * {
     margin: 0;
     font-size: 12px;
     line-height: 1.5;
-    color: rgba(255, 255, 255, 0.75);
-    border-left: 3px solid rgba(168, 85, 247, 0.5);
-    background: rgba(168, 85, 247, 0.06);
+    color: var(--text);
+    border-left: 3px solid color-mix(in srgb, var(--accent) 50%, transparent);
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
 }
+.job-brief-card .job-brief-text {
+    color: var(--text);
+}
 .job-brief-card .job-brief-text p { margin: 0 0 4px; }
 .job-brief-card .job-brief-text p:last-child { margin-bottom: 0; }
-.job-brief-card .job-brief-text a { color: rgba(168, 85, 247, 0.9); }
+.job-brief-card .job-brief-text a { color: var(--accent); }
 .job-brief-card .job-brief-text code {
-    background: rgba(168, 85, 247, 0.1);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
     padding: 1px 4px;
     border-radius: 3px;
     font-size: 11px;
@@ -686,6 +689,13 @@ body.archive-no-select * {
     margin: 2px 0;
 }
 
+.job-msg-text code {
+    background: var(--white-08);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 0.9em;
+}
+
 .job-msg-text pre {
     max-width: 100%;
     box-sizing: border-box;
@@ -706,6 +716,84 @@ body.archive-no-select * {
     display: block;
     max-width: 100%;
     overflow-x: auto;
+}
+
+.job-brief-text p:first-child,
+.job-msg-text p:first-child { margin-top: 0; }
+
+.job-brief-text p:last-child,
+.job-msg-text p:last-child { margin-bottom: 0; }
+
+.job-brief-text :is(strong, b),
+.job-msg-text :is(strong, b) {
+    color: var(--text);
+    font-weight: 700;
+}
+
+.job-brief-text :is(h1, h2, h3, h4, h5, h6),
+.job-msg-text :is(h1, h2, h3, h4, h5, h6) {
+    margin: 6px 0 2px;
+    color: var(--text);
+    font-size: 1em;
+    font-weight: 700;
+}
+
+.job-brief-text code,
+.job-msg-text code {
+    color: var(--text);
+}
+
+.job-brief-text pre,
+.job-msg-text pre {
+    background: var(--white-08);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text);
+    padding: 8px 10px;
+}
+
+.job-brief-text pre code,
+.job-msg-text pre code {
+    background: none;
+    padding: 0;
+}
+
+.job-brief-text blockquote,
+.job-msg-text blockquote {
+    border-left: 3px solid var(--accent);
+    color: var(--text-dim);
+    margin: 4px 0;
+    padding-left: 10px;
+}
+
+.job-brief-text table,
+.job-msg-text table {
+    border-collapse: collapse;
+    margin: 6px 0;
+}
+
+.job-brief-text th,
+.job-brief-text td,
+.job-msg-text th,
+.job-msg-text td {
+    border: 1px solid var(--border);
+    padding: 3px 8px;
+}
+
+.job-brief-text th,
+.job-msg-text th {
+    background: var(--bg-subtle);
+    color: var(--text);
+    font-weight: 600;
+}
+
+.job-brief-text a,
+.job-msg-text a {
+    color: var(--accent);
+}
+
+html[data-theme="light"] :is(.job-brief-text, .job-msg-text) :is(h1, h2, h3, h4, h5, h6, strong, b, code, th) {
+    color: var(--text) !important;
 }
 
 /* Suggestion messages in jobs */
