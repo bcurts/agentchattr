@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from wrapper import _write_json_mcp_settings  # noqa: E402
+from wrapper import _write_json_mcp_settings, _apply_mcp_inject  # noqa: E402
 
 
 class JsonMcpSettingsTests(unittest.TestCase):
@@ -105,6 +105,51 @@ class ExpanduserPathTests(unittest.TestCase):
         raw = ".qwen/settings.json"
         expanded = Path(raw).expanduser()
         self.assertFalse(expanded.is_absolute())
+
+
+class ProxyFileInjectTests(unittest.TestCase):
+    """proxy_file mode: route Claude through the identity proxy (token rotates
+    live, no /mcp reconnect) WHILE preserving project-MCP merge (Gate 3)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.data_dir = Path(self.tmp.name) / "data"
+        self.project_dir = Path(self.tmp.name) / "proj"
+        self.project_dir.mkdir(parents=True)
+        # A non-agentchattr project MCP server that MUST survive the mode switch.
+        (self.project_dir / ".mcp.json").write_text(json.dumps({
+            "mcpServers": {"unity-mcp": {"type": "http", "url": "http://127.0.0.1:9999/mcp"}}
+        }))
+
+    def test_proxy_file_uses_proxy_url_no_token_and_preserves_merge(self):
+        proxy_url = "http://127.0.0.1:50423/mcp"
+        inject_cfg = {"mcp_inject": "proxy_file", "mcp_merge_project": True}
+        args, env, settings_path = _apply_mcp_inject(
+            inject_cfg, "claude", self.data_dir, proxy_url,
+            token="SHOULD-NOT-BE-BAKED-IN", mcp_cfg={"http_port": 8200},
+            project_dir=self.project_dir,
+        )
+        # Pass the proxy URL to Claude via a --mcp-config FILE.
+        self.assertEqual(len(args), 2, "proxy_file mode not handled")
+        self.assertEqual(args[0], "--mcp-config")
+        servers = json.loads(Path(args[1]).read_text("utf-8"))["mcpServers"]
+        # agentchattr points at the PROXY, with NO baked token (the proxy injects
+        # the live token, so the file never goes stale on re-register).
+        self.assertEqual(servers["agentchattr"]["url"], proxy_url)
+        self.assertNotIn("headers", servers["agentchattr"])
+        # Gate 3: the non-agentchattr project server survives.
+        self.assertIn("unity-mcp", servers)
+
+    def test_proxy_file_without_proxy_url_raises(self):
+        # proxy_file REQUIRES a running proxy; a missing proxy_url must fail loud,
+        # not silently write a token-less direct-server config.
+        with self.assertRaises(ValueError):
+            _apply_mcp_inject(
+                {"mcp_inject": "proxy_file", "mcp_merge_project": True},
+                "claude", self.data_dir, None,  # proxy_url missing
+                token="x", mcp_cfg={"http_port": 8200}, project_dir=self.project_dir,
+            )
 
 
 if __name__ == "__main__":

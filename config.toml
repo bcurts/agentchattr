@@ -107,6 +107,10 @@ max_size_mb = 10
 #   "env"           — write a settings file, expose path via mcp_env_var
 #   "flag"          — write a config file, pass via CLI flag (mcp_flag, default: --mcp-config)
 #   "proxy_flag"    — start a local proxy, pass URL via CLI flag template
+#   "proxy_file"    — start a local proxy, write a token-less --mcp-config FILE
+#                     pointing at it (proxy injects the live token, so the file
+#                     never goes stale on re-register; preserves project merge).
+#                     Use for CLIs that read --mcp-config from a file (Claude).
 #
 # Example: Qwen Code CLI
 #   [agents.qwen]

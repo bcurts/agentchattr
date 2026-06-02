@@ -130,10 +130,14 @@ def _write_claude_mcp_config(
 
 _BUILTIN_DEFAULTS: dict[str, dict] = {
     "claude": {
-        "mcp_inject": "flag",
+        # proxy_file: route Claude through the local identity proxy via a
+        # token-less --mcp-config FILE, so the server-issued token rotates live
+        # and Claude never hits a stale-session / needs /mcp reconnect after an
+        # idle crash-timeout. Still merges project MCP servers (unity-mcp etc.).
+        "mcp_inject": "proxy_file",
         "mcp_flag": "--mcp-config",
         "mcp_transport": "http",
-        "mcp_merge_project": True,  # include unity-mcp etc.
+        "mcp_merge_project": True,
     },
     "gemini": {
         "mcp_inject": "env",
@@ -160,7 +164,7 @@ _BUILTIN_DEFAULTS: dict[str, dict] = {
     },
 }
 
-_VALID_INJECT_MODES = {"settings_file", "env", "flag", "proxy_flag", "env_content"}
+_VALID_INJECT_MODES = {"settings_file", "env", "flag", "proxy_flag", "proxy_file", "env_content"}
 
 
 def _resolve_mcp_inject(agent: str, agent_cfg: dict) -> dict:
@@ -275,6 +279,26 @@ def _apply_mcp_inject(
         settings_path = _write_claude_mcp_config(
             config_dir / f"{instance_name}-mcp.json",
             server_url, token=token, project_servers=project_servers,
+        )
+        launch_args = [flag, str(settings_path)]
+
+    elif mode == "proxy_file":
+        # Proxy-backed --mcp-config FILE (Claude). Like "flag", but the file
+        # points at the local identity PROXY and carries NO token: the proxy
+        # injects the live, server-issued token on every request, so the file
+        # never goes stale on re-register (no /mcp reconnect needed). Project
+        # MCP servers are still merged in, exactly as in "flag" mode.
+        if not proxy_url:
+            # proxy_file is meaningless without the proxy in front; failing loud
+            # avoids silently writing a token-less direct-server config that the
+            # server would reject. needs_proxy starts the proxy for this mode.
+            raise ValueError("mcp_inject = 'proxy_file' requires a running proxy (proxy_url); none was provided")
+        flag = inject_cfg.get("mcp_flag", "--mcp-config")
+        merge_project = inject_cfg.get("mcp_merge_project", False)
+        project_servers = _read_project_mcp_servers(project_dir) if (merge_project and project_dir) else {}
+        settings_path = _write_claude_mcp_config(
+            config_dir / f"{instance_name}-mcp.json",
+            proxy_url, token="", project_servers=project_servers,
         )
         launch_args = [flag, str(settings_path)]
 
@@ -628,7 +652,7 @@ def main():
         print(f"  Error: unknown mcp_inject mode '{inject_mode}' for agent '{agent}'.")
         print(f"  Valid modes: {', '.join(sorted(_VALID_INJECT_MODES))}")
         sys.exit(1)
-    needs_proxy = inject_mode in ("proxy_flag", "") or not inject_mode
+    needs_proxy = inject_mode in ("proxy_flag", "proxy_file", "") or not inject_mode
 
     if needs_proxy:
         from mcp_proxy import McpIdentityProxy
