@@ -672,6 +672,9 @@ async def _handle_new_message(msg: dict):
 
     if not suppress_broadcast:
         await broadcast(msg)
+        # Clear typing indicator when an agent finishes responding
+        if sender in known_agents:
+            await broadcast_typing(sender, False)
 
     # If the raw slash command was persisted (MCP path), silently remove it.
     # It was never broadcast to WebSocket clients, so no delete event needed.
@@ -2263,6 +2266,7 @@ async def heartbeat(agent_name: str, request: Request):
     # Immediately broadcast on activity state change (don't wait for background checker)
     if _activity_changed:
         await broadcast_status()
+        await broadcast_typing(current_name, active_val)
     # Return canonical name so wrapper can track renames
     resp = {"ok": True, "name": current_name}
     if registry:

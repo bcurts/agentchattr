@@ -26,6 +26,20 @@ let agentHats = {};  // { agent_name: svg_string }
 window.customRoles = [];  // saved custom roles from settings
 let colorOverrides = JSON.parse(localStorage.getItem('agentchattr-color-overrides') || '{}');
 let schedulesList = [];  // array of schedule objects from server
+let _initialHistoryLoaded = false;  // false until initial history burst finishes
+let _historyLoadTimer = null;       // timer to flip _initialHistoryLoaded
+
+// Progressive reveal config for agent message streaming effect
+const STREAMING_CONFIG = {
+    INITIAL_DELAY: 12,       // ms per char for first part
+    ACCELERATION_THRESHOLD: 500,  // chars after which to accelerate
+    FAST_DELAY: 2,           // ms per char after acceleration
+    BATCH_SIZE: 1,           // chars per tick normally
+    FAST_BATCH_SIZE: 8,      // chars per tick after acceleration
+};
+
+// Active typing agents (supports multiple simultaneous)
+let typingAgents = new Set();
 
 // Expose globals that extracted modules (sessions.js, jobs.js) read via window.*
 // Using defineProperty so live values are always returned.
@@ -317,6 +331,7 @@ function localizeSystemMessage(text) {
     return value;
 }
 window.localizeSystemMessage = localizeSystemMessage;
+
 function linkifyUrls(html) {
     // Match http/https URLs not already inside an <a> tag.
     // We match tags first to skip them, then capture URLs in the same pass.
@@ -401,6 +416,14 @@ function connectWebSocket() {
             clearTimeout(reconnectTimer);
             reconnectTimer = null;
         }
+        // Reset history-load gate: messages arriving in the first ~1s are historical
+        _initialHistoryLoaded = false;
+        if (_historyLoadTimer) clearTimeout(_historyLoadTimer);
+        _historyLoadTimer = setTimeout(() => { _initialHistoryLoaded = true; }, 900);
+        // Clear stale typing state on reconnect
+        typingAgents.clear();
+        const indicator = document.getElementById('typing-indicator');
+        if (indicator) indicator.classList.add('hidden');
     };
 
     ws.onmessage = (e) => {
@@ -690,6 +713,81 @@ function maybeInsertDateDivider(container, msg) {
 
 // --- Messages ---
 
+/**
+ * Animate progressive reveal of an agent message.
+ * During animation the text is shown as plain text; after completion
+ * it is replaced with full rendered markdown + post-processing.
+ */
+function animateMessageReveal(msgEl, rawText, msg) {
+    const textEl = msgEl.querySelector('.msg-text');
+    if (!textEl) return;
+
+    let idx = 0;
+    const len = rawText.length;
+    let timer = null;
+
+    function tick() {
+        if (!msgEl.parentNode) return;  // message was deleted, stop
+        const remaining = len - idx;
+        if (remaining <= 0) {
+            finish();
+            return;
+        }
+
+        const fast = idx >= STREAMING_CONFIG.ACCELERATION_THRESHOLD;
+        const batch = fast ? STREAMING_CONFIG.FAST_BATCH_SIZE : STREAMING_CONFIG.BATCH_SIZE;
+        const delay = fast ? STREAMING_CONFIG.FAST_DELAY : STREAMING_CONFIG.INITIAL_DELAY;
+
+        const end = Math.min(idx + batch, len);
+        idx = end;
+
+        // Show plain text during animation (markdown syntax visible raw is OK)
+        textEl.textContent = rawText.slice(0, idx);
+
+        // Keep scrolling if user hasn't manually scrolled up
+        if (autoScroll && msg.channel === activeChannel) {
+            scrollToBottom();
+        }
+
+        timer = setTimeout(tick, delay);
+    }
+
+    function finish() {
+        if (timer) clearTimeout(timer);
+        if (!msgEl.parentNode) return;  // message was deleted, stop
+        // Final render: full markdown + code copy buttons + hashtag styling
+        textEl.innerHTML = styleHashtags(renderMarkdown(rawText));
+        addCodeCopyButtons(msgEl);
+        // Ensure scroll is at bottom after final render
+        if (autoScroll && msg.channel === activeChannel) {
+            scrollToBottom();
+        }
+    }
+
+    // Start with empty text
+    textEl.textContent = '';
+    tick();
+
+    // Store finish handler so external events (channel switch etc.) can fast-forward
+    msgEl._finishStream = finish;
+}
+
+/**
+ * Check whether a message should get the progressive-reveal animation.
+ */
+function shouldAnimateMessage(msg) {
+    if (!_initialHistoryLoaded) return false;               // skip historical load
+    if (msg.channel !== activeChannel) return false;        // skip background channels
+    const senderClass = getSenderClass(msg.sender);
+    if (senderClass !== 'agent') return false;              // only agent messages
+    if (msg.sender.toLowerCase() === username.toLowerCase()) return false; // not self
+    // Only chat and decision types
+    if (msg.type !== 'chat' && msg.type !== 'decision') return false;
+    // Skip empty or very short messages (< 10 chars feel instant already)
+    if (!msg.text || msg.text.length < 10) return false;
+    return true;
+}
+
 function appendMessage(msg) {
     const container = document.getElementById('messages');
 
@@ -787,7 +885,8 @@ function appendMessage(msg) {
             }
         }
 
-        let textHtml = styleHashtags(renderMarkdown(msg.text));
+        const animate = shouldAnimateMessage(msg);
+        let textHtml = animate ? '' : styleHashtags(renderMarkdown(msg.text));
 
         const senderColor = getColor(msg.sender);
         const isSelf = msg.sender.toLowerCase() === username.toLowerCase();
@@ -844,8 +943,8 @@ function appendMessage(msg) {
         if (todoStatus) el.classList.add('msg-todo', `msg-todo-${todoStatus}`);
         if (msg.metadata?.session_output) el.classList.add('session-output');
 
-        // Add copy buttons to code blocks
-        addCodeCopyButtons(el);
+        // Add copy buttons to code blocks (skip during animation; finish handler will add them)
+        if (!animate) addCodeCopyButtons(el);
     }
 
     // Hide messages from other channels
@@ -863,6 +962,13 @@ function appendMessage(msg) {
     }
 
     container.appendChild(el);
+
+    // Start progressive reveal for new agent messages
+    if (!el.classList.contains('join-msg') && !el.classList.contains('summary-msg') &&
+        !el.classList.contains('proposal-msg') && !el.classList.contains('system-msg') &&
+        shouldAnimateMessage(msg)) {
+        animateMessageReveal(el, msg.text, msg);
+    }
 
     // Collapse consecutive job_created messages into a group
     if (msg.type === 'job_created' && window._collapseJobBreadcrumbs) {
@@ -1775,12 +1881,22 @@ function updateStatus(data) {
 function updateTyping(agent, active) {
     const indicator = document.getElementById('typing-indicator');
     if (active) {
-        indicator.querySelector('.typing-name').textContent = agent;
-        indicator.classList.remove('hidden');
-        if (autoScroll) scrollToBottom();
+        typingAgents.add(agent);
     } else {
-        indicator.classList.add('hidden');
+        typingAgents.delete(agent);
     }
+
+    if (typingAgents.size === 0) {
+        indicator.classList.add('hidden');
+        return;
+    }
+
+    // Build display names list
+    const names = Array.from(typingAgents).map(a => getDisplayName(a));
+    const nameText = names.join(', ');
+    indicator.querySelector('.typing-name').textContent = nameText;
+    indicator.classList.remove('hidden');
+    if (autoScroll) scrollToBottom();
 }
 
 // --- Settings ---

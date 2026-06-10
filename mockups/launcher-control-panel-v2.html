@@ -1,0 +1,1028 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>agentchattr Control Panel</title>
+    <style>
+        :root {
+            --bg: #f4f7fb;
+            --bg-header: #ffffff;
+            --bg-panel: #ffffff;
+            --bg-panel-hover: #f8fafc;
+            --bg-elevated: #eaf2ff;
+            --bg-subtle: rgba(15, 23, 42, 0.04);
+            --bg-input: #f8fafc;
+            --border: #d8e0ea;
+            --border-strong: #b8c4d4;
+            --text: #182230;
+            --text-dim: #667085;
+            --text-bright: #0c111d;
+            --text-system: #98a2b3;
+            --accent: #2563eb;
+            --accent-soft: rgba(37, 99, 235, 0.10);
+            --accent-hover: rgba(37, 99, 235, 0.16);
+            --online: #16a34a;
+            --online-soft: rgba(22, 163, 74, 0.10);
+            --online-bg: #ecfdf3;
+            --working: #d97706;
+            --working-soft: rgba(217, 119, 6, 0.10);
+            --working-bg: #fffbeb;
+            --danger: #dc2626;
+            --danger-soft: rgba(220, 38, 38, 0.08);
+            --danger-bg: #fef2f2;
+            --warning: #b45309;
+            --info: #2563eb;
+            --info-soft: rgba(37, 99, 235, 0.08);
+            --offline: #667085;
+            --offline-soft: rgba(102, 112, 133, 0.08);
+            --offline-bg: #f8f9fb;
+            --radius-sm: 6px;
+            --radius-md: 8px;
+            --radius-lg: 10px;
+            --radius-full: 9999px;
+            --shadow: 0 1px 3px rgba(15, 23, 42, 0.08), 0 4px 12px rgba(15, 23, 42, 0.05);
+            --shadow-md: 0 10px 24px rgba(15, 23, 42, 0.10);
+            --font-mono: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
+            --font-sans: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font-sans);
+            font-size: 13px;
+            line-height: 1.45;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ===== Top Bar ===== */
+        .top-bar {
+            background: var(--bg-header);
+            border-bottom: 1px solid var(--border);
+            padding: 10px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+        }
+
+        .top-bar-left {
+            display: flex; align-items: center; gap: 14px;
+        }
+
+        .logo-mark {
+            width: 30px; height: 30px;
+            background: linear-gradient(135deg, var(--accent), #60a5fa);
+            border-radius: var(--radius-md);
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 700; font-size: 14px; color: #fff;
+        }
+
+        .top-title {
+            font-size: 15px; font-weight: 600; color: var(--text-bright);
+        }
+
+        .profile-selector {
+            display: flex; align-items: center; gap: 6px;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 5px 10px;
+            font-size: 12px;
+            color: var(--text-dim);
+        }
+
+        .profile-selector select {
+            border: none; background: transparent;
+            font-size: 12px; color: var(--text);
+            outline: none; cursor: pointer;
+        }
+
+        .top-actions {
+            display: flex; gap: 8px;
+        }
+
+        .btn {
+            padding: 7px 14px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+            background: var(--bg-header);
+            color: var(--text-dim);
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            display: inline-flex; align-items: center; gap: 5px;
+        }
+
+        .btn:hover {
+            background: var(--bg-panel-hover);
+            border-color: var(--border-strong);
+            color: var(--text);
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            background: #1d4ed8;
+            border-color: #1d4ed8;
+        }
+
+        .btn-success {
+            background: var(--online);
+            border-color: var(--online);
+            color: #fff;
+        }
+
+        .btn-success:hover {
+            background: #15803d;
+            border-color: #15803d;
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            border-color: var(--danger);
+            color: #fff;
+        }
+
+        .btn-danger:hover {
+            background: #b91c1c;
+            border-color: #b91c1c;
+        }
+
+        .btn-ghost {
+            background: transparent;
+            border-color: transparent;
+        }
+
+        .btn-ghost:hover {
+            background: var(--bg-subtle);
+        }
+
+        .btn-outline-success {
+            background: var(--online-bg);
+            border-color: rgba(22, 163, 74, 0.3);
+            color: var(--online);
+        }
+
+        .btn-outline-success:hover {
+            background: var(--online-soft);
+        }
+
+        .btn-outline-danger {
+            background: var(--danger-bg);
+            border-color: rgba(220, 38, 38, 0.3);
+            color: var(--danger);
+        }
+
+        .btn-outline-danger:hover {
+            background: var(--danger-soft);
+        }
+
+        .btn-sm { padding: 5px 10px; font-size: 11px; }
+        .btn-xs { padding: 3px 7px; font-size: 10px; }
+
+        .btn:disabled {
+            opacity: 0.4; cursor: not-allowed;
+        }
+
+        /* ===== Main Layout ===== */
+        .main {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            grid-template-rows: 1fr;
+            gap: 1px;
+            background: var(--border);
+            overflow: hidden;
+        }
+
+        .panel {
+            background: var(--bg-panel);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            font-weight: 600;
+            font-size: 12px;
+            color: var(--text-bright);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+
+        .panel-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 14px;
+        }
+
+        /* ===== Server Panel ===== */
+        .server-controls {
+            display: flex; flex-direction: column; gap: 8px;
+            margin-bottom: 18px;
+        }
+
+        .server-btn-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .server-btn-row .btn {
+            justify-content: center;
+        }
+
+        .server-section {
+            margin-bottom: 18px;
+        }
+
+        .server-section-title {
+            font-size: 11px; font-weight: 600;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 10px;
+            display: flex; align-items: center; gap: 6px;
+        }
+
+        .status-row {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 8px 12px;
+            background: var(--bg-input);
+            border-radius: var(--radius-sm);
+            margin-bottom: 6px;
+            border: 1px solid var(--border);
+        }
+
+        .status-row-label {
+            font-size: 12px; color: var(--text-dim);
+            display: flex; align-items: center; gap: 6px;
+        }
+
+        .status-row-value {
+            font-size: 12px; color: var(--text-bright);
+            font-family: var(--font-mono);
+            font-weight: 500;
+        }
+
+        .status-badge {
+            display: inline-flex; align-items: center; gap: 5px;
+            padding: 3px 10px;
+            border-radius: var(--radius-full);
+            font-size: 11px; font-weight: 600;
+        }
+
+        .status-badge.online {
+            background: var(--online-bg); color: var(--online);
+        }
+
+        .status-badge.offline {
+            background: var(--offline-bg); color: var(--offline);
+        }
+
+        .status-badge.working {
+            background: var(--working-bg); color: var(--working);
+        }
+
+        .status-dot {
+            width: 6px; height: 6px;
+            border-radius: 50%;
+        }
+
+        .status-dot.online { background: var(--online); box-shadow: 0 0 6px rgba(22,163,74,0.35); }
+        .status-dot.offline { background: var(--offline); }
+        .status-dot.working { background: var(--working); animation: pulse 1.5s infinite; }
+        .status-dot.error { background: var(--danger); box-shadow: 0 0 6px rgba(220,38,38,0.35); }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        .metric-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .metric-card {
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 12px 8px;
+            text-align: center;
+        }
+
+        .metric-value {
+            font-size: 20px; font-weight: 700;
+            color: var(--text-bright);
+            font-family: var(--font-mono);
+        }
+
+        .metric-label {
+            font-size: 10px; color: var(--text-dim);
+            margin-top: 3px;
+            font-weight: 500;
+        }
+
+        /* ===== Agent List ===== */
+        .agent-list { display: flex; flex-direction: column; gap: 10px; }
+
+        .agent-card {
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 14px 16px;
+            display: flex; align-items: center; gap: 14px;
+            transition: all 0.15s ease;
+            box-shadow: var(--shadow);
+        }
+
+        .agent-card:hover {
+            border-color: var(--border-strong);
+            box-shadow: var(--shadow-md);
+        }
+
+        .agent-avatar {
+            width: 38px; height: 38px;
+            border-radius: var(--radius-md);
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 700; font-size: 13px; color: #fff;
+            flex-shrink: 0;
+        }
+
+        .agent-avatar.codex { background: linear-gradient(135deg, #059669, #10b981); }
+        .agent-avatar.kimi { background: linear-gradient(135deg, #c2410c, #f59e0b); }
+        .agent-avatar.claude { background: linear-gradient(135deg, #2563eb, #8b5cf6); }
+        .agent-avatar.gemini { background: linear-gradient(135deg, #1d4ed8, #3b82f6); }
+
+        .agent-info { flex: 1; min-width: 0; }
+
+        .agent-name-row {
+            display: flex; align-items: center; gap: 8px;
+            margin-bottom: 3px;
+        }
+
+        .agent-name {
+            font-weight: 600; font-size: 13px; color: var(--text-bright);
+        }
+
+        .agent-role {
+            font-size: 11px; color: var(--text-dim);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+
+        .agent-meta {
+            font-size: 10px; color: var(--text-system);
+            margin-top: 5px;
+            display: flex; gap: 14px;
+        }
+
+        .agent-meta span {
+            display: flex; align-items: center; gap: 4px;
+        }
+
+        .agent-actions {
+            display: flex; align-items: center; gap: 6px;
+            flex-shrink: 0;
+        }
+
+        /* ===== Bottom Terminal ===== */
+        .bottom-panel {
+            height: 320px;
+            background: var(--bg-panel);
+            border-top: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+
+        .terminal-tabs {
+            display: flex; gap: 1px;
+            padding: 0;
+            background: var(--bg);
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+
+        .terminal-tab {
+            padding: 9px 18px;
+            font-size: 11px; font-weight: 500;
+            color: var(--text-dim);
+            cursor: pointer;
+            border: none;
+            border-bottom: 2px solid transparent;
+            background: transparent;
+            display: flex; align-items: center; gap: 7px;
+            transition: all 0.1s ease;
+        }
+
+        .terminal-tab:hover {
+            color: var(--text);
+            background: var(--bg-subtle);
+        }
+
+        .terminal-tab.active {
+            background: var(--bg-panel);
+            color: var(--text-bright);
+            border-bottom-color: var(--accent);
+            font-weight: 600;
+        }
+
+        .terminal-tab .tab-status {
+            width: 6px; height: 6px; border-radius: 50%;
+        }
+
+        .terminal-toolbar {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 5px 14px;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg-input);
+            flex-shrink: 0;
+        }
+
+        .terminal-toolbar-left {
+            display: flex; align-items: center; gap: 8px;
+            font-size: 11px; color: var(--text-dim);
+        }
+
+        .terminal-toolbar-right {
+            display: flex; gap: 4px;
+        }
+
+        .terminal-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px 16px;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            line-height: 1.6;
+            background: var(--bg-panel);
+        }
+
+        .terminal-pane {
+            display: none;
+        }
+
+        .terminal-pane.active {
+            display: block;
+        }
+
+        .log-line {
+            margin-bottom: 2px;
+            display: flex; gap: 10px;
+        }
+
+        .log-time {
+            color: var(--text-system);
+            flex-shrink: 0;
+            width: 55px;
+        }
+
+        .log-level {
+            flex-shrink: 0;
+            width: 42px;
+            font-weight: 600;
+        }
+
+        .log-level-info { color: var(--info); }
+        .log-level-warn { color: var(--warning); }
+        .log-level-error { color: var(--danger); }
+        .log-level-success { color: var(--online); }
+
+        .log-msg { color: var(--text); }
+        .log-msg.dim { color: var(--text-dim); }
+
+        /* ===== Scrollbar ===== */
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: var(--radius-full); }
+        ::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+        /* ===== Animations ===== */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .agent-card {
+            animation: fadeIn 0.3s ease forwards;
+        }
+
+        .agent-card:nth-child(1) { animation-delay: 0.05s; }
+        .agent-card:nth-child(2) { animation-delay: 0.1s; }
+        .agent-card:nth-child(3) { animation-delay: 0.15s; }
+        .agent-card:nth-child(4) { animation-delay: 0.2s; }
+    </style>
+</head>
+<body>
+
+    <!-- Top Bar -->
+    <div class="top-bar">
+        <div class="top-bar-left">
+            <div class="logo-mark">A</div>
+            <div class="top-title">agentchattr Control Panel</div>
+            <div class="profile-selector">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M2 4a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V4zm2-1a1 1 0 00-1 1v8a1 1 0 001 1h8a1 1 0 001-1V4a1 1 0 00-1-1H4z"/></svg>
+                Profile:
+                <select id="profile-select" onchange="onProfileChange(this)">
+                    <option value="minimal">Minimal (codex + kimi)</option>
+                    <option value="full" selected>Full (all agents)</option>
+                    <option value="research">Research (claude + gemini)</option>
+                    <option value="custom">Custom...</option>
+                </select>
+            </div>
+        </div>
+        <div class="top-actions">
+            <button class="btn btn-primary" onclick="openChat()">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3a1 1 0 011-1h10a1 1 0 011 1v7a1 1 0 01-1 1H5l-3 3V3z"/></svg>
+                Open Chat
+            </button>
+            <button class="btn btn-success" onclick="startAll()">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M4 2.5a.5.5 0 01.8-.4l7 5.5a.5.5 0 010 .8l-7 5.5a.5.5 0 01-.8-.4V2.5z"/></svg>
+                Start All
+            </button>
+            <button class="btn btn-danger" onclick="stopAll()">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 3.5A1.5 1.5 0 015 2h6a1.5 1.5 0 011.5 1.5v9a1.5 1.5 0 01-1.5 1.5H5a1.5 1.5 0 01-1.5-1.5v-9z"/></svg>
+                Stop All
+            </button>
+            <button class="btn" onclick="restartAll()">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7.151a.5.5 0 01-.742-.437 4 4 0 00-7.036-2.088.5.5 0 11-.824-.564 5 5 0 018.796 2.61.5.5 0 01-.194.479zM2.697 8.803a.5.5 0 01.742.437 4 4 0 007.036 2.088.5.5 0 01.824.564 5 5 0 01-8.796-2.61.5.5 0 01.194-.479zM5.032 2.322a.5.5 0 01.437-.742A5 5 0 0113.5 6.5h-1a4 4 0 00-3.088-3.97.5.5 0 01-.38-.208zM4.5 9.5a.5.5 0 01.5.5v1a.5.5 0 01-1 0v-1a.5.5 0 01.5-.5z"/></svg>
+                Restart All
+            </button>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main">
+        <!-- Left: Server Control -->
+        <div class="panel">
+            <div class="panel-header">
+                <span>Server</span>
+                <span class="status-badge online"><span class="status-dot online"></span>Running</span>
+            </div>
+            <div class="panel-body">
+                <div class="server-controls">
+                    <div class="server-btn-row">
+                        <button class="btn btn-success btn-sm" onclick="startServer()">
+                            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M4 2.5a.5.5 0 01.8-.4l7 5.5a.5.5 0 010 .8l-7 5.5a.5.5 0 01-.8-.4V2.5z"/></svg>
+                            Start
+                        </button>
+                        <button class="btn btn-danger btn-sm" onclick="stopServer()">
+                            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 3.5A1.5 1.5 0 015 2h6a1.5 1.5 0 011.5 1.5v9a1.5 1.5 0 01-1.5 1.5H5a1.5 1.5 0 01-1.5-1.5v-9z"/></svg>
+                            Stop
+                        </button>
+                    </div>
+                    <button class="btn btn-sm" onclick="restartServer()" style="width:100%;justify-content:center;">
+                        <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7.151a.5.5 0 01-.742-.437 4 4 0 00-7.036-2.088.5.5 0 11-.824-.564 5 5 0 018.796 2.61.5.5 0 01-.194.479z"/></svg>
+                        Restart Server
+                    </button>
+                    <button class="btn btn-primary btn-sm" onclick="openChat()" style="width:100%;justify-content:center;">
+                        <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3a1 1 0 011-1h10a1 1 0 011 1v7a1 1 0 01-1 1H5l-3 3V3z"/></svg>
+                        Open Chat
+                    </button>
+                </div>
+
+                <div class="server-section">
+                    <div class="server-section-title">
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="opacity:0.5"><path d="M5.5 2A3.5 3.5 0 002 5.5v5A3.5 3.5 0 005.5 14h5a3.5 3.5 0 003.5-3.5v-5A3.5 3.5 0 0010.5 2h-5zM4 5.5a1.5 1.5 0 011.5-1.5h5a1.5 1.5 0 011.5 1.5v5a1.5 1.5 0 01-1.5 1.5h-5A1.5 1.5 0 014 10.5v-5z"/></svg>
+                        Service Info
+                    </div>
+                    <div class="status-row">
+                        <span class="status-row-label">HTTP Port</span>
+                        <span class="status-row-value">8300</span>
+                    </div>
+                    <div class="status-row">
+                        <span class="status-row-label">MCP SSE</span>
+                        <span class="status-row-value" style="color:var(--online)">Active</span>
+                    </div>
+                    <div class="status-row">
+                        <span class="status-row-label">MCP HTTP</span>
+                        <span class="status-row-value" style="color:var(--online)">Active</span>
+                    </div>
+                    <div class="status-row">
+                        <span class="status-row-label">Data Dir</span>
+                        <span class="status-row-value" style="font-size:10px">D:\agentchattr</span>
+                    </div>
+                </div>
+
+                <div class="server-section">
+                    <div class="server-section-title">
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="opacity:0.5"><path d="M8 4a.5.5 0 01.5.5V6a.5.5 0 01-1 0V4.5A.5.5 0 018 4z"/></svg>
+                        Resources
+                    </div>
+                    <div class="metric-grid">
+                        <div class="metric-card">
+                            <div class="metric-value" style="color:var(--online)">2</div>
+                            <div class="metric-label">Online</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value" style="color:var(--working)">1</div>
+                            <div class="metric-label">Working</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value">128MB</div>
+                            <div class="metric-label">Server RAM</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value">0</div>
+                            <div class="metric-label">Errors (1h)</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="server-section">
+                    <div class="server-section-title">
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="opacity:0.5"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 1a6 6 0 110 12A6 6 0 018 2zm-.5 3v4.5h4v-1h-3V5H7.5z"/></svg>
+                        Uptime
+                    </div>
+                    <div class="status-row">
+                        <span class="status-row-label">Server</span>
+                        <span class="status-row-value">2h 14m</span>
+                    </div>
+                    <div class="status-row">
+                        <span class="status-row-label">Session</span>
+                        <span class="status-row-value">#7a3f2b</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Center: Agent List -->
+        <div class="panel">
+            <div class="panel-header">
+                <span>Agents</span>
+                <span style="font-size:11px;color:var(--text-dim);font-weight:400;text-transform:none;letter-spacing:0;">4 configured · 2 online · 1 working</span>
+            </div>
+            <div class="panel-body">
+                <div class="agent-list">
+                    <!-- Codex -->
+                    <div class="agent-card">
+                        <div class="agent-avatar codex">CX</div>
+                        <div class="agent-info">
+                            <div class="agent-name-row">
+                                <span class="agent-name">codex</span>
+                                <span class="status-badge working"><span class="status-dot working"></span>Working</span>
+                            </div>
+                            <div class="agent-role">通用开发代理 · Python/JS/架构/代码审查</div>
+                            <div class="agent-meta">
+                                <span>
+                                    <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a4 4 0 100 8 4 4 0 000-8z"/></svg>
+                                    heartbeat: 2s ago
+                                </span>
+                                <span>
+                                    <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 2A3.5 3.5 0 002 5.5v5A3.5 3.5 0 005.5 14h5a3.5 3.5 0 003.5-3.5v-5A3.5 3.5 0 0010.5 2h-5z"/></svg>
+                                    wrapper.py
+                                </span>
+                            </div>
+                        </div>
+                        <div class="agent-actions">
+                            <button class="btn btn-sm btn-outline-danger" onclick="toggleAgent(this, 'codex')">Stop</button>
+                            <button class="btn btn-sm btn-ghost" onclick="restartAgent(this, 'codex')" title="Restart">
+                                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7.151a.5.5 0 01-.742-.437 4 4 0 00-7.036-2.088.5.5 0 11-.824-.564 5 5 0 018.796 2.61.5.5 0 01-.194.479zM2.697 8.803a.5.5 0 01.742.437 4 4 0 007.036 2.088.5.5 0 01.824.564 5 5 0 01-8.796-2.61.5.5 0 01.194-.479zM5.032 2.322a.5.5 0 01.437-.742A5 5 0 0113.5 6.5h-1a4 4 0 00-3.088-3.97.5.5 0 01-.38-.208z"/></svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Kimi -->
+                    <div class="agent-card">
+                        <div class="agent-avatar kimi">KM</div>
+                        <div class="agent-info">
+                            <div class="agent-name-row">
+                                <span class="agent-name">kimi</span>
+                                <span class="status-badge online"><span class="status-dot online"></span>Online</span>
+                            </div>
+                            <div class="agent-role">通用助手代理 · 中文优先/任务执行/协调</div>
+                            <div class="agent-meta">
+                                <span>
+                                    <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a4 4 0 100 8 4 4 0 000-8z"/></svg>
+                                    heartbeat: 1s ago
+                                </span>
+                                <span>
+                                    <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 2A3.5 3.5 0 002 5.5v5A3.5 3.5 0 005.5 14h5a3.5 3.5 0 003.5-3.5v-5A3.5 3.5 0 0010.5 2h-5z"/></svg>
+                                    wrapper.py
+                                </span>
+                            </div>
+                        </div>
+                        <div class="agent-actions">
+                            <button class="btn btn-sm btn-outline-danger" onclick="toggleAgent(this, 'kimi')">Stop</button>
+                            <button class="btn btn-sm btn-ghost" onclick="restartAgent(this, 'kimi')" title="Restart">
+                                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7.151a.5.5 0 01-.742-.437 4 4 0 00-7.036-2.088.5.5 0 11-.824-.564 5 5 0 018.796 2.61.5.5 0 01-.194.479zM2.697 8.803a.5.5 0 01.742.437 4 4 0 007.036 2.088.5.5 0 01.824.564 5 5 0 01-8.796-2.61.5.5 0 01.194-.479zM5.032 2.322a.5.5 0 01.437-.742A5 5 0 0113.5 6.5h-1a4 4 0 00-3.088-3.97.5.5 0 01-.38-.208z"/></svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Claude -->
+                    <div class="agent-card">
+                        <div class="agent-avatar claude">CL</div>
+                        <div class="agent-info">
+                            <div class="agent-name-row">
+                                <span class="agent-name">claude</span>
+                                <span class="status-badge offline"><span class="status-dot offline"></span>Offline</span>
+                            </div>
+                            <div class="agent-role">分析代理 · 深度推理/文档/复杂决策</div>
+                            <div class="agent-meta">
+                                <span>
+                                    <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a4 4 0 100 8 4 4 0 000-8z"/></svg>
+                                    last seen: 3h ago
+                                </span>
+                                <span>
+                                    <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 2A3.5 3.5 0 002 5.5v5A3.5 3.5 0 005.5 14h5a3.5 3.5 0 003.5-3.5v-5A3.5 3.5 0 0010.5 2h-5z"/></svg>
+                                    wrapper.py
+                                </span>
+                            </div>
+                        </div>
+                        <div class="agent-actions">
+                            <button class="btn btn-sm btn-outline-success" onclick="toggleAgent(this, 'claude')">Start</button>
+                            <button class="btn btn-sm btn-ghost" disabled title="Restart">
+                                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7.151a.5.5 0 01-.742-.437 4 4 0 00-7.036-2.088.5.5 0 11-.824-.564 5 5 0 018.796 2.61.5.5 0 01-.194.479zM2.697 8.803a.5.5 0 01.742.437 4 4 0 007.036 2.088.5.5 0 01.824.564 5 5 0 01-8.796-2.61.5.5 0 01.194-.479zM5.032 2.322a.5.5 0 01.437-.742A5 5 0 0113.5 6.5h-1a4 4 0 00-3.088-3.97.5.5 0 01-.38-.208z"/></svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Gemini -->
+                    <div class="agent-card">
+                        <div class="agent-avatar gemini">GM</div>
+                        <div class="agent-info">
+                            <div class="agent-name-row">
+                                <span class="agent-name">gemini</span>
+                                <span class="status-badge offline"><span class="status-dot offline"></span>Offline</span>
+                            </div>
+                            <div class="agent-role">搜索代理 · 联网检索/信息聚合/实时数据</div>
+                            <div class="agent-meta">
+                                <span>
+                                    <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a4 4 0 100 8 4 4 0 000-8z"/></svg>
+                                    last seen: 5h ago
+                                </span>
+                                <span>
+                                    <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 2A3.5 3.5 0 002 5.5v5A3.5 3.5 0 005.5 14h5a3.5 3.5 0 003.5-3.5v-5A3.5 3.5 0 0010.5 2h-5z"/></svg>
+                                    wrapper.py
+                                </span>
+                            </div>
+                        </div>
+                        <div class="agent-actions">
+                            <button class="btn btn-sm btn-outline-success" onclick="toggleAgent(this, 'gemini')">Start</button>
+                            <button class="btn btn-sm btn-ghost" disabled title="Restart">
+                                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7.151a.5.5 0 01-.742-.437 4 4 0 00-7.036-2.088.5.5 0 11-.824-.564 5 5 0 018.796 2.61.5.5 0 01-.194.479zM2.697 8.803a.5.5 0 01.742.437 4 4 0 007.036 2.088.5.5 0 01.824.564 5 5 0 01-8.796-2.61.5.5 0 01.194-.479zM5.032 2.322a.5.5 0 01.437-.742A5 5 0 0113.5 6.5h-1a4 4 0 00-3.088-3.97.5.5 0 01-.38-.208z"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom: Terminal Panel -->
+    <div class="bottom-panel">
+        <div class="terminal-tabs">
+            <div class="terminal-tab active" onclick="switchTab('server', this)">
+                <span class="tab-status" style="background:var(--online)"></span>
+                server
+            </div>
+            <div class="terminal-tab" onclick="switchTab('codex', this)">
+                <span class="tab-status" style="background:var(--working)"></span>
+                codex
+            </div>
+            <div class="terminal-tab" onclick="switchTab('kimi', this)">
+                <span class="tab-status" style="background:var(--online)"></span>
+                kimi
+            </div>
+            <div class="terminal-tab" onclick="switchTab('claude', this)">
+                <span class="tab-status" style="background:var(--offline)"></span>
+                claude
+            </div>
+            <div class="terminal-tab" onclick="switchTab('gemini', this)">
+                <span class="tab-status" style="background:var(--offline)"></span>
+                gemini
+            </div>
+        </div>
+        <div class="terminal-toolbar">
+            <div class="terminal-toolbar-left">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 2A3.5 3.5 0 002 5.5v5A3.5 3.5 0 005.5 14h5a3.5 3.5 0 003.5-3.5v-5A3.5 3.5 0 0010.5 2h-5z"/></svg>
+                Unified Terminal — All logs in one place
+            </div>
+            <div class="terminal-toolbar-right">
+                <button class="btn btn-xs btn-ghost" onclick="clearLogs()">Clear</button>
+                <button class="btn btn-xs btn-ghost" onclick="copyLogs()">Copy</button>
+            </div>
+        </div>
+        <div class="terminal-content">
+            <div class="terminal-pane active" id="pane-server">
+                <div class="log-line"><span class="log-time">14:20:01</span><span class="log-level log-level-info">INFO</span><span class="log-msg">agentchattr server starting on port 8300</span></div>
+                <div class="log-line"><span class="log-time">14:20:02</span><span class="log-level log-level-success">OK</span><span class="log-msg">Database initialized: agentchattr.db</span></div>
+                <div class="log-line"><span class="log-time">14:20:02</span><span class="log-level log-level-success">OK</span><span class="log-msg">MCP SSE endpoint ready at /mcp/v1/sse</span></div>
+                <div class="log-line"><span class="log-time">14:20:02</span><span class="log-level log-level-success">OK</span><span class="log-msg">MCP HTTP endpoint ready at /mcp/v1/http</span></div>
+                <div class="log-line"><span class="log-time">14:20:03</span><span class="log-level log-level-info">INFO</span><span class="log-msg">WebSocket handler registered</span></div>
+                <div class="log-line"><span class="log-time">14:20:04</span><span class="log-level log-level-success">OK</span><span class="log-msg">Server ready. Listening on http://127.0.0.1:8300</span></div>
+                <div class="log-line"><span class="log-time">14:20:15</span><span class="log-level log-level-info">INFO</span><span class="log-msg dim">POST /api/heartbeat/codex 200 OK (latency: 12ms)</span></div>
+                <div class="log-line"><span class="log-time">14:20:16</span><span class="log-level log-level-info">INFO</span><span class="log-msg dim">POST /api/heartbeat/kimi 200 OK (latency: 8ms)</span></div>
+                <div class="log-line"><span class="log-time">14:20:17</span><span class="log-level log-level-info">INFO</span><span class="log-msg dim">POST /api/heartbeat/codex 200 OK (latency: 10ms)</span></div>
+                <div class="log-line"><span class="log-time">14:20:18</span><span class="log-level log-level-info">INFO</span><span class="log-msg dim">POST /api/heartbeat/kimi 200 OK (latency: 9ms)</span></div>
+                <div class="log-line"><span class="log-time">14:20:19</span><span class="log-level log-level-info">INFO</span><span class="log-msg dim">POST /api/heartbeat/codex 200 OK (latency: 11ms)</span></div>
+                <div class="log-line"><span class="log-time">14:20:20</span><span class="log-level log-level-warn">WARN</span><span class="log-msg">Heartbeat from claude missed (last: 3h ago)</span></div>
+                <div class="log-line"><span class="log-time">14:20:21</span><span class="log-level log-level-info">INFO</span><span class="log-msg dim">POST /api/heartbeat/kimi 200 OK (latency: 7ms)</span></div>
+                <div class="log-line"><span class="log-time">14:20:22</span><span class="log-level log-level-info">INFO</span><span class="log-msg dim">POST /api/heartbeat/codex 200 OK (latency: 13ms)</span></div>
+                <div class="log-line"><span class="log-time">14:20:23</span><span class="log-level log-level-info">INFO</span><span class="log-msg">WebSocket connection from kimi established</span></div>
+            </div>
+
+            <div class="terminal-pane" id="pane-codex">
+                <div class="log-line"><span class="log-time">14:19:55</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[codex] Wrapper starting...</span></div>
+                <div class="log-line"><span class="log-time">14:19:56</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[codex] Loading skills from .kimi-code/skills/</span></div>
+                <div class="log-line"><span class="log-time">14:19:57</span><span class="log-level log-level-success">OK</span><span class="log-msg">[codex] 14 skills loaded</span></div>
+                <div class="log-line"><span class="log-time">14:19:58</span><span class="log-level log-level-success">OK</span><span class="log-msg">[codex] Connected to agentchattr via WebSocket</span></div>
+                <div class="log-line"><span class="log-time">14:19:58</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[codex] Heartbeat interval: 5s</span></div>
+                <div class="log-line"><span class="log-time">14:20:10</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[codex] Received message in #agentchat from 林婉音</span></div>
+                <div class="log-line"><span class="log-time">14:20:11</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[codex] Processing: launcher UI mockup review</span></div>
+                <div class="log-line"><span class="log-time">14:20:12</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[codex] Context window: 13.2% (34.6k/262.1k)</span></div>
+                <div class="log-line"><span class="log-time">14:20:13</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[codex] Response generated (1,247 tokens)</span></div>
+                <div class="log-line"><span class="log-time">14:20:15</span><span class="log-level log-level-success">OK</span><span class="log-msg">[codex] Message sent to #agentchat</span></div>
+                <div class="log-line"><span class="log-time">14:20:20</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[codex] Received message in #agentchat from 林婉音</span></div>
+                <div class="log-line"><span class="log-time">14:20:21</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[codex] Processing v2 mockup request</span></div>
+                <div class="log-line"><span class="log-time">14:20:22</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[codex] Delegating to kimi: static HTML v2 task</span></div>
+            </div>
+
+            <div class="terminal-pane" id="pane-kimi">
+                <div class="log-line"><span class="log-time">14:19:50</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[kimi] Wrapper starting...</span></div>
+                <div class="log-line"><span class="log-time">14:19:51</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[kimi] Loading skills from .kimi-code/skills/</span></div>
+                <div class="log-line"><span class="log-time">14:19:52</span><span class="log-level log-level-success">OK</span><span class="log-msg">[kimi] 12 skills loaded</span></div>
+                <div class="log-line"><span class="log-time">14:19:53</span><span class="log-level log-level-success">OK</span><span class="log-msg">[kimi] Connected to agentchattr via WebSocket</span></div>
+                <div class="log-line"><span class="log-time">14:19:53</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[kimi] Heartbeat interval: 5s</span></div>
+                <div class="log-line"><span class="log-time">14:19:58</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[kimi] Received message in #agentchat</span></div>
+                <div class="log-line"><span class="log-time">14:19:59</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[kimi] Typing indicator: active=true</span></div>
+                <div class="log-line"><span class="log-time">14:20:02</span><span class="log-level log-level-success">OK</span><span class="log-msg">[kimi] Message sent to #agentchat</span></div>
+                <div class="log-line"><span class="log-time">14:20:04</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[kimi] Typing indicator: active=false</span></div>
+                <div class="log-line"><span class="log-time">14:20:10</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[kimi] Received message in #agentchat</span></div>
+                <div class="log-line"><span class="log-time">14:20:11</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[kimi] Evaluating codex launcher proposal</span></div>
+                <div class="log-line"><span class="log-time">14:20:13</span><span class="log-level log-level-success">OK</span><span class="log-msg">[kimi] Message sent to #agentchat</span></div>
+            </div>
+
+            <div class="terminal-pane" id="pane-claude">
+                <div class="log-line"><span class="log-time">11:15:02</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[claude] Wrapper starting...</span></div>
+                <div class="log-line"><span class="log-time">11:15:03</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[claude] Loading skills from .kimi-code/skills/</span></div>
+                <div class="log-line"><span class="log-time">11:15:04</span><span class="log-level log-level-success">OK</span><span class="log-msg">[claude] 10 skills loaded</span></div>
+                <div class="log-line"><span class="log-time">11:15:05</span><span class="log-level log-level-success">OK</span><span class="log-msg">[claude] Connected to agentchattr via WebSocket</span></div>
+                <div class="log-line"><span class="log-time">11:20:30</span><span class="log-level log-level-warn">WARN</span><span class="log-msg">[claude] Heartbeat timeout after 30s</span></div>
+                <div class="log-line"><span class="log-time">11:20:31</span><span class="log-level log-level-error">ERR</span><span class="log-msg">[claude] WebSocket connection lost</span></div>
+                <div class="log-line"><span class="log-time">11:20:32</span><span class="log-level log-level-warn">WARN</span><span class="log-msg">[claude] Attempting reconnect (1/5)...</span></div>
+                <div class="log-line"><span class="log-time">11:20:37</span><span class="log-level log-level-error">ERR</span><span class="log-msg">[claude] Reconnect failed: Connection refused</span></div>
+                <div class="log-line"><span class="log-time">11:20:37</span><span class="log-level log-level-warn">WARN</span><span class="log-msg">[claude] Giving up. Wrapper exiting.</span></div>
+                <div class="log-line"><span class="log-time">11:20:38</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[claude] Process terminated with code 1</span></div>
+                <div class="log-line"><span class="log-time">11:20:38</span><span class="log-level log-level-info">INFO</span><span class="log-msg dim">--- claude wrapper exited ---</span></div>
+            </div>
+
+            <div class="terminal-pane" id="pane-gemini">
+                <div class="log-line"><span class="log-time">09:30:01</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[gemini] Wrapper starting...</span></div>
+                <div class="log-line"><span class="log-time">09:30:02</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[gemini] Loading skills from .kimi-code/skills/</span></div>
+                <div class="log-line"><span class="log-time">09:30:03</span><span class="log-level log-level-success">OK</span><span class="log-msg">[gemini] 8 skills loaded</span></div>
+                <div class="log-line"><span class="log-time">09:30:04</span><span class="log-level log-level-success">OK</span><span class="log-msg">[gemini] Connected to agentchattr via WebSocket</span></div>
+                <div class="log-line"><span class="log-time">09:30:04</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[gemini] Heartbeat interval: 5s</span></div>
+                <div class="log-line"><span class="log-time">09:45:12</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[gemini] Executing web search: "Python subprocess management"</span></div>
+                <div class="log-line"><span class="log-time">09:45:15</span><span class="log-level log-level-success">OK</span><span class="log-msg">[gemini] Search completed: 12 results</span></div>
+                <div class="log-line"><span class="log-time">09:45:16</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[gemini] Sending search summary to #agentchat</span></div>
+                <div class="log-line"><span class="log-time">10:00:45</span><span class="log-level log-level-warn">WARN</span><span class="log-msg">[gemini] Heartbeat timeout after 30s</span></div>
+                <div class="log-line"><span class="log-time">10:00:46</span><span class="log-level log-level-error">ERR</span><span class="log-msg">[gemini] WebSocket connection lost</span></div>
+                <div class="log-line"><span class="log-time">10:00:47</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[gemini] Process terminated with code 0</span></div>
+                <div class="log-line"><span class="log-time">10:00:47</span><span class="log-level log-level-info">INFO</span><span class="log-msg dim">--- gemini wrapper exited ---</span></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Tab switching
+        function switchTab(name, el) {
+            document.querySelectorAll('.terminal-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.terminal-pane').forEach(p => p.classList.remove('active'));
+            el.classList.add('active');
+            document.getElementById('pane-' + name).classList.add('active');
+        }
+
+        // Agent toggle (simplified: main action + restart icon)
+        function toggleAgent(btn, agent) {
+            const card = btn.closest('.agent-card');
+            const badge = card.querySelector('.status-badge');
+            const dot = card.querySelector('.status-dot');
+            const restartBtn = card.querySelector('.agent-actions button:last-child');
+
+            if (btn.textContent === 'Stop') {
+                btn.textContent = 'Start';
+                btn.className = 'btn btn-sm btn-outline-success';
+                badge.className = 'status-badge offline';
+                badge.innerHTML = '<span class="status-dot offline"></span>Offline';
+                restartBtn.disabled = true;
+            } else {
+                btn.textContent = 'Stop';
+                btn.className = 'btn btn-sm btn-outline-danger';
+                badge.className = 'status-badge online';
+                badge.innerHTML = '<span class="status-dot online"></span>Online';
+                restartBtn.disabled = false;
+            }
+        }
+
+        function restartAgent(btn, agent) {
+            const card = btn.closest('.agent-card');
+            const badge = card.querySelector('.status-badge');
+            badge.className = 'status-badge working';
+            badge.innerHTML = '<span class="status-dot working"></span>Restarting...';
+            setTimeout(() => {
+                badge.className = 'status-badge online';
+                badge.innerHTML = '<span class="status-dot online"></span>Online';
+            }, 1500);
+        }
+
+        // Top bar actions
+        function openChat() {
+            alert('Would open: http://127.0.0.1:8300');
+        }
+
+        function startAll() {
+            document.querySelectorAll('.agent-actions button:first-child').forEach(btn => {
+                if (btn.textContent === 'Start') toggleAgent(btn, '');
+            });
+        }
+
+        function stopAll() {
+            document.querySelectorAll('.agent-actions button:first-child').forEach(btn => {
+                if (btn.textContent === 'Stop') toggleAgent(btn, '');
+            });
+        }
+
+        function restartAll() {
+            document.querySelectorAll('.agent-actions button:last-child').forEach(btn => {
+                if (!btn.disabled) btn.click();
+            });
+        }
+
+        // Server controls
+        function startServer() {
+            const badge = document.querySelector('.panel-header .status-badge');
+            badge.className = 'status-badge online';
+            badge.innerHTML = '<span class="status-dot online"></span>Running';
+        }
+
+        function stopServer() {
+            const badge = document.querySelector('.panel-header .status-badge');
+            badge.className = 'status-badge offline';
+            badge.innerHTML = '<span class="status-dot offline"></span>Stopped';
+        }
+
+        function restartServer() {
+            const badge = document.querySelector('.panel-header .status-badge');
+            badge.className = 'status-badge working';
+            badge.innerHTML = '<span class="status-dot working"></span>Restarting...';
+            setTimeout(() => {
+                badge.className = 'status-badge online';
+                badge.innerHTML = '<span class="status-dot online"></span>Running';
+            }, 2000);
+        }
+
+        // Profile change
+        function onProfileChange(select) {
+            const profile = select.value;
+            const agents = ['codex', 'kimi', 'claude', 'gemini'];
+            const enabled = {
+                minimal: ['codex', 'kimi'],
+                full: ['codex', 'kimi', 'claude', 'gemini'],
+                research: ['claude', 'gemini'],
+                custom: ['codex', 'kimi', 'claude', 'gemini']
+            }[profile] || [];
+
+            document.querySelectorAll('.agent-card').forEach(card => {
+                const name = card.querySelector('.agent-name').textContent;
+                if (enabled.includes(name)) {
+                    card.style.opacity = '1';
+                    card.style.display = 'flex';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+        }
+
+        // Terminal toolbar
+        function clearLogs() {
+            const activePane = document.querySelector('.terminal-pane.active');
+            if (activePane) activePane.innerHTML = '<div class="log-line"><span class="log-msg dim">--- logs cleared ---</span></div>';
+        }
+
+        function copyLogs() {
+            alert('Would copy active tab logs to clipboard');
+        }
+    </script>
+
+</body>
+</html>
