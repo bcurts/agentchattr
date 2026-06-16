@@ -163,6 +163,24 @@ class RuntimeRegistry:
         self._reserved.pop(cand, None)
         self._instances[cand] = inst
 
+    def _evict_reclaimable_collisions_locked(self):
+        """Drop reclaimables that collide with any live instance, by name or (base, slot).
+
+        The live instance is authoritative: a reclaimable sharing its canonical name or
+        its (base, slot) coordinate is stale and must not survive to be persisted. If it
+        did, `_save_instances` would write both records and `_load_instances` could let
+        the stale one overwrite the live one (same dict key) on restart — reviving a dead
+        token and stranding the live one. Call this after any mutation that creates or
+        moves a live instance (register incl. slot-1 rename, deregister rename-back,
+        claim, rename), while holding self._lock. Keeps _instances and _reclaimable
+        disjoint so the persisted snapshot is always unambiguous.
+        """
+        live_names = set(self._instances.keys())
+        live_coords = {(i.base, i.slot) for i in self._instances.values()}
+        for rn in [rn for rn, ri in self._reclaimable.items()
+                   if rn in live_names or (ri.base, ri.slot) in live_coords]:
+            del self._reclaimable[rn]
+
     # --- Registration ---
 
     def register(self, base: str, label: str | None = None) -> dict | None:
@@ -223,12 +241,10 @@ class RuntimeRegistry:
             state = "active"
             inst = Instance(name=name, base=base, slot=slot, label=lbl, color=color, state=state)
             self._instances[name] = inst
-            # Fresh registration supersedes any reclaimable identity occupying the same
-            # (base, slot) — including custom-named aliases (e.g. 'claude-music') that
-            # don't match `name`. Enforces fresh-wins by coordinate, not by string name.
-            for stale in [rn for rn, ri in self._reclaimable.items()
-                          if ri.base == base and ri.slot == slot]:
-                del self._reclaimable[stale]
+            # Fresh registration (plus any slot-1 rename above) supersedes reclaimable
+            # identities sharing those names/(base, slot) coordinates — including custom
+            # aliases that don't match `name`. Enforces fresh-wins by coordinate, not name.
+            self._evict_reclaimable_collisions_locked()
             result = _inst_dict(inst, include_token=True)
             if renamed_slot1:
                 result["_renamed_slot1"] = renamed_slot1
@@ -270,6 +286,11 @@ class RuntimeRegistry:
                     self._instances[base] = remaining
                     self._renames[old_name] = base
                     renamed_back = {"old": old_name, "new": base}
+
+            # A rename-back may have moved a live instance onto a (base, slot) that the
+            # just-deregistered identity still occupies in _reclaimable — drop such stale
+            # collisions so they can't outlive the live identity across a restart.
+            self._evict_reclaimable_collisions_locked()
 
         self._notify()
         self._save_renames()
@@ -369,6 +390,11 @@ class RuntimeRegistry:
                         self._renames[old_name] = target_name
                         result = _inst_dict(inst)
 
+            # If we activated/renamed a live instance into a (base, slot), drop any
+            # reclaimable now colliding with it (same invariant as register/deregister).
+            if not error:
+                self._evict_reclaimable_collisions_locked()
+
         if error:
             return error
         self._notify()
@@ -447,6 +473,10 @@ class RuntimeRegistry:
                 self._instances[new_name] = inst
                 self._renames[old_name] = new_name
                 result = _inst_dict(inst)
+
+            # Renaming moved a live instance onto new_name/(base, slot); drop any
+            # reclaimable now colliding with it (same fresh-wins invariant).
+            self._evict_reclaimable_collisions_locked()
 
         self._notify()
         self._save_renames()
