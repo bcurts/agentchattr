@@ -122,16 +122,18 @@ class RuntimeRegistry:
             data = json.loads(p.read_text("utf-8"))
         except Exception:
             return
-        for n, d in data.get("instances", {}).items():
-            try:
-                self._instances[n] = _inst_from_dict(d)
-            except Exception:
-                pass
-        for n, d in data.get("reclaimable", {}).items():
-            try:
-                self._reclaimable[n] = _inst_from_dict(d)
-            except Exception:
-                pass
+        # On startup nobody is proven alive: a persisted "active" instance may be a
+        # dead pre-restart wrapper. Load everything as reclaimable — a wrapper that is
+        # genuinely still alive reactivates its token on its next call (resolve_token),
+        # while dead wrappers stay dormant instead of squatting a slot. Loading them as
+        # active would make the empty post-restart presence map immortalize the ghost
+        # (the crash-timeout only fires for names with last_seen > 0).
+        for section in ("instances", "reclaimable"):
+            for n, d in data.get(section, {}).items():
+                try:
+                    self._reclaimable[n] = _inst_from_dict(d)
+                except Exception:
+                    pass
 
     def _restore_reclaimable_locked(self, sender: str, target_name: str | None):
         """Restore a reclaimable identity into the live set if its live copy is gone.
@@ -150,10 +152,16 @@ class RuntimeRegistry:
                 if inst.base == sender and name not in self._instances:
                     cand = name
                     break
-        if cand and cand not in self._instances:
-            inst = self._reclaimable.pop(cand)
-            self._reserved.pop(cand, None)
-            self._instances[cand] = inst
+        if not cand or cand in self._instances:
+            return
+        inst = self._reclaimable[cand]
+        # Fresh-wins: never revive an identity whose (base, slot) is already live
+        # (e.g. its slot was reclaimed by a fresh launch or a rename-back).
+        if any(li.base == inst.base and li.slot == inst.slot for li in self._instances.values()):
+            return
+        self._reclaimable.pop(cand, None)
+        self._reserved.pop(cand, None)
+        self._instances[cand] = inst
 
     # --- Registration ---
 
@@ -215,7 +223,12 @@ class RuntimeRegistry:
             state = "active"
             inst = Instance(name=name, base=base, slot=slot, label=lbl, color=color, state=state)
             self._instances[name] = inst
-            self._reclaimable.pop(name, None)  # fresh registration supersedes any reclaimable token
+            # Fresh registration supersedes any reclaimable identity occupying the same
+            # (base, slot) — including custom-named aliases (e.g. 'claude-music') that
+            # don't match `name`. Enforces fresh-wins by coordinate, not by string name.
+            for stale in [rn for rn, ri in self._reclaimable.items()
+                          if ri.base == base and ri.slot == slot]:
+                del self._reclaimable[stale]
             result = _inst_dict(inst, include_token=True)
             if renamed_slot1:
                 result["_renamed_slot1"] = renamed_slot1
@@ -589,21 +602,33 @@ class RuntimeRegistry:
         """
         result = None
         reactivated = False
+        changed = False
         with self._lock:
             for inst in self._instances.values():
                 if inst.token == token:
                     return _inst_dict(inst)
             for name, inst in list(self._reclaimable.items()):
-                if inst.token == token and name not in self._instances:
-                    inst.state = "active"
-                    self._instances[name] = inst
+                if inst.token != token or name in self._instances:
+                    continue
+                # Fresh-wins guard: if a live instance already holds this (base, slot),
+                # the token is stale (its identity was superseded by a fresh launch or a
+                # rename-back). Drop it rather than reviving a colliding second instance.
+                if any(li.base == inst.base and li.slot == inst.slot
+                       for li in self._instances.values()):
                     del self._reclaimable[name]
-                    self._reserved.pop(name, None)
-                    result = _inst_dict(inst)
-                    reactivated = True
-                    break
+                    changed = True
+                    continue
+                inst.state = "active"
+                self._instances[name] = inst
+                del self._reclaimable[name]
+                self._reserved.pop(name, None)
+                result = _inst_dict(inst)
+                reactivated = True
+                changed = True
+                break
         if reactivated:
             self._notify()
+        if changed:
             self._save_instances()
         return result
 
