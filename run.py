@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import os
 import secrets
 import sys
 import threading
@@ -56,10 +57,11 @@ def main():
 
     # --- Security: generate a random session token (in-memory only) ---
     session_token = secrets.token_hex(32)
+    launcher_token = os.environ.get("AGENTCHATTR_LAUNCHER_TOKEN", "")
 
     # Configure the FastAPI app (creates shared store)
     from app import app, configure, set_event_loop, store as _store_ref
-    configure(config, session_token=session_token)
+    configure(config, session_token=session_token, launcher_token=launcher_token)
 
     # Share stores with the MCP bridge
     from app import store, rules, summaries, jobs, room_settings, registry, router as app_router, agents as app_agents, session_engine, session_store
@@ -105,6 +107,16 @@ def main():
         # This is safe: same-origin policy prevents cross-origin pages from reading
         # the response body, so only the user's own browser tab gets the token.
         html = (static_dir / "index.html").read_text("utf-8")
+        injected = html.replace(
+            "</head>",
+            f'<script>window.__SESSION_TOKEN__="{session_token}";</script>\n</head>',
+        )
+        return HTMLResponse(injected, headers={"Cache-Control": "no-store"})
+
+    @app.get("/launcher")
+    async def launcher_page():
+        """Serve the launcher control panel."""
+        html = (static_dir / "launcher.html").read_text("utf-8")
         injected = html.replace(
             "</head>",
             f'<script>window.__SESSION_TOKEN__="{session_token}";</script>\n</head>',

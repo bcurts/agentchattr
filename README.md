@@ -12,6 +12,10 @@ Agents and humans talk in a shared chat room with multiple channels — when any
 
 ## Quickstart (Windows)
 
+Desktop launcher MVP notes, including `python desktop_launcher.py`, desktop
+requirements, MVP limits, and the Windows smoke checklist, live in
+[DESKTOP_LAUNCHER_MVP.md](DESKTOP_LAUNCHER_MVP.md).
+
 **1. Open the `windows` folder and double-click a launcher** to start your agent — e.g. `start_claude.bat`, `start_codex.bat`, `start_gemini.bat`, etc.
 
 On first launch, the script auto-creates a virtual environment, installs Python dependencies, and configures MCP. Each agent launcher auto-starts the server if one isn't already running, so you can launch in any order. Run multiple launchers for multiple agents — they share the same server.

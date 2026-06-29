@@ -2,9 +2,13 @@
 
 import asyncio
 import json
+import os
 import re as _re
+import secrets
+import signal
 import sys
 import threading
+import time
 import uuid
 import logging
 from pathlib import Path
@@ -24,10 +28,13 @@ from agents import AgentTrigger
 from registry import RuntimeRegistry, canonicalize_name
 from session_store import SessionStore, validate_session_template
 from session_engine import SessionEngine
+from launcher import launcher
+from launcher_routes import router as launcher_router, launcher_events_ws
 
 log = logging.getLogger(__name__)
 
 app = FastAPI(title="agentchattr")
+app.include_router(launcher_router)
 
 # --- globals (set by configure()) ---
 store: MessageStore | None = None
@@ -45,6 +52,7 @@ ws_clients: set[WebSocket] = set()
 
 # --- Security: session token (set by configure()) ---
 session_token: str = ""
+launcher_shutdown_token: str = ""
 
 # Room settings (persisted to data/settings.json)
 room_settings: dict = {
@@ -184,8 +192,14 @@ def _install_security_middleware(token: str, cfg: dict):
             # Static assets, index page, and uploaded images are public.
             # The index page injects the token client-side via same-origin script.
             # Uploads use random filenames and have path-traversal protection.
-            if path == "/" or path.startswith(("/static/", "/uploads/", "/api/roles")):
+            if path == "/" or path == "/launcher" or path.startswith(("/static/", "/uploads/", "/api/roles")):
                 return await call_next(request)
+
+            # Local desktop launcher endpoints are restricted to loopback.
+            if path in ("/api/status", "/api/launcher/shutdown", "/api/shutdown_launcher_server"):
+                client_ip = request.client.host if request.client else ""
+                if client_ip in ("127.0.0.1", "::1", "localhost"):
+                    return await call_next(request)
 
             # Agent registration/heartbeat: loopback only (no remote agent minting).
             if path.startswith(("/api/register", "/api/deregister/", "/api/heartbeat/")):
@@ -229,9 +243,10 @@ def _install_security_middleware(token: str, cfg: dict):
     app.add_middleware(SecurityMiddleware)
 
 
-def configure(cfg: dict, session_token: str = ""):
-    global store, rules, summaries, jobs, schedules, router, agents, registry, session_store, session_engine, config
+def configure(cfg: dict, session_token: str = "", launcher_token: str = ""):
+    global store, rules, summaries, jobs, schedules, router, agents, registry, session_store, session_engine, config, launcher_shutdown_token
     config = cfg
+    launcher_shutdown_token = launcher_token or ""
     # --- Security: store the session token and install middleware ---
     _install_security_middleware(session_token, cfg)
 
@@ -1568,6 +1583,13 @@ async def api_send(request: Request):
 @app.get("/api/status")
 async def get_status():
     status = agents.get_status()
+    if registry:
+        for name, info in registry.get_all().items():
+            agent_status = status.setdefault(name, {})
+            agent_status.setdefault("label", info.get("label", name))
+            agent_status.setdefault("color", info.get("color", "#888"))
+            agent_status["base"] = info.get("base")
+            agent_status["state"] = info.get("state")
     status["paused"] = any(router.is_paused(ch) for ch in room_settings.get("channels", ["general"]))
     return status
 
@@ -1575,6 +1597,48 @@ async def get_status():
 @app.get("/api/settings")
 async def get_settings():
     return room_settings
+
+
+async def _handle_launcher_shutdown(request: Request):
+    """Stop this server when requested by the native desktop launcher."""
+    client_ip = request.client.host if request.client else ""
+    if client_ip not in ("127.0.0.1", "::1", "localhost"):
+        return JSONResponse(
+            {"error": "forbidden: launcher shutdown is restricted to local loopback"},
+            status_code=403,
+        )
+    provided = (
+        request.headers.get("x-launcher-token")
+        or request.query_params.get("launcher_token")
+        or ""
+    )
+    if not launcher_shutdown_token or not secrets.compare_digest(
+        provided, launcher_shutdown_token
+    ):
+        return JSONResponse(
+            {"error": "forbidden: invalid or missing launcher token"},
+            status_code=403,
+        )
+
+    def shutdown_process() -> None:
+        time.sleep(0.25)
+        try:
+            os.kill(os.getpid(), signal.SIGTERM)
+        except Exception:
+            os._exit(0)
+
+    threading.Thread(target=shutdown_process, daemon=True).start()
+    return JSONResponse({"ok": True, "status": "shutting_down"})
+
+
+@app.post("/api/launcher/shutdown")
+async def launcher_shutdown(request: Request):
+    return await _handle_launcher_shutdown(request)
+
+
+@app.post("/api/shutdown_launcher_server")
+async def shutdown_launcher_server(request: Request):
+    return await _handle_launcher_shutdown(request)
 
 
 @app.delete("/api/hat/{agent_name}")
@@ -2654,3 +2718,12 @@ async def serve_upload(filename: str):
     if filepath.exists():
         return FileResponse(filepath)
     return JSONResponse({"error": "not found"}, status_code=404)
+
+@app.websocket("/ws/launcher/events")
+async def ws_launcher_events(websocket: WebSocket):
+    token = websocket.query_params.get("token", "")
+    if token != session_token:
+        await websocket.accept()
+        await websocket.close(code=4003, reason="forbidden: invalid session token")
+        return
+    await launcher_events_ws(websocket)
