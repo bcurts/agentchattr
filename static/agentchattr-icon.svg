@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">agentchattr icon</title>
+  <desc id="desc">Blue multi-agent chat network icon</desc>
+  <defs>
+    <linearGradient id="bg" x1="10" y1="6" x2="54" y2="58" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2563eb"/>
+      <stop offset="0.58" stop-color="#1d4ed8"/>
+      <stop offset="1" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="bubble" x1="20" y1="18" x2="45" y2="45" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#dbeafe"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="url(#bg)"/>
+  <path d="M18 18.5a9.5 9.5 0 0 1 9.5-9.5h9a9.5 9.5 0 0 1 9.5 9.5v8.7a9.5 9.5 0 0 1-9.5 9.5h-8.1l-8.9 7.1a1.4 1.4 0 0 1-2.3-1.1l1.4-7.7A9.48 9.48 0 0 1 18 27.2v-8.7z" fill="url(#bubble)"/>
+
+  <g fill="none" stroke="#93c5fd" stroke-width="2.2" stroke-linecap="round" opacity=".9">
+    <path d="M18 23.5 9.5 19"/>
+    <path d="M45 23.5 54.5 18"/>
+    <path d="M24 37.5 17 51"/>
+    <path d="M39 37.5 47.5 51"/>
+  </g>
+
+  <g fill="#1d4ed8">
+    <circle cx="26" cy="23" r="2.3"/>
+    <circle cx="32" cy="23" r="2.3"/>
+    <circle cx="38" cy="23" r="2.3"/>
+  </g>
+
+  <g>
+    <circle cx="9.5" cy="19" r="5.5" fill="#eff6ff"/>
+    <circle cx="9.5" cy="19" r="2.2" fill="#2563eb"/>
+    <circle cx="54.5" cy="18" r="5.5" fill="#eff6ff"/>
+    <circle cx="54.5" cy="18" r="2.2" fill="#2563eb"/>
+    <circle cx="17" cy="51" r="5.5" fill="#eff6ff"/>
+    <circle cx="17" cy="51" r="2.2" fill="#2563eb"/>
+    <circle cx="47.5" cy="51" r="5.5" fill="#eff6ff"/>
+    <circle cx="47.5" cy="51" r="2.2" fill="#2563eb"/>
+  </g>
+
+  <path d="M12.5 31.7a20.5 20.5 0 0 0 39 0" fill="none" stroke="#bfdbfe" stroke-width="2.2" stroke-linecap="round" opacity=".75"/>
+</svg>

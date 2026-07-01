@@ -154,18 +154,36 @@ class RuntimeRegistry:
 
     # --- Registration ---
 
-    def register(self, base: str, label: str | None = None) -> dict | None:
+    def register(
+        self,
+        base: str,
+        label: str | None = None,
+        preferred_name: str | None = None,
+        replace_existing: bool = False,
+    ) -> dict | None:
         """Register a new instance of `base`. Returns slot info or None if unknown base.
 
         When a 2nd instance registers, slot 1 is renamed from 'base' to 'base-1'
         to prevent identity ambiguity. The rename info is returned as '_renamed_slot1'.
         """
         base = canonicalize_name(base)
+        preferred = canonicalize_name(preferred_name or "")
         with self._lock:
             if base not in self._bases:
                 return None
 
             self._expire_reserved()
+            preferred_slot: int | None = None
+            if preferred:
+                preferred_base, parsed_slot = self._parse_name(preferred)
+                if preferred_base != base or parsed_slot < 1:
+                    return {"error": "preferred_name_mismatch"}
+                if preferred in self._instances:
+                    if not replace_existing:
+                        return {"error": "preferred_name_in_use"}
+                    del self._instances[preferred]
+                self._reserved.pop(preferred, None)
+                preferred_slot = parsed_slot
 
             # Find next free slot
             taken = {i.slot for i in self._instances.values() if i.base == base}
@@ -175,9 +193,12 @@ class RuntimeRegistry:
                 if rb == base:
                     reserved.add(rs)
 
-            slot = 1
-            while slot in taken or slot in reserved:
-                slot += 1
+            if preferred_slot is not None and preferred_slot not in taken:
+                slot = preferred_slot
+            else:
+                slot = 1
+                while slot in taken or slot in reserved:
+                    slot += 1
 
             # When a 2nd instance registers, rename slot-1 from "base" to "base-1"
             # so that no instance shares a name with the base family.  This prevents

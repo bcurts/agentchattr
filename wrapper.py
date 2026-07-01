@@ -26,7 +26,10 @@ import threading
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).parent
+if getattr(sys, "frozen", False):
+    ROOT = Path(sys.executable).resolve().parent
+else:
+    ROOT = Path(__file__).parent
 
 SERVER_NAME = "agentchattr"
 
@@ -380,10 +383,17 @@ def _build_provider_launch(
     return launch_args, launch_env, inject_env, settings_path
 
 
-def _register_instance(server_port: int, base: str, label: str | None = None) -> dict:
+def _register_instance(
+    server_port: int,
+    base: str,
+    label: str | None = None,
+    preferred_name: str | None = None,
+) -> dict:
     import urllib.request
 
-    reg_body = json.dumps({"base": base, "label": label}).encode()
+    reg_body = json.dumps(
+        {"base": base, "label": label, "preferred_name": preferred_name}
+    ).encode()
     reg_req = urllib.request.Request(
         f"http://127.0.0.1:{server_port}/api/register",
         method="POST",
@@ -589,6 +599,7 @@ def main():
     parser.add_argument("agent", choices=agent_names, help=f"Agent to wrap ({', '.join(agent_names)})")
     parser.add_argument("--no-restart", action="store_true", help="Do not restart on exit")
     parser.add_argument("--label", type=str, default=None, help="Custom display label")
+    parser.add_argument("--preferred-name", type=str, default=None, help="Reuse a stopped launcher-owned instance name")
     # Per-project isolation flags (must match the server's flags so wrappers
     # launched separately connect to the right instance). Values are consumed
     # by apply_cli_overrides() above; listing here so --help shows them.
@@ -609,7 +620,7 @@ def main():
     mcp_cfg = config.get("mcp", {})
 
     try:
-        registration = _register_instance(server_port, agent, args.label)
+        registration = _register_instance(server_port, agent, args.label, args.preferred_name)
     except Exception as exc:
         print(f"  Registration failed ({exc}).")
         print("  Wrapper cannot continue without a registered identity.")
@@ -775,7 +786,12 @@ def main():
             except urllib.error.HTTPError as exc:
                 if exc.code == 409:
                     try:
-                        replacement = _register_instance(server_port, agent, args.label)
+                        replacement = _register_instance(
+                            server_port,
+                            agent,
+                            args.label,
+                            args.preferred_name,
+                        )
                         set_runtime_identity(replacement["name"], replacement["token"])
                         _notify_recovery(data_dir, replacement["name"])
                     except Exception:

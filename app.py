@@ -196,7 +196,10 @@ def _install_security_middleware(token: str, cfg: dict):
                 return await call_next(request)
 
             # Local desktop launcher endpoints are restricted to loopback.
-            if path in ("/api/status", "/api/launcher/shutdown", "/api/shutdown_launcher_server"):
+            if (
+                path in ("/api/status", "/api/launcher/shutdown", "/api/shutdown_launcher_server")
+                or path.startswith("/api/launcher/agents/")
+            ):
                 client_ip = request.client.host if request.client else ""
                 if client_ip in ("127.0.0.1", "::1", "localhost"):
                     return await call_next(request)
@@ -1631,6 +1634,28 @@ async def _handle_launcher_shutdown(request: Request):
     return JSONResponse({"ok": True, "status": "shutting_down"})
 
 
+def _validate_launcher_request(request: Request) -> JSONResponse | None:
+    client_ip = request.client.host if request.client else ""
+    if client_ip not in ("127.0.0.1", "::1", "localhost"):
+        return JSONResponse(
+            {"error": "forbidden: launcher endpoint is restricted to local loopback"},
+            status_code=403,
+        )
+    if not launcher_shutdown_token:
+        return None
+    provided = (
+        request.headers.get("x-launcher-token")
+        or request.query_params.get("launcher_token")
+        or ""
+    )
+    if not secrets.compare_digest(provided, launcher_shutdown_token):
+        return JSONResponse(
+            {"error": "forbidden: invalid or missing launcher token"},
+            status_code=403,
+        )
+    return None
+
+
 @app.post("/api/launcher/shutdown")
 async def launcher_shutdown(request: Request):
     return await _handle_launcher_shutdown(request)
@@ -1639,6 +1664,35 @@ async def launcher_shutdown(request: Request):
 @app.post("/api/shutdown_launcher_server")
 async def shutdown_launcher_server(request: Request):
     return await _handle_launcher_shutdown(request)
+
+
+@app.post("/api/launcher/agents/{name}/release")
+async def launcher_release_agent(name: str, request: Request):
+    """Release a launcher-owned agent identity after its wrapper process exits."""
+    denied = _validate_launcher_request(request)
+    if denied:
+        return denied
+
+    canonical = canonicalize_name(name)
+    result = registry.deregister(canonical)
+
+    import mcp_bridge
+
+    mcp_bridge.purge_identity(canonical)
+    registry.clean_renames_for(canonical)
+    if result:
+        renamed = result.pop("_renamed_back", None)
+        if renamed:
+            mcp_bridge.migrate_identity(renamed["old"], renamed["new"])
+            store.rename_sender(renamed["old"], renamed["new"])
+            if _event_loop:
+                rename_event = json.dumps({
+                    "type": "agent_renamed",
+                    "old_name": renamed["old"],
+                    "new_name": renamed["new"],
+                })
+                asyncio.run_coroutine_threadsafe(_broadcast(rename_event), _event_loop)
+    return JSONResponse({"ok": True, "name": canonical, "released": bool(result)})
 
 
 @app.delete("/api/hat/{agent_name}")
@@ -2183,13 +2237,35 @@ async def register_agent(request: Request):
         return JSONResponse({"error": "invalid JSON"}, status_code=400)
     base = body.get("base", "")
     label = body.get("label")
+    preferred_name = body.get("preferred_name")
     if not base:
         return JSONResponse({"error": "base is required"}, status_code=400)
-    result = registry.register(base, label)
+    import mcp_bridge
+
+    replace_existing = False
+    if preferred_name:
+        existing = registry.get_instance(preferred_name)
+        if existing:
+            if mcp_bridge.is_online(existing["name"]):
+                return JSONResponse(
+                    {"error": "preferred_name_in_use", "name": existing["name"]},
+                    status_code=409,
+                )
+            mcp_bridge.purge_identity(existing["name"])
+            registry.clean_renames_for(existing["name"])
+            replace_existing = True
+
+    result = registry.register(
+        base,
+        label,
+        preferred_name=preferred_name,
+        replace_existing=replace_existing,
+    )
     if result is None:
         return JSONResponse({"error": f"unknown base: {base}"}, status_code=400)
+    if result.get("error"):
+        return JSONResponse(result, status_code=409)
     # Touch presence so the instance doesn't immediately time out
-    import mcp_bridge
     mcp_bridge._touch_presence(result["name"])
     # If slot 1 was renamed (e.g. "claude" → "claude-1"), migrate state
     renamed = result.pop("_renamed_slot1", None)

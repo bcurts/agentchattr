@@ -19,6 +19,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections import deque
 from dataclasses import dataclass, field
@@ -226,7 +227,122 @@ class Launcher:
         env.update(self._env_overrides)
         if extra:
             env.update(extra)
+        env.setdefault("PYTHONUTF8", "1")
+        env.setdefault("PYTHONIOENCODING", "utf-8")
+        if platform.system().lower() == "windows":
+            self._augment_windows_cli_path(env)
         return env
+
+    def _augment_windows_cli_path(self, env: dict[str, str]) -> None:
+        """Mirror the Windows .bat launchers' CLI PATH fixes for desktop starts."""
+
+        existing = env.get("PATH", "")
+        parts = [part for part in existing.split(os.pathsep) if part]
+        seen = {str(Path(part)).lower() for part in parts}
+        candidates: list[Path] = []
+
+        local_appdata = Path(env.get("LOCALAPPDATA", ""))
+        appdata = Path(env.get("APPDATA", ""))
+        userprofile = Path(env.get("USERPROFILE", ""))
+
+        if local_appdata:
+            codex_bin = local_appdata / "OpenAI" / "Codex" / "bin"
+            candidates.append(codex_bin)
+            try:
+                candidates.extend(
+                    path
+                    for path in sorted(
+                        codex_bin.iterdir(),
+                        key=lambda item: item.stat().st_mtime,
+                        reverse=True,
+                    )
+                    if path.is_dir()
+                )
+            except Exception:
+                pass
+
+        if appdata:
+            candidates.append(appdata / "npm")
+
+        if userprofile:
+            versions = userprofile / ".workbuddy" / "binaries" / "node" / "versions"
+            try:
+                candidates.extend(
+                    path
+                    for path in sorted(
+                        versions.iterdir(),
+                        key=lambda item: item.stat().st_mtime,
+                        reverse=True,
+                    )
+                    if path.is_dir()
+                )
+            except Exception:
+                pass
+
+        candidates.extend(
+            [
+                Path(r"C:\ServBay\packages\node\current"),
+                Path(r"C:\ServBay\packages\python\current"),
+                Path(r"C:\ServBay\packages\python\current\Scripts"),
+            ]
+        )
+
+        prepend: list[str] = []
+        for candidate in candidates:
+            try:
+                if not candidate.exists():
+                    continue
+                normalized = str(candidate.resolve()).lower()
+            except Exception:
+                continue
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            prepend.append(str(candidate))
+
+        if prepend:
+            env["PATH"] = os.pathsep.join([*prepend, existing]) if existing else os.pathsep.join(prepend)
+
+    def _agent_launch_mode(self) -> str:
+        raw = (
+            self._config.get("launcher", {}).get("agent_launch_mode")
+            or os.environ.get("AGENTCHATTR_AGENT_LAUNCH_MODE")
+            or ""
+        )
+        mode = str(raw).strip().lower()
+        if mode in {"pipe", "pipes"}:
+            return "pipe"
+        if mode in {
+            "console",
+            "terminal",
+            "real_console",
+            "external_console",
+            "windows_terminal",
+            "windows-console",
+        }:
+            return "external_console"
+        if platform.system().lower() == "windows":
+            return "external_console"
+        return "pipe"
+
+    def _server_command(self) -> list[str]:
+        if getattr(sys, "frozen", False):
+            return [sys.executable, "--agentchattr-internal", "server"]
+        return [sys.executable, str(self.root / "run.py")]
+
+    def _wrapper_command(self, base: str) -> list[str]:
+        if getattr(sys, "frozen", False):
+            return [sys.executable, "--agentchattr-internal", "wrapper", base]
+        return [sys.executable, str(self.root / "wrapper.py"), base]
+
+    def _ensure_no_restart_arg(self, cmd: list[str]) -> list[str]:
+        if "--no-restart" in cmd:
+            return cmd
+        if len(cmd) >= 4 and cmd[1:3] == ["--agentchattr-internal", "wrapper"]:
+            return [cmd[0], cmd[1], cmd[2], cmd[3], "--no-restart", *cmd[4:]]
+        if len(cmd) >= 3 and Path(cmd[1]).name.lower() == "wrapper.py":
+            return [cmd[0], cmd[1], cmd[2], "--no-restart", *cmd[3:]]
+        return [*cmd, "--no-restart"]
 
     async def _http_health_ok(self, path: str) -> bool:
         host, port = self._probe_host_port()
@@ -423,6 +539,47 @@ class Launcher:
         payload.setdefault("http_status", status)
         return payload
 
+    async def _release_agent_identity(self, name: str | None) -> dict:
+        if not name:
+            return {"ok": False, "status": "skipped"}
+        host, port = self._probe_host_port()
+        url_host = f"[{host}]" if ":" in host and not host.startswith("[") else host
+        safe_name = urllib.parse.quote(str(name), safe="")
+        url = f"http://{url_host}:{port}/api/launcher/agents/{safe_name}/release"
+        token = str(self._load_server_state().get("launcher_token") or "")
+
+        def request() -> tuple[int, bytes]:
+            headers = {"User-Agent": "agentchattr-launcher/1.0"}
+            if token:
+                headers["X-Launcher-Token"] = token
+            req = urllib.request.Request(
+                url,
+                method="POST",
+                data=b"",
+                headers=headers,
+            )
+            with urllib.request.urlopen(req, timeout=3) as response:
+                return response.status, response.read()
+
+        try:
+            status, body = await asyncio.to_thread(request)
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except Exception:
+                payload = {}
+            payload.setdefault("http_status", status)
+            return payload
+        except Exception as exc:
+            self._logs.setdefault("server", deque(maxlen=self.MAX_LOG_LINES)).append(
+                LogEvent(
+                    process_key="server",
+                    stream="launcher",
+                    text=f"Failed to release agent identity {name}: {exc}",
+                    timestamp=time.time(),
+                )
+            )
+            return {"ok": False, "error": str(exc)}
+
     async def _stop_server_with_saved_token(self) -> dict | None:
         state = self._load_server_state()
         token = state.get("launcher_token")
@@ -516,7 +673,12 @@ class Launcher:
         )
         await proc.wait()
         async with self._lock:
-            if proc.returncode != 0:
+            if process.status == "stopping":
+                process.status = "stopped"
+            elif process.kind == "agent" and process.started_by_launcher:
+                process.status = "stopped"
+                process.last_error = None
+            elif proc.returncode != 0:
                 process.status = "error"
                 process.last_error = f"Exited with code {proc.returncode}"
             else:
@@ -525,6 +687,41 @@ class Launcher:
                 del self._subprocesses[key]
             if key == "server":
                 self._clear_server_state()
+            release_name = (
+                process.assigned_name
+                if process.kind == "agent" and process.started_by_launcher
+                else None
+            )
+        if release_name:
+            await self._release_agent_identity(release_name)
+
+    async def _terminate_windows_process_tree(self, pid: int) -> dict:
+        try:
+            startupinfo = None
+            creationflags = 0
+            if platform.system().lower() == "windows":
+                creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = subprocess.SW_HIDE
+            result = await asyncio.to_thread(
+                subprocess.run,
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                creationflags=creationflags,
+                startupinfo=startupinfo,
+            )
+        except Exception as exc:
+            return {"error": f"Failed to stop PID {pid}: {exc}", "status": "error"}
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            return {
+                "error": f"Failed to stop PID {pid}: {detail or 'taskkill failed'}",
+                "status": "error",
+            }
+        return {"pid": pid, "status": "stopped"}
 
     async def send_input(self, key: str, text: str, *, append_newline: bool = True) -> dict:
         async with self._lock:
@@ -612,7 +809,7 @@ class Launcher:
         for name, inst in instances.items():
             inst_name = str(inst.get("name") or name)
             state = inst.get("state", "unknown")
-            available = state == "active"
+            available = False
             busy = False
             role = inst.get("role") or ""
             try:
@@ -641,11 +838,11 @@ class Launcher:
             return fallback
         if runtime.get("busy"):
             return "working"
-        if runtime.get("available") or runtime.get("state") == "active":
+        if runtime.get("available"):
             return "active"
         if runtime.get("state") == "pending":
             return "pending"
-        if fallback in {"starting", "stopping", "error"}:
+        if fallback in {"starting", "stopping", "error", "stopped"}:
             return fallback
         return "stopped"
 
@@ -654,26 +851,76 @@ class Launcher:
         processes: dict[str, dict],
         runtime_status: dict[str, dict],
     ) -> None:
+        def has_live_launcher_agent(proc_key: str, proc: dict) -> bool:
+            if not (proc.get("kind") == "agent" and proc.get("started_by_launcher")):
+                return False
+            child = self._subprocesses.get(proc_key)
+            return bool(child and child.returncode is None)
+
         assigned_to_key = {
             proc.get("assigned_name"): key
             for key, proc in processes.items()
             if proc.get("kind") == "agent" and proc.get("assigned_name")
         }
+        pending_managed_bases = {
+            proc.get("base")
+            for key, proc in processes.items()
+            if (
+                proc.get("kind") == "agent"
+                and proc.get("started_by_launcher")
+                and not proc.get("assigned_name")
+                and proc.get("status") in {"starting", "running", "pending"}
+                and has_live_launcher_agent(key, proc)
+            )
+        }
+        pending_by_base: dict[str, list[str]] = {}
+        for proc_key, proc in processes.items():
+            base = proc.get("base")
+            if base in pending_managed_bases and has_live_launcher_agent(proc_key, proc):
+                pending_by_base.setdefault(str(base), []).append(proc_key)
 
         for name, runtime in runtime_status.items():
             key = assigned_to_key.get(name)
             if key:
                 proc = processes[key]
-                proc["status"] = self._runtime_display_status(
-                    runtime, str(proc.get("status") or "unknown")
-                )
-                proc["available"] = bool(runtime.get("available"))
-                proc["busy"] = bool(runtime.get("busy"))
                 proc["label"] = runtime.get("label") or proc.get("label")
                 proc["color"] = runtime.get("color") or proc.get("color")
                 proc["state"] = runtime.get("state") or proc.get("state")
                 proc["role"] = runtime.get("role") or proc.get("role")
                 proc["base"] = proc.get("base") or runtime.get("base")
+                if proc.get("started_by_launcher") and not has_live_launcher_agent(key, proc):
+                    proc["status"] = str(proc.get("status") or "stopped")
+                    if proc["status"] not in {"stopped", "error"}:
+                        proc["status"] = "stopped"
+                    proc["available"] = False
+                    proc["busy"] = False
+                else:
+                    proc["status"] = self._runtime_display_status(
+                        runtime, str(proc.get("status") or "unknown")
+                    )
+                    proc["available"] = bool(runtime.get("available"))
+                    proc["busy"] = bool(runtime.get("busy"))
+                continue
+
+            if runtime.get("base") in pending_managed_bases:
+                candidates = pending_by_base.get(str(runtime.get("base"))) or []
+                if candidates:
+                    pending_key = candidates.pop(0)
+                    proc = processes[pending_key]
+                    proc["assigned_name"] = name
+                    proc["status"] = self._runtime_display_status(
+                        runtime, str(proc.get("status") or "running")
+                    )
+                    proc["available"] = bool(runtime.get("available"))
+                    proc["busy"] = bool(runtime.get("busy"))
+                    proc["label"] = runtime.get("label") or proc.get("label")
+                    proc["color"] = runtime.get("color") or proc.get("color")
+                    proc["state"] = runtime.get("state") or proc.get("state")
+                    proc["role"] = runtime.get("role") or proc.get("role")
+                    async_process = self._processes.get(pending_key)
+                    if async_process:
+                        async_process.assigned_name = name
+                        async_process.status = str(proc["status"])
                 continue
 
             key = f"external:{name}"
@@ -694,6 +941,7 @@ class Launcher:
                     "cwd": None,
                     "can_send_input": False,
                     "input_capability": "external",
+                    "terminal_capability": "external",
                     "available": bool(runtime.get("available")),
                     "busy": bool(runtime.get("busy")),
                     "label": runtime.get("label", name),
@@ -743,6 +991,20 @@ class Launcher:
         else:
             status_text = probe.status
 
+        def can_send_input(key: str) -> bool:
+            proc = self._subprocesses.get(key)
+            return bool(proc and proc.stdin is not None and proc.returncode is None)
+
+        def input_capability(key: str, process: ManagedProcess) -> str:
+            proc = self._subprocesses.get(key)
+            if proc and proc.returncode is None:
+                if proc.stdin is not None:
+                    return "stdin_pipe"
+                if process.kind == "agent" and platform.system().lower() == "windows":
+                    return "windows_terminal"
+                return "process"
+            return "unavailable"
+
         processes = {
             k: {
                 "key": p.key,
@@ -757,20 +1019,9 @@ class Launcher:
                 "mode": p.mode,
                 "role": p.role,
                 "cwd": p.cwd,
-                "can_send_input": (
-                    k in self._subprocesses
-                    and self._subprocesses[k].stdin is not None
-                    and self._subprocesses[k].returncode is None
-                ),
-                "input_capability": (
-                    "stdin_pipe"
-                    if (
-                        k in self._subprocesses
-                        and self._subprocesses[k].stdin is not None
-                        and self._subprocesses[k].returncode is None
-                    )
-                    else "unavailable"
-                ),
+                "can_send_input": can_send_input(k),
+                "input_capability": input_capability(k, p),
+                "terminal_capability": input_capability(k, p),
             }
             for k, p in self._processes.items()
         }
@@ -781,9 +1032,20 @@ class Launcher:
             for p in processes.values()
             if p.get("started_by_launcher") and p.get("assigned_name")
         }
+        pending_managed_bases = {
+            p.get("base")
+            for p in processes.values()
+            if (
+                p.get("started_by_launcher")
+                and not p.get("assigned_name")
+                and p.get("status") in {"starting", "running", "pending"}
+            )
+        }
         for name, inst in registry_instances.items():
             inst_name = inst.get("name", name)
             if inst_name in managed_names:
+                continue
+            if inst.get("base") in pending_managed_bases:
                 continue
             key = f"external:{inst_name}"
             processes.setdefault(
@@ -803,6 +1065,7 @@ class Launcher:
                     "cwd": None,
                     "can_send_input": False,
                     "input_capability": "external",
+                    "terminal_capability": "external",
                 },
             )
         runtime_status = await self._server_runtime_status(probe.running)
@@ -856,7 +1119,7 @@ class Launcher:
             if "server" in self._subprocesses:
                 return {"error": "Server start already in progress", "status": "starting"}
 
-            cmd = [sys.executable, str(self.root / "run.py")]
+            cmd = self._server_command()
             launcher_token = secrets.token_urlsafe(32)
             try:
                 proc = await asyncio.create_subprocess_exec(
@@ -921,6 +1184,8 @@ class Launcher:
         custom_role: Optional[str] = None,
         cwd: Optional[str] = None,
         auto_start: bool = False,
+        reuse_key: Optional[str] = None,
+        preferred_name: Optional[str] = None,
     ) -> dict:
         base = base.lower()
         template = self._templates.get(base)
@@ -933,9 +1198,12 @@ class Launcher:
         if not await self._is_server_running():
             return {"error": "Server must be running before starting agents"}
 
-        cmd = [sys.executable, str(self.root / "wrapper.py"), base]
+        cmd = self._wrapper_command(base)
+        if preferred_name:
+            cmd.extend(["--preferred-name", preferred_name])
         if mode == "yolo" and template.yolo_args:
             cmd.extend(template.yolo_args)
+        cmd = self._ensure_no_restart_arg(cmd)
 
         raw_work_dir = cwd or template.cwd or str(self.root.parent)
         work_dir = Path(raw_work_dir)
@@ -945,48 +1213,119 @@ class Launcher:
             work_dir = work_dir.resolve()
 
         async with self._lock:
-            key = f"agent:{base}:{int(time.time() * 1000)}"
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdin=asyncio.subprocess.PIPE,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    cwd=str(work_dir),
-                    env=self._child_env(),
+            key = reuse_key or f"agent:{base}:{int(time.time() * 1000)}"
+            existing_process = self._processes.get(key)
+            if reuse_key:
+                if not existing_process:
+                    return {"error": f"Process {reuse_key} not found", "status": "not_found"}
+                if existing_process.kind != "agent" or not existing_process.started_by_launcher:
+                    return {"error": f"Process {reuse_key} is not a launcher-owned agent", "status": "external"}
+                existing_proc = self._subprocesses.get(key)
+                if existing_proc and existing_proc.returncode is None:
+                    return {"error": f"Process {reuse_key} is already running", "status": "running"}
+            launch_mode = self._agent_launch_mode()
+            env = self._child_env()
+            subprocess_kwargs: dict[str, Any] = {
+                "cwd": str(work_dir),
+                "env": env,
+            }
+            if launch_mode == "external_console" and platform.system().lower() == "windows":
+                subprocess_kwargs.update(
+                    {
+                        "stdin": None,
+                        "stdout": None,
+                        "stderr": None,
+                        "creationflags": subprocess.CREATE_NEW_CONSOLE,
+                    }
                 )
+            else:
+                subprocess_kwargs.update(
+                    {
+                        "stdin": asyncio.subprocess.PIPE,
+                        "stdout": asyncio.subprocess.PIPE,
+                        "stderr": asyncio.subprocess.PIPE,
+                    }
+                )
+            try:
+                proc = await asyncio.create_subprocess_exec(*cmd, **subprocess_kwargs)
             except Exception as exc:
                 return {"error": f"Failed to start agent: {exc}"}
+            pid = proc.pid
+            self._subprocesses[key] = proc
 
+            if launch_mode == "external_console" and platform.system().lower() == "windows":
+                self._logs.setdefault(key, deque(maxlen=self.MAX_LOG_LINES)).append(
+                    LogEvent(
+                        process_key=key,
+                        stream="terminal",
+                        text=(
+                            "Started in Windows Terminal. "
+                            "Use that terminal window for interactive CLI input."
+                        ),
+                        timestamp=time.time(),
+                    )
+                )
             role_value = custom_role if role == "custom" else role
             if role_value == "none":
                 role_value = None
-            process = ManagedProcess(
-                key=key,
-                kind="agent",
-                base=base,
-                assigned_name=None,
-                pid=proc.pid,
-                status="starting",
-                started_by_launcher=True,
-                started_at=time.time(),
-                mode=mode,
-                role=role_value,
-                cwd=str(work_dir),
-            )
+            if existing_process:
+                existing_process.base = base
+                existing_process.pid = pid
+                existing_process.status = "starting"
+                existing_process.started_at = time.time()
+                existing_process.last_error = None
+                existing_process.mode = mode
+                existing_process.role = role_value
+                existing_process.cwd = str(work_dir)
+                process = existing_process
+            else:
+                process = ManagedProcess(
+                    key=key,
+                    kind="agent",
+                    base=base,
+                    assigned_name=None,
+                    pid=pid,
+                    status="starting",
+                    started_by_launcher=True,
+                    started_at=time.time(),
+                    mode=mode,
+                    role=role_value,
+                    cwd=str(work_dir),
+                )
             self._processes[key] = process
-            self._subprocesses[key] = proc
 
-        asyncio.create_task(self._monitor_process(key, proc, process))
+        asyncio.create_task(self._monitor_process(key, self._subprocesses[key], process))
         asyncio.create_task(self._resolve_assigned_name(key, base))
         return {
             "process_key": key,
             "base": base,
-            "assigned_name": None,
+            "assigned_name": process.assigned_name,
             "status": "starting",
             "started_by_launcher": True,
-            "pid": proc.pid,
+            "pid": pid,
         }
+
+    async def start_existing_agent(self, key: str) -> dict:
+        process = self._processes.get(key)
+        if not process:
+            return {"error": f"Process {key} not found", "status": "not_found"}
+        if process.kind != "agent" or not process.started_by_launcher:
+            return {"error": f"Process {key} is not a launcher-owned agent", "status": "external"}
+        proc = self._subprocesses.get(key)
+        if proc and proc.returncode is None:
+            return {"error": f"Process {key} is already running", "status": "running"}
+        if not process.base:
+            return {"error": f"Process {key} has no agent base", "status": "error"}
+        if process.assigned_name:
+            await self._release_agent_identity(process.assigned_name)
+        return await self.start_agent(
+            base=process.base,
+            mode=process.mode or "normal",
+            role=process.role,
+            cwd=process.cwd,
+            reuse_key=key,
+            preferred_name=process.assigned_name,
+        )
 
     async def _resolve_assigned_name(self, key: str, base: str) -> None:
         for _ in range(30):
@@ -1023,6 +1362,7 @@ class Launcher:
                 return
 
     async def stop_process(self, key: str) -> dict:
+        release_name = None
         async with self._lock:
             proc = self._subprocesses.get(key)
             process = self._processes.get(key)
@@ -1035,6 +1375,8 @@ class Launcher:
                     }
                 return {"error": f"Process {key} not found", "status": "not_found"}
             if not proc:
+                if process and process.status == "stopped":
+                    return {"key": key, "status": "stopped"}
                 return {
                     "error": f"Process {key} is not managed by launcher",
                     "status": "external",
@@ -1043,8 +1385,18 @@ class Launcher:
                 process.status = "stopping"
 
             try:
-                proc.terminate()
-                await asyncio.wait_for(proc.wait(), timeout=5.0)
+                if (
+                    platform.system().lower() == "windows"
+                    and process
+                    and process.kind == "agent"
+                ):
+                    result = await self._terminate_windows_process_tree(proc.pid)
+                    if "error" in result:
+                        return result
+                    await asyncio.wait_for(proc.wait(), timeout=5.0)
+                else:
+                    proc.terminate()
+                    await asyncio.wait_for(proc.wait(), timeout=5.0)
             except asyncio.TimeoutError:
                 proc.kill()
                 await proc.wait()
@@ -1054,9 +1406,13 @@ class Launcher:
             self._subprocesses.pop(key, None)
             if process:
                 process.status = "stopped"
+                if process.kind == "agent" and process.started_by_launcher:
+                    release_name = process.assigned_name
             if key == "server":
                 self._clear_server_state()
 
+        if release_name:
+            await self._release_agent_identity(release_name)
         return {"key": key, "status": "stopped"}
 
     async def restart_process(self, key: str) -> dict:
@@ -1094,7 +1450,14 @@ class Launcher:
         if is_server:
             return await self.start_server()
         if base:
-            return await self.start_agent(base=base, mode=mode, role=role, cwd=cwd)
+            return await self.start_agent(
+                base=base,
+                mode=mode,
+                role=role,
+                cwd=cwd,
+                reuse_key=key,
+                preferred_name=process.assigned_name,
+            )
         return {"error": "Cannot restart: unknown process type"}
 
     def get_logs(self, key: str, limit: int = 100) -> list[dict]:

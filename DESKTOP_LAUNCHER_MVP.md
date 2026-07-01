@@ -18,8 +18,8 @@ python -m pip install -r requirements-desktop.txt
 ```
 
 `requirements.txt` is still required for the FastAPI server. The desktop
-requirements file contains the native desktop shell dependency for the MVP:
-PySide6.
+requirements file contains the native desktop shell dependency plus the Windows
+packaging tools: PySide6, PyInstaller, and Pillow.
 
 ## Run
 
@@ -39,6 +39,26 @@ Then open:
 ```text
 http://localhost:8300/launcher
 ```
+
+## Build Windows EXE
+
+The desktop launcher is packaged as a PyInstaller `onedir` app. Build it from
+the repository root after installing both requirements files:
+
+```powershell
+python build_desktop_exe.py
+```
+
+The output is:
+
+```text
+dist/agentchattr/agentchattr.exe
+```
+
+Keep the whole `dist/agentchattr/` folder together. Do not move only the exe:
+the launcher reads `config.toml`, `static/`, and other runtime resources from
+the same folder. If you need local overrides, place `config.local.toml` beside
+`agentchattr.exe`.
 
 ## MVP Behavior
 
@@ -69,15 +89,17 @@ http://localhost:8300/launcher
 Use PowerShell from the repository root unless noted otherwise.
 
 1. Install dependencies with `requirements.txt` and `requirements-desktop.txt`.
-2. Run `python desktop_launcher.py`, or run `python run.py` and open
-   `http://localhost:8300/launcher` for the web fallback.
+2. Run `python desktop_launcher.py`, or build and double-click
+   `dist/agentchattr/agentchattr.exe`. For the web fallback, run `python run.py`
+   and open `http://localhost:8300/launcher`.
 3. Confirm the launcher shows the configured host, port, MCP ports, and agent
    templates from config.
 4. With no server running, click Start Server and verify the server enters a
    running state.
 5. Click Open Chat and verify `http://localhost:8300` loads.
 6. Start one agent in normal mode and verify a launcher-owned process appears.
-7. Verify stdout/stderr lines appear in the log view for that process.
+7. Verify server stdout/stderr lines appear in the log view; agent CLI windows
+   are hosted by Windows Terminal.
 8. Start a second instance of the same agent and verify the registry-assigned
    instance name appears when the wrapper registers.
 9. Stop the launcher-owned agent and verify its state changes to stopped.

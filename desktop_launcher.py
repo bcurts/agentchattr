@@ -7,14 +7,16 @@ loop, keeping process supervision and status polling off the Qt main thread.
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 import time
 import traceback
 import webbrowser
+from pathlib import Path
 from typing import Any, Callable, Coroutine
 
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QFont, QGuiApplication
+from PySide6.QtGui import QFont, QGuiApplication, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -52,6 +54,84 @@ except ImportError:
 
 
 AsyncFactory = Callable[[Any], Coroutine[Any, Any, Any]]
+INTERNAL_ARG = "--agentchattr-internal"
+_STREAM_FALLBACKS: list[Any] = []
+APP_USER_MODEL_ID = "agentchattr.desktop.launcher"
+
+
+def runtime_root() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+def app_icon() -> QIcon:
+    root = runtime_root()
+    icon = QIcon(str(root / "static" / "agentchattr-icon.svg"))
+    if not icon.isNull():
+        return icon
+    return QIcon(str(root / "agentchattr-icon.ico"))
+
+
+def set_windows_app_user_model_id() -> None:
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
+    except Exception:
+        pass
+
+
+def _ensure_internal_standard_streams() -> None:
+    if sys.stdin is None:
+        stream = open(os.devnull, "r", encoding="utf-8")
+        _STREAM_FALLBACKS.append(stream)
+        sys.stdin = stream
+    if sys.stdout is None:
+        stream = open(os.devnull, "w", encoding="utf-8")
+        _STREAM_FALLBACKS.append(stream)
+        sys.stdout = stream
+    if sys.stderr is None:
+        stream = open(os.devnull, "w", encoding="utf-8")
+        _STREAM_FALLBACKS.append(stream)
+        sys.stderr = stream
+
+
+def _run_internal_subcommand() -> int | None:
+    if len(sys.argv) < 3 or sys.argv[1] != INTERNAL_ARG:
+        return None
+
+    _ensure_internal_standard_streams()
+    command = sys.argv[2]
+    sys.argv = [sys.argv[0], *sys.argv[3:]]
+    try:
+        if command == "server":
+            import run
+
+            run.main()
+            return 0
+        if command == "wrapper":
+            import wrapper
+
+            wrapper.main()
+            return 0
+        print(f"Unknown internal command: {command}", file=sys.stderr)
+        return 2
+    except Exception:
+        trace_path = os.environ.get("AGENTCHATTR_INTERNAL_TRACE")
+        if trace_path:
+            try:
+                path = Path(trace_path)
+                if not path.is_absolute():
+                    path = Path(sys.executable).resolve().parent / path
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with open(path, "a", encoding="utf-8") as fh:
+                    fh.write(traceback.format_exc())
+            except Exception:
+                pass
+        raise
 
 
 class LauncherThread(QThread):
@@ -91,7 +171,13 @@ class LauncherThread(QThread):
         if self.loop and self.loop.is_running():
             self.loop.call_soon_threadsafe(self.loop.stop)
 
-    def submit(self, name: str, factory: AsyncFactory, refresh: bool = True) -> None:
+    def submit(
+        self,
+        name: str,
+        factory: AsyncFactory,
+        refresh: bool = True,
+        notify: bool = True,
+    ) -> None:
         if not self.loop or not self.loop.is_running() or not self.launcher:
             self.operation_failed.emit(name, "Launcher thread is not ready yet.")
             return
@@ -100,7 +186,8 @@ class LauncherThread(QThread):
             async def runner() -> None:
                 try:
                     result = await factory(self.launcher)
-                    self.operation_finished.emit(name, result)
+                    if notify:
+                        self.operation_finished.emit(name, result)
                     if refresh:
                         await self._emit_status()
                 except Exception as exc:
@@ -125,7 +212,6 @@ class LauncherThread(QThread):
         status = await self.launcher.get_status()
         self.status_updated.emit(status)
         keys = ["server"]
-        keys.extend(status.get("processes", {}).keys())
         seen: set[str] = set()
         for key in keys:
             if key in seen:
@@ -165,6 +251,9 @@ class LauncherThread(QThread):
 
     def stop_process(self, key: str) -> None:
         self.submit(f"Stop {key}", lambda launcher: launcher.stop_process(key))
+
+    def start_existing_agent(self, key: str) -> None:
+        self.submit(f"Start {key}", lambda launcher: launcher.start_existing_agent(key))
 
     def restart_process(self, key: str) -> None:
         self.submit(f"Restart {key}", lambda launcher: launcher.restart_process(key))
@@ -261,12 +350,9 @@ QFrame#topBar, QFrame#pageNav {
     background: #ffffff;
     border-bottom: 1px solid #d8e0ea;
 }
-QLabel#logoMark {
-    background: #2563eb;
-    color: white;
-    border-radius: 8px;
-    font-weight: 800;
-    font-size: 15px;
+QLabel#logoImage {
+    background: transparent;
+    border: 0;
 }
 QLabel#topTitle {
     color: #0c111d;
@@ -617,6 +703,7 @@ class DesktopLauncher(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("agentchattr 控制台")
+        self.setWindowIcon(app_icon())
         self.resize(1320, 820)
         self.setMinimumSize(980, 650)
         self.setStyleSheet(APP_QSS)
@@ -669,10 +756,15 @@ class DesktopLauncher(QMainWindow):
         layout.setContentsMargins(20, 10, 20, 10)
         layout.setSpacing(12)
 
-        logo = QLabel("A")
-        logo.setObjectName("logoMark")
+        logo = QLabel()
+        logo.setObjectName("logoImage")
         logo.setFixedSize(30, 30)
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon_pixmap = app_icon().pixmap(30, 30)
+        if icon_pixmap.isNull():
+            logo.setText("A")
+        else:
+            logo.setPixmap(icon_pixmap)
         title = QLabel("agentchattr 控制台")
         title.setObjectName("topTitle")
         layout.addWidget(logo)
@@ -945,7 +1037,7 @@ class DesktopLauncher(QMainWindow):
         panel_layout = QVBoxLayout(panel)
         panel_layout.setContentsMargins(16, 14, 16, 16)
         toolbar = QHBoxLayout()
-        title = QLabel("统一终端 - 所有代理日志集中显示")
+        title = QLabel("服务终端 - Server stdout/stderr")
         title.setObjectName("terminalTitle")
         toolbar.addWidget(title)
         toolbar.addStretch(1)
@@ -959,11 +1051,12 @@ class DesktopLauncher(QMainWindow):
         self.logs_tabs = QTabWidget()
         self.logs_tabs.currentChanged.connect(self._update_terminal_input_state)
         panel_layout.addWidget(self.logs_tabs, 1)
+        self._log_editor("server")
 
         input_row = QHBoxLayout()
         input_row.setSpacing(8)
         self.terminal_input = QLineEdit()
-        self.terminal_input.setPlaceholderText("向当前 launcher 管理的进程 stdin 发送一行文本")
+        self.terminal_input.setPlaceholderText("服务日志只读；agent CLI 请在 Windows Terminal 中操作")
         self.terminal_input.returnPressed.connect(self.send_current_input)
         self.terminal_input.textChanged.connect(self._update_terminal_input_state)
         self.terminal_send_button = button("发送", "primary", fixed_width=82)
@@ -973,7 +1066,7 @@ class DesktopLauncher(QMainWindow):
         panel_layout.addLayout(input_row)
 
         self.terminal_status_label = label(
-            "限制：这里只能写入 launcher 启动进程的 stdin pipe；不是完整 PTY，无法处理全屏 TUI、光标定位或真实终端控制。",
+            "这里仅显示 launcher 启动的 server 日志；Claude/Codex/Kimi 等 CLI 在 Windows Terminal 中操作。",
             muted=True,
         )
         self.terminal_status_label.setWordWrap(True)
@@ -1206,24 +1299,29 @@ class DesktopLauncher(QMainWindow):
             subtitle = f"{role} · {subtitle}"
         body.addWidget(label(subtitle, muted=True))
 
-        meta = QLabel(
-            f"● PID: {proc.get('pid') or '未运行'}    ■ "
-            f"{'由启动器管理' if not external else '外部进程'}"
-        )
+        terminal_capability = str(proc.get("terminal_capability") or "")
+        if external:
+            ownership = "外部进程"
+        elif terminal_capability == "windows_terminal":
+            ownership = "由启动器管理 · Windows Terminal"
+        else:
+            ownership = "由启动器管理"
+        meta = QLabel(f"● PID: {proc.get('pid') or '未运行'}    ■ {ownership}")
         meta.setProperty("muted", True)
         body.addWidget(meta)
         layout.addLayout(body, 1)
 
-        can_stop = proc.get("started_by_launcher") and status in {"running", "active", "working", "starting"}
-        can_restart = proc.get("started_by_launcher") and status in {"running", "active", "working"}
-        can_start = status in {"stopped", "error"}
+        launcher_owned = bool(proc.get("started_by_launcher"))
+        can_stop = launcher_owned and status in {"running", "active", "working", "starting"}
+        can_restart = launcher_owned and status in {"running", "active", "working"}
+        can_start = launcher_owned and status in {"stopped", "error"}
         if can_stop:
             stop = button("停止", "outline-danger", fixed_width=72)
             stop.clicked.connect(lambda _checked=False, k=key: self.worker.stop_process(k))
             layout.addWidget(stop)
         elif can_start:
             start = button("启动", "outline-success", fixed_width=72)
-            start.clicked.connect(lambda _checked=False, b=base: self.worker.start_agent(base=b))
+            start.clicked.connect(lambda _checked=False, k=key: self.worker.start_existing_agent(k))
             layout.addWidget(start)
         else:
             disabled = button("--", fixed_width=72)
@@ -1320,6 +1418,8 @@ class DesktopLauncher(QMainWindow):
         webbrowser.open(f"http://{host}:{port}")
 
     def apply_logs(self, key: str, logs: list[dict[str, Any]]) -> None:
+        if key != "server":
+            return
         editor = self._log_editor(key)
         threshold = self.log_clear_after.get(key, 0.0)
         lines = []
@@ -1341,6 +1441,8 @@ class DesktopLauncher(QMainWindow):
                 scrollbar.setValue(scrollbar.maximum())
 
     def _log_editor(self, key: str) -> QPlainTextEdit:
+        if key != "server":
+            raise ValueError("Desktop logs only render launcher-owned server output")
         if key in self.log_editors:
             return self.log_editors[key]
         editor = QPlainTextEdit()
@@ -1362,7 +1464,8 @@ class DesktopLauncher(QMainWindow):
         if not key:
             return
         self.log_clear_after[key] = time.time()
-        self.log_editors[key].clear()
+        if key in self.log_editors:
+            self.log_editors[key].clear()
 
     def _current_terminal_process(self) -> dict[str, Any] | None:
         key = self.current_log_key()
@@ -1373,48 +1476,14 @@ class DesktopLauncher(QMainWindow):
     def _update_terminal_input_state(self, *_args: object) -> None:
         if not hasattr(self, "terminal_send_button"):
             return
-        key = self.current_log_key()
-        process = self._current_terminal_process()
-        can_send = bool(process and process.get("can_send_input"))
-        has_text = bool(self.terminal_input.text().strip())
-        self.terminal_send_button.setEnabled(can_send and has_text)
-        self.terminal_input.setEnabled(can_send)
-
-        base_note = (
-            "限制：这里只能写入 launcher 启动进程的 stdin pipe；不是完整 PTY，"
-            "无法处理全屏 TUI、光标定位或真实终端控制。"
+        self.terminal_send_button.setEnabled(False)
+        self.terminal_input.setEnabled(False)
+        self.terminal_status_label.setText(
+            "这里只显示 launcher 启动的 server stdout/stderr；agent CLI 请在 Windows Terminal 中操作。"
         )
-        if not key:
-            detail = "当前没有终端日志页。"
-        elif can_send:
-            detail = f"当前目标 {key} 支持 stdin pipe 输入。"
-        elif process and process.get("input_capability") == "external":
-            detail = f"当前目标 {key} 是外部进程，启动器没有 stdin pipe。"
-        elif process:
-            detail = f"当前目标 {key} 暂不支持输入：{process.get('input_capability', 'unavailable')}。"
-        else:
-            detail = f"当前目标 {key} 不在 launcher 管理状态中，无法发送输入。"
-        self.terminal_status_label.setText(f"{detail} {base_note}")
 
     def send_current_input(self) -> None:
-        key = self.current_log_key()
-        text = self.terminal_input.text()
-        if not key:
-            QMessageBox.warning(self, "发送输入", "当前没有可发送的终端页。")
-            return
-        process = self._current_terminal_process()
-        if not process or not process.get("can_send_input"):
-            QMessageBox.warning(
-                self,
-                "发送输入",
-                self.terminal_status_label.text(),
-            )
-            return
-        if not text.strip():
-            return
-        self.worker.send_input(key, text)
-        self.terminal_input.clear()
-        self.statusBar().showMessage(f"Sent input to {key}", 2000)
+        QMessageBox.information(self, "服务日志", self.terminal_status_label.text())
 
     def copy_current_log(self) -> None:
         key = self.current_log_key()
@@ -1436,7 +1505,13 @@ class DesktopLauncher(QMainWindow):
 
 
 def main() -> int:
+    internal_result = _run_internal_subcommand()
+    if internal_result is not None:
+        return internal_result
+
+    set_windows_app_user_model_id()
     app = QApplication(sys.argv)
+    app.setWindowIcon(app_icon())
     app.setFont(QFont("Microsoft YaHei UI", 9))
     window = DesktopLauncher()
     window.show()
