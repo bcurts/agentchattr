@@ -18,7 +18,12 @@ INCLUDE_FILES = [
     "app.py",
     "agents.py",
     "config_loader.py",
+    "desktop_launcher.py",
     "jobs.py",
+    "launcher.py",
+    "launcher_routes.py",
+    "launcher_rules.py",
+    "launcher_supervisor.py",
     "mcp_bridge.py",
     "mcp_proxy.py",
     "registry.py",
@@ -37,12 +42,12 @@ INCLUDE_FILES = [
     "open_chat.html",
     "config.toml",
     "config.local.toml.example",
+    "build_desktop_exe.py",
     "requirements.txt",
+    "requirements-desktop.txt",
     "README.md",
     "LICENSE",
     "VERSION",
-    "screenshot.png",
-    "gang.gif",
 ]
 
 INCLUDE_DIRS = [
@@ -50,6 +55,7 @@ INCLUDE_DIRS = [
     "windows",
     "macos-linux",
     "session_templates",
+    "docs",
 ]
 
 

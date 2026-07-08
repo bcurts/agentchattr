@@ -19,6 +19,10 @@
     border-bottom-color: var(--border-strong);
 }
 
+html[data-theme="light"] #session-bar.session-elsewhere {
+    background: linear-gradient(90deg, #f8fafc 0%, #eef2f7 100%);
+}
+
 .session-end-controls {
     display: inline-flex;
     align-items: center;

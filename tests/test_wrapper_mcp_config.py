@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from wrapper import _write_json_mcp_settings  # noqa: E402
+from wrapper import _build_provider_launch, _write_json_mcp_settings  # noqa: E402
 
 
 class JsonMcpSettingsTests(unittest.TestCase):
@@ -63,6 +63,17 @@ class JsonMcpSettingsTests(unittest.TestCase):
         entry = self._read()["mcpServers"]["agentchattr"]
         self.assertEqual(entry["headers"]["Authorization"], "Bearer secret-token-123")
 
+    def test_bearer_token_env_var_replaces_static_authorization_header(self):
+        _write_json_mcp_settings(
+            self.target, "http://127.0.0.1:8200/mcp",
+            transport="http", token="secret-token-123", http_key="url",
+            bearer_token_env="AGENTCHATTR_MCP_TOKEN",
+        )
+        entry = self._read()["mcpServers"]["agentchattr"]
+        self.assertEqual(entry["bearerTokenEnvVar"], "AGENTCHATTR_MCP_TOKEN")
+        self.assertNotIn("headers", entry)
+        self.assertNotIn("secret-token-123", self.target.read_text("utf-8"))
+
     def test_existing_servers_preserved(self):
         # Write a pre-existing settings file with an unrelated server
         self.target.parent.mkdir(parents=True, exist_ok=True)
@@ -74,6 +85,54 @@ class JsonMcpSettingsTests(unittest.TestCase):
         data = self._read()
         self.assertIn("some-other-server", data["mcpServers"])
         self.assertIn("agentchattr", data["mcpServers"])
+
+
+class KimiBearerTokenEnvLaunchTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.project_dir = self.root / "project"
+        self.data_dir = self.root / "data"
+        self.settings_file = self.project_dir / ".kimi-code" / "mcp.json"
+
+    def _launch_kimi(self, instance_name: str, token: str):
+        return _build_provider_launch(
+            agent="kimi",
+            agent_cfg={},
+            instance_name=instance_name,
+            data_dir=self.data_dir,
+            proxy_url=None,
+            extra_args=["--yolo"],
+            env={},
+            token=token,
+            mcp_cfg={"http_port": 18200},
+            project_dir=self.project_dir,
+        )
+
+    def test_kimi_instances_keep_tokens_in_process_env_not_shared_mcp_json(self):
+        launch_1 = self._launch_kimi("kimi-1", "token-a")
+        launch_2 = self._launch_kimi("kimi-2", "token-b")
+
+        args_1, _env_1, inject_env_1, settings_path_1 = launch_1
+        args_2, _env_2, inject_env_2, settings_path_2 = launch_2
+
+        self.assertEqual(args_1, ["--yolo"])
+        self.assertEqual(args_2, ["--yolo"])
+        self.assertNotIn("--mcp-config-file", args_1 + args_2)
+        self.assertEqual(inject_env_1["AGENTCHATTR_MCP_TOKEN"], "token-a")
+        self.assertEqual(inject_env_2["AGENTCHATTR_MCP_TOKEN"], "token-b")
+        self.assertEqual(settings_path_1, self.settings_file)
+        self.assertEqual(settings_path_2, self.settings_file)
+
+        text = self.settings_file.read_text("utf-8")
+        data = json.loads(text)
+        entry = data["mcpServers"]["agentchattr"]
+        self.assertEqual(entry["url"], "http://127.0.0.1:18200/mcp")
+        self.assertEqual(entry["bearerTokenEnvVar"], "AGENTCHATTR_MCP_TOKEN")
+        self.assertNotIn("headers", entry)
+        self.assertNotIn("token-a", text)
+        self.assertNotIn("token-b", text)
 
 
 class ExpanduserPathTests(unittest.TestCase):

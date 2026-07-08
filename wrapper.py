@@ -26,7 +26,10 @@ import threading
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).parent
+if getattr(sys, "frozen", False):
+    ROOT = Path(sys.executable).resolve().parent
+else:
+    ROOT = Path(__file__).parent
 
 SERVER_NAME = "agentchattr"
 
@@ -36,7 +39,8 @@ SERVER_NAME = "agentchattr"
 # ---------------------------------------------------------------------------
 
 def _write_json_mcp_settings(config_file: Path, url: str, transport: str = "http",
-                              *, token: str = "", http_key: str = "httpUrl") -> Path:
+                              *, token: str = "", http_key: str = "httpUrl",
+                              bearer_token_env: str = "") -> Path:
     """Write/merge a settings-style JSON file with nested mcpServers config.
 
     Preserves existing servers in the file — only updates the agentchattr entry.
@@ -49,6 +53,10 @@ def _write_json_mcp_settings(config_file: Path, url: str, transport: str = "http
     `http_key` controls which JSON key names the HTTP transport URL. Defaults
     to "httpUrl" (Gemini/Qwen). Providers like CodeBuddy that follow the
     standard MCP shape should set `mcp_http_key = "url"` in their config.
+    When `bearer_token_env` is set, the settings file stores only the
+    environment variable name and the provider process receives the token
+    through its environment. This is used by Kimi so concurrent instances do
+    not overwrite each other's token in a shared project mcp.json.
     Only affects settings_file / env injector modes (not the Claude flag
     writer or Kilo env_content writer).
     """
@@ -66,7 +74,9 @@ def _write_json_mcp_settings(config_file: Path, url: str, transport: str = "http
         entry: dict = {"type": "http", http_key: url, "trust": True}
     else:
         entry = {"type": transport, "url": url, "trust": True}
-    if token:
+    if bearer_token_env:
+        entry["bearerTokenEnvVar"] = bearer_token_env
+    elif token:
         entry["headers"] = {"Authorization": f"Bearer {token}"}
     servers[SERVER_NAME] = entry
     existing["mcpServers"] = servers
@@ -148,8 +158,10 @@ _BUILTIN_DEFAULTS: dict[str, dict] = {
         # and duplicate detection is name-based only (e.g. unityMCP vs unity-mcp)
     },
     "kimi": {
-        "mcp_inject": "flag",
-        "mcp_flag": "--mcp-config-file",
+        "mcp_inject": "settings_file",
+        "mcp_settings_path": ".kimi-code/mcp.json",
+        "mcp_http_key": "url",
+        "mcp_bearer_token_env": "AGENTCHATTR_MCP_TOKEN",
         "mcp_transport": "http",
         "mcp_merge_project": True,
     },
@@ -224,9 +236,14 @@ def _apply_mcp_inject(
         if not target.is_absolute():
             base = Path(project_dir) if project_dir else Path.cwd()
             target = base / target
-        settings_path = _write_json_mcp_settings(target, server_url,
-                                                  transport=transport, token=token,
-                                                  http_key=http_key)
+        bearer_token_env = inject_cfg.get("mcp_bearer_token_env", "")
+        settings_path = _write_json_mcp_settings(
+            target, server_url,
+            transport=transport, token=token, http_key=http_key,
+            bearer_token_env=bearer_token_env,
+        )
+        if bearer_token_env:
+            inject_env[bearer_token_env] = token
         # Optionally set an env var pointing to the settings file
         env_var = inject_cfg.get("mcp_env_var")
         if env_var:
@@ -366,10 +383,17 @@ def _build_provider_launch(
     return launch_args, launch_env, inject_env, settings_path
 
 
-def _register_instance(server_port: int, base: str, label: str | None = None) -> dict:
+def _register_instance(
+    server_port: int,
+    base: str,
+    label: str | None = None,
+    preferred_name: str | None = None,
+) -> dict:
     import urllib.request
 
-    reg_body = json.dumps({"base": base, "label": label}).encode()
+    reg_body = json.dumps(
+        {"base": base, "label": label, "preferred_name": preferred_name}
+    ).encode()
     reg_req = urllib.request.Request(
         f"http://127.0.0.1:{server_port}/api/register",
         method="POST",
@@ -575,6 +599,7 @@ def main():
     parser.add_argument("agent", choices=agent_names, help=f"Agent to wrap ({', '.join(agent_names)})")
     parser.add_argument("--no-restart", action="store_true", help="Do not restart on exit")
     parser.add_argument("--label", type=str, default=None, help="Custom display label")
+    parser.add_argument("--preferred-name", type=str, default=None, help="Reuse a stopped launcher-owned instance name")
     # Per-project isolation flags (must match the server's flags so wrappers
     # launched separately connect to the right instance). Values are consumed
     # by apply_cli_overrides() above; listing here so --help shows them.
@@ -595,7 +620,7 @@ def main():
     mcp_cfg = config.get("mcp", {})
 
     try:
-        registration = _register_instance(server_port, agent, args.label)
+        registration = _register_instance(server_port, agent, args.label, args.preferred_name)
     except Exception as exc:
         print(f"  Registration failed ({exc}).")
         print("  Wrapper cannot continue without a registered identity.")
@@ -761,7 +786,12 @@ def main():
             except urllib.error.HTTPError as exc:
                 if exc.code == 409:
                     try:
-                        replacement = _register_instance(server_port, agent, args.label)
+                        replacement = _register_instance(
+                            server_port,
+                            agent,
+                            args.label,
+                            args.preferred_name,
+                        )
                         set_runtime_identity(replacement["name"], replacement["token"])
                         _notify_recovery(data_dir, replacement["name"])
                     except Exception:

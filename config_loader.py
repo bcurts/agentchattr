@@ -23,7 +23,15 @@ import sys
 import tomllib
 from pathlib import Path
 
-ROOT = Path(__file__).parent
+
+def app_root() -> Path:
+    """Return the install/runtime root for source and PyInstaller builds."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).parent
+
+
+ROOT = app_root()
 
 
 # Mapping: env var name → (config section, key, is_int)

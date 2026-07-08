@@ -10,9 +10,11 @@ import os
 import time
 import logging
 import threading
+import asyncio
 from pathlib import Path
 
 from mcp.server.fastmcp import Context, FastMCP
+from registry import canonicalize_name
 
 log = logging.getLogger(__name__)
 
@@ -155,6 +157,26 @@ def _authenticated_instance(ctx: Context | None) -> dict | None:
     return registry.resolve_token(token)
 
 
+def _canonical_agent_name(name: str) -> str:
+    canonical = canonicalize_name(name)
+    if registry and canonical:
+        resolved = registry.resolve_name(canonical)
+        if registry.is_registered(resolved):
+            return resolved
+    return canonical
+
+
+def _notify_status_async():
+    try:
+        import app
+        loop = getattr(app, "_event_loop", None)
+        broadcast = getattr(app, "broadcast_status", None)
+        if loop and broadcast:
+            asyncio.run_coroutine_threadsafe(broadcast(), loop)
+    except Exception:
+        pass
+
+
 def _resolve_tool_identity(
     raw_name: str,
     ctx: Context | None,
@@ -162,7 +184,8 @@ def _resolve_tool_identity(
     field_name: str,
     required: bool = False,
 ) -> tuple[str, str | None]:
-    provided = raw_name.strip() if raw_name else ""
+    provided_raw = raw_name.strip() if raw_name else ""
+    provided = _canonical_agent_name(provided_raw) if provided_raw else ""
     token = _extract_agent_token(ctx)
     inst = _authenticated_instance(ctx)
     if inst:
@@ -279,8 +302,8 @@ def chat_send(
                                attachments=job_attachments)
         if msg is None:
             return f"Error: job #{job_id} not found."
-        with _presence_lock:
-            _presence[sender] = time.time()
+        _touch_presence(sender)
+        _notify_status_async()
 
         # Route @mentions in job messages to trigger other agents
         if router and agents:
@@ -346,8 +369,8 @@ def chat_send(
                     reply_to=reply_id, channel=channel,
                     msg_type=msg_type, metadata=metadata)
     _update_cursor(sender, [msg], channel)
-    with _presence_lock:
-        _presence[sender] = time.time()
+    _touch_presence(sender)
+    _notify_status_async()
     return f"Sent (id={msg['id']})"
 
 
@@ -382,8 +405,8 @@ def chat_propose_job(
         metadata={"title": title, "body": body, "status": "pending"},
     )
     _update_cursor(sender, [msg], channel)
-    with _presence_lock:
-        _presence[sender] = time.time()
+    _touch_presence(sender)
+    _notify_status_async()
     return f"Proposed job (msg_id={msg['id']}): {title}"
 
 
@@ -480,6 +503,7 @@ def _save_roles():
 
 def set_role(name: str, role: str):
     """Set or clear an agent's role. Empty string clears."""
+    name = _canonical_agent_name(name)
     if role:
         _roles[name] = role
     else:
@@ -489,6 +513,7 @@ def set_role(name: str, role: str):
 
 def get_role(name: str) -> str:
     """Get an agent's current role, or empty string."""
+    name = _canonical_agent_name(name)
     return _roles.get(name, "")
 
 
@@ -499,6 +524,8 @@ def get_all_roles() -> dict[str, str]:
 
 def migrate_identity(old_name: str, new_name: str):
     """Migrate all runtime state when an agent is renamed (presence, cursors, activity, roles)."""
+    old_name = _canonical_agent_name(old_name)
+    new_name = _canonical_agent_name(new_name)
     with _presence_lock:
         if old_name in _presence:
             _presence[new_name] = _presence.pop(old_name)
@@ -518,6 +545,7 @@ def migrate_identity(old_name: str, new_name: str):
 
 def purge_identity(name: str):
     """Remove all runtime state for a deregistered agent (presence, activity, cursors, roles)."""
+    name = _canonical_agent_name(name)
     with _presence_lock:
         _presence.pop(name, None)
         _activity.pop(name, None)
@@ -618,6 +646,9 @@ def chat_read(
             if m.get("resolved"):
                 entry["resolved"] = m["resolved"]
             out.append(entry)
+        if sender:
+            _touch_presence(sender)
+            _notify_status_async()
         return json.dumps(out, ensure_ascii=False)
 
     ch = channel if channel else None
@@ -670,6 +701,9 @@ def chat_read(
             if inst:
                 breadcrumb = f"[identity: {inst['name']} | label: {inst['label']}]"
                 serialized = f"{breadcrumb}\n{serialized}"
+    if sender:
+        _touch_presence(sender)
+        _notify_status_async()
     return serialized
 
 
@@ -692,6 +726,8 @@ def chat_resync(
     msgs = store.get_recent(limit, channel=ch)
     _update_cursor(sender, msgs, ch)
     serialized = _serialize_messages(msgs)
+    _touch_presence(sender)
+    _notify_status_async()
     return serialized
 
 
@@ -715,6 +751,8 @@ def chat_join(name: str, channel: str = "general", ctx: Context | None = None) -
         return f"Error: '{name}' is not registered. Call chat_claim(sender=your_base_name) to get your identity."
     store.add(name, f"{name} is online", msg_type="join", channel="general")
     online = _get_online()
+    _touch_presence(name)
+    _notify_status_async()
     return f"Joined. Online: {', '.join(online)}"
 
 
@@ -725,6 +763,10 @@ def chat_who() -> str:
 
 
 def _touch_presence(name: str):
+    """Update presence timestamp on any MCP tool use."""
+    name = _canonical_agent_name(name)
+    if not name:
+        return
     """Update presence timestamp — called on any MCP tool use."""
     with _presence_lock:
         _presence[name] = time.time()
@@ -739,11 +781,16 @@ def _get_online() -> list[str]:
 
 def is_online(name: str) -> bool:
     now = time.time()
+    candidates = registry.resolve_to_instances(name) if registry else [name]
+    candidates = [_canonical_agent_name(n) for n in candidates]
     with _presence_lock:
-        return name in _presence and now - _presence.get(name, 0) < PRESENCE_TIMEOUT
+        return any(n in _presence and now - _presence.get(n, 0) < PRESENCE_TIMEOUT for n in candidates if n)
 
 
 def set_active(name: str, active: bool):
+    name = _canonical_agent_name(name)
+    if not name:
+        return
     with _presence_lock:
         _activity[name] = active
         if active:
@@ -752,6 +799,7 @@ def set_active(name: str, active: bool):
 
 def is_active(name: str) -> bool:
     import time as _time
+    name = _canonical_agent_name(name)
     with _presence_lock:
         if not _activity.get(name, False):
             return False
@@ -868,6 +916,7 @@ def chat_claim(sender: str, name: str = "", ctx: Context | None = None) -> str:
     # Touch presence with the CONFIRMED name (may differ from sender)
     confirmed = result.get("name", sender)
     _touch_presence(confirmed)
+    _notify_status_async()
     return json.dumps({"confirmed_name": confirmed, "label": result.get("label", ""), "base": result.get("base", "")})
 
 

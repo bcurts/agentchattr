@@ -1,5 +1,5 @@
 @echo off
-REM agentchattr — starts server (if not running) + Kimi wrapper
+REM agentchattr — starts server (if not running) + Kimi wrapper (yolo mode)
 cd /d "%~dp0.."
 
 REM Auto-create venv and install deps on first run
@@ -34,7 +34,7 @@ if %errorlevel% neq 0 (
 
 REM Kimi Code 0.6+ no longer accepts --mcp-config-file.
 REM wrapper.py writes .kimi-code/mcp.json and passes per-instance auth via env.
-set "KIMI_ARGS="
+set "KIMI_ARGS=--yolo"
 python wrapper.py kimi %KIMI_ARGS%
 set "EXIT_CODE=%errorlevel%"
 if %EXIT_CODE% neq 0 (

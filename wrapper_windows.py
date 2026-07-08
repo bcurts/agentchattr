@@ -44,6 +44,11 @@ def enable_vt_mode(verbose: bool = True):
     redirected through pipes (or a Node/Rust child later reopens its own handle
     to the console), the underlying conhost device gets the mode flipped.
 
+    Do not enable ENABLE_VIRTUAL_TERMINAL_INPUT here. Codex's Windows TUI reads
+    keyboard events from the console; forcing VT input changes how Enter and
+    other keys are delivered, which can make both manual Enter and injected
+    Enter stop submitting messages.
+
     Safe to call multiple times. Failures are logged but not fatal.
     """
     INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
@@ -69,12 +74,12 @@ def enable_vt_mode(verbose: bool = True):
 
     targets = (
         ("CONOUT$", GENERIC_READ | GENERIC_WRITE,
-         ENABLE_VIRTUAL_TERMINAL_PROCESSING | ENABLE_PROCESSED_OUTPUT, "stdout"),
+         ENABLE_VIRTUAL_TERMINAL_PROCESSING | ENABLE_PROCESSED_OUTPUT, 0, "stdout"),
         ("CONIN$",  GENERIC_READ | GENERIC_WRITE,
-         ENABLE_VIRTUAL_TERMINAL_INPUT, "stdin"),
+         0, ENABLE_VIRTUAL_TERMINAL_INPUT, "stdin"),
     )
 
-    for device, access, extra_bits, label in targets:
+    for device, access, add_bits, clear_bits, label in targets:
         handle = kernel32.CreateFileW(
             device, access, FILE_SHARE_READ | FILE_SHARE_WRITE,
             None, OPEN_EXISTING, 0, None,
@@ -90,10 +95,10 @@ def enable_vt_mode(verbose: bool = True):
                     print(f"  [wrapper] VT enable ({label}): GetConsoleMode failed", flush=True)
                 continue
             before = mode.value
-            new_mode = before | extra_bits
+            new_mode = (before | add_bits) & ~clear_bits
             if new_mode == before:
                 if verbose:
-                    print(f"  [wrapper] VT enable ({label}): already 0x{before:04x} (VT bits set)", flush=True)
+                    print(f"  [wrapper] VT enable ({label}): already 0x{before:04x}", flush=True)
                 continue
             ok = kernel32.SetConsoleMode(handle, new_mode)
             if verbose:

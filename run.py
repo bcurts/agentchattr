@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import os
 import secrets
 import sys
 import threading
@@ -10,8 +11,26 @@ import logging
 from pathlib import Path
 
 # Ensure the project directory is on the import path
-ROOT = Path(__file__).parent
+if getattr(sys, "frozen", False):
+    ROOT = Path(sys.executable).resolve().parent
+else:
+    ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
+
+
+def _trace(message: str) -> None:
+    path = os.environ.get("AGENTCHATTR_INTERNAL_TRACE")
+    if not path:
+        return
+    try:
+        trace_path = Path(path)
+        if not trace_path.is_absolute():
+            trace_path = ROOT / trace_path
+        trace_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(trace_path, "a", encoding="utf-8") as fh:
+            fh.write(f"{time.strftime('%H:%M:%S')} {message}\n")
+    except Exception:
+        pass
 
 
 def _parse_args():
@@ -33,6 +52,7 @@ def _parse_args():
 
 
 def main():
+    _trace("run.main start")
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
@@ -46,6 +66,7 @@ def main():
 
     from config_loader import apply_cli_overrides, load_config
     apply_cli_overrides()
+    _trace("applied cli overrides")
 
     config_path = ROOT / "config.toml"
     if not config_path.exists():
@@ -53,13 +74,16 @@ def main():
         sys.exit(1)
 
     config = load_config(ROOT)
+    _trace("loaded config")
 
     # --- Security: generate a random session token (in-memory only) ---
     session_token = secrets.token_hex(32)
+    launcher_token = os.environ.get("AGENTCHATTR_LAUNCHER_TOKEN", "")
 
     # Configure the FastAPI app (creates shared store)
     from app import app, configure, set_event_loop, store as _store_ref
-    configure(config, session_token=session_token)
+    configure(config, session_token=session_token, launcher_token=launcher_token)
+    _trace("configured app")
 
     # Share stores with the MCP bridge
     from app import store, rules, summaries, jobs, room_settings, registry, router as app_router, agents as app_agents, session_engine, session_store
@@ -80,6 +104,7 @@ def main():
     mcp_bridge._load_cursors()
     mcp_bridge._ROLES_FILE = data_dir / "roles.json"
     mcp_bridge._load_roles()
+    _trace("configured mcp bridge")
 
     # Start MCP servers in background threads
     http_port = config.get("mcp", {}).get("http_port", 8200)
@@ -90,6 +115,7 @@ def main():
     threading.Thread(target=mcp_bridge.run_http_server, daemon=True).start()
     threading.Thread(target=mcp_bridge.run_sse_server, daemon=True).start()
     time.sleep(0.5)
+    _trace("started mcp threads")
     logging.getLogger(__name__).info("MCP streamable-http on port %d, SSE on port %d", http_port, sse_port)
 
     # Mount static files
@@ -111,7 +137,18 @@ def main():
         )
         return HTMLResponse(injected, headers={"Cache-Control": "no-store"})
 
+    @app.get("/launcher")
+    async def launcher_page():
+        """Serve the launcher control panel."""
+        html = (static_dir / "launcher.html").read_text("utf-8")
+        injected = html.replace(
+            "</head>",
+            f'<script>window.__SESSION_TOKEN__="{session_token}";</script>\n</head>',
+        )
+        return HTMLResponse(injected, headers={"Cache-Control": "no-store"})
+
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+    _trace("mounted static")
 
     # Capture the event loop for the store→WebSocket bridge
     @app.on_event("startup")
@@ -159,6 +196,7 @@ def main():
     print(f"  Agents auto-trigger on @mention")
     print(f"\n  Session token: {session_token}\n")
 
+    _trace(f"starting uvicorn {host}:{port}")
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 

@@ -1,0 +1,2192 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>agentchattr 控制台</title>
+    <style>
+        :root {
+            --bg: #f4f7fb;
+            --bg-header: #ffffff;
+            --bg-panel: #ffffff;
+            --bg-panel-hover: #f8fafc;
+            --bg-elevated: #eaf2ff;
+            --bg-subtle: rgba(15, 23, 42, 0.04);
+            --bg-input: #f8fafc;
+            --border: #d8e0ea;
+            --border-strong: #b8c4d4;
+            --text: #182230;
+            --text-dim: #667085;
+            --text-bright: #0c111d;
+            --text-system: #98a2b3;
+            --accent: #2563eb;
+            --accent-soft: rgba(37, 99, 235, 0.10);
+            --accent-hover: rgba(37, 99, 235, 0.16);
+            --online: #16a34a;
+            --online-soft: rgba(22, 163, 74, 0.10);
+            --online-bg: #ecfdf3;
+            --working: #d97706;
+            --working-soft: rgba(217, 119, 6, 0.10);
+            --working-bg: #fffbeb;
+            --danger: #dc2626;
+            --danger-soft: rgba(220, 38, 38, 0.08);
+            --danger-bg: #fef2f2;
+            --warning: #b45309;
+            --info: #2563eb;
+            --info-soft: rgba(37, 99, 235, 0.08);
+            --offline: #667085;
+            --offline-soft: rgba(102, 112, 133, 0.08);
+            --offline-bg: #f8f9fb;
+            --radius-sm: 6px;
+            --radius-md: 8px;
+            --radius-lg: 10px;
+            --radius-full: 9999px;
+            --shadow: 0 1px 3px rgba(15, 23, 42, 0.08), 0 4px 12px rgba(15, 23, 42, 0.05);
+            --shadow-md: 0 10px 24px rgba(15, 23, 42, 0.10);
+            --font-mono: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
+            --font-sans: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font-sans);
+            font-size: 13px;
+            line-height: 1.45;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ===== Top Bar ===== */
+        .top-bar {
+            background: var(--bg-header);
+            border-bottom: 1px solid var(--border);
+            padding: 10px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+        }
+
+        .top-bar-left {
+            display: flex; align-items: center; gap: 14px;
+        }
+
+        .logo-mark {
+            width: 30px; height: 30px;
+            background: linear-gradient(135deg, var(--accent), #60a5fa);
+            border-radius: var(--radius-md);
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 700; font-size: 14px; color: #fff;
+        }
+
+        .top-title {
+            font-size: 15px; font-weight: 600; color: var(--text-bright);
+        }
+
+        .top-actions {
+            display: flex; gap: 8px;
+        }
+
+        .btn {
+            padding: 7px 14px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+            background: var(--bg-header);
+            color: var(--text-dim);
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            display: inline-flex; align-items: center; gap: 5px;
+        }
+
+        .btn:hover {
+            background: var(--bg-panel-hover);
+            border-color: var(--border-strong);
+            color: var(--text);
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            background: #1d4ed8;
+            border-color: #1d4ed8;
+        }
+
+        .btn-success {
+            background: var(--online);
+            border-color: var(--online);
+            color: #fff;
+        }
+
+        .btn-success:hover {
+            background: #15803d;
+            border-color: #15803d;
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            border-color: var(--danger);
+            color: #fff;
+        }
+
+        .btn-danger:hover {
+            background: #b91c1c;
+            border-color: #b91c1c;
+        }
+
+        .btn-ghost {
+            background: transparent;
+            border-color: transparent;
+        }
+
+        .btn-ghost:hover {
+            background: var(--bg-subtle);
+        }
+
+        .btn-outline-success {
+            background: var(--online-bg);
+            border-color: rgba(22, 163, 74, 0.3);
+            color: var(--online);
+        }
+
+        .btn-outline-success:hover {
+            background: var(--online-soft);
+        }
+
+        .btn-outline-danger {
+            background: var(--danger-bg);
+            border-color: rgba(220, 38, 38, 0.3);
+            color: var(--danger);
+        }
+
+        .btn-outline-danger:hover {
+            background: var(--danger-soft);
+        }
+
+        .btn-sm { padding: 5px 10px; font-size: 11px; }
+        .btn-xs { padding: 3px 7px; font-size: 10px; }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        /* ===== Page Nav Tabs ===== */
+        .page-nav {
+            display: flex;
+            gap: 0;
+            padding: 0 20px;
+            background: var(--bg-header);
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+
+        .page-nav-tab {
+            padding: 10px 20px;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-dim);
+            cursor: pointer;
+            border: none;
+            border-bottom: 2px solid transparent;
+            background: transparent;
+            transition: all 0.15s ease;
+            display: flex; align-items: center; gap: 6px;
+        }
+
+        .page-nav-tab:hover {
+            color: var(--text);
+            background: var(--bg-subtle);
+        }
+
+        .page-nav-tab.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+            font-weight: 600;
+        }
+
+        /* ===== Page Content ===== */
+        .page-content {
+            flex: 1;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .page {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            overflow-y: auto;
+            display: none;
+            padding: 16px 20px;
+        }
+
+        .page.active {
+            display: block;
+        }
+
+        /* ===== Dashboard Page Layout ===== */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 280px 1fr 220px;
+            gap: 16px;
+            height: 100%;
+        }
+
+        .panel-card {
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            font-weight: 600;
+            font-size: 12px;
+            color: var(--text-bright);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+
+        .panel-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 14px;
+        }
+
+        /* ===== Server Panel ===== */
+        .server-controls {
+            display: flex; flex-direction: column; gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .server-btn-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .server-btn-row .btn {
+            justify-content: center;
+        }
+
+        .server-section {
+            margin-bottom: 16px;
+        }
+
+        .server-section-title {
+            font-size: 11px; font-weight: 600;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 10px;
+            display: flex; align-items: center; gap: 6px;
+        }
+
+        .status-row {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 8px 12px;
+            background: var(--bg-input);
+            border-radius: var(--radius-sm);
+            margin-bottom: 6px;
+            border: 1px solid var(--border);
+        }
+
+        .status-row-label {
+            font-size: 12px; color: var(--text-dim);
+            display: flex; align-items: center; gap: 6px;
+        }
+
+        .status-row-value {
+            font-size: 12px; color: var(--text-bright);
+            font-family: var(--font-mono);
+            font-weight: 500;
+        }
+
+        .status-badge {
+            display: inline-flex; align-items: center; gap: 5px;
+            padding: 3px 10px;
+            border-radius: var(--radius-full);
+            font-size: 11px; font-weight: 600;
+        }
+
+        .status-badge.online { background: var(--online-bg); color: var(--online); }
+        .status-badge.offline { background: var(--offline-bg); color: var(--offline); }
+        .status-badge.working { background: var(--working-bg); color: var(--working); }
+        .status-badge.error { background: var(--danger-bg); color: var(--danger); }
+
+        .status-dot {
+            width: 6px; height: 6px;
+            border-radius: 50%;
+        }
+
+        .status-dot.online { background: var(--online); box-shadow: 0 0 6px rgba(22,163,74,0.35); }
+        .status-dot.offline { background: var(--offline); }
+        .status-dot.working { background: var(--working); animation: pulse 1.5s infinite; }
+        .status-dot.error { background: var(--danger); box-shadow: 0 0 6px rgba(220,38,38,0.35); }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        .metric-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .metric-card {
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 12px 8px;
+            text-align: center;
+        }
+
+        .metric-value {
+            font-size: 20px; font-weight: 700;
+            color: var(--text-bright);
+            font-family: var(--font-mono);
+        }
+
+        .metric-label {
+            font-size: 10px; color: var(--text-dim);
+            margin-top: 3px;
+            font-weight: 500;
+        }
+
+        /* ===== Agent Panel ===== */
+        .agent-toolbar {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-bottom: 14px;
+        }
+
+        .agent-filter-tabs {
+            display: flex; gap: 2px;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 2px;
+        }
+
+        .agent-filter-tab {
+            padding: 5px 12px;
+            border-radius: var(--radius-sm);
+            font-size: 11px; font-weight: 500;
+            color: var(--text-dim);
+            cursor: pointer;
+            border: none;
+            background: transparent;
+            transition: all 0.1s ease;
+        }
+
+        .agent-filter-tab:hover { color: var(--text); }
+        .agent-filter-tab.active {
+            background: var(--bg-panel);
+            color: var(--text-bright);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+        }
+
+        .agent-list { display: flex; flex-direction: column; gap: 10px; }
+
+        .agent-card {
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 14px 16px;
+            display: flex; align-items: center; gap: 14px;
+            transition: all 0.15s ease;
+            box-shadow: var(--shadow);
+        }
+
+        .agent-card:hover {
+            border-color: var(--border-strong);
+            box-shadow: var(--shadow-md);
+        }
+
+        .agent-avatar {
+            width: 38px; height: 38px;
+            border-radius: var(--radius-md);
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 700; font-size: 13px; color: #fff;
+            flex-shrink: 0;
+        }
+
+        .agent-avatar.codex { background: linear-gradient(135deg, #059669, #10b981); }
+        .agent-avatar.kimi { background: linear-gradient(135deg, #c2410c, #f59e0b); }
+        .agent-avatar.claude { background: linear-gradient(135deg, #2563eb, #8b5cf6); }
+        .agent-avatar.gemini { background: linear-gradient(135deg, #1d4ed8, #3b82f6); }
+
+        .agent-info { flex: 1; min-width: 0; }
+
+        .agent-name-row {
+            display: flex; align-items: center; gap: 8px;
+            margin-bottom: 2px;
+        }
+
+        .agent-name {
+            font-weight: 600; font-size: 13px; color: var(--text-bright);
+        }
+
+        .agent-type-tag {
+            font-size: 10px; color: var(--text-dim);
+            background: var(--bg-subtle);
+            padding: 1px 6px;
+            border-radius: var(--radius-full);
+            border: 1px solid var(--border);
+        }
+
+        .agent-role {
+            font-size: 11px; color: var(--text-dim);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+
+        .agent-meta {
+            font-size: 10px; color: var(--text-system);
+            margin-top: 4px;
+            display: flex; gap: 14px;
+        }
+
+        .agent-meta span {
+            display: flex; align-items: center; gap: 4px;
+        }
+
+        .agent-actions {
+            display: flex; align-items: center; gap: 6px;
+            flex-shrink: 0;
+        }
+
+        /* ===== Summary Panel ===== */
+        .summary-section {
+            margin-bottom: 16px;
+        }
+
+        .summary-section-title {
+            font-size: 11px; font-weight: 600;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 10px;
+        }
+
+        .summary-stat {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 10px 12px;
+            background: var(--bg-input);
+            border-radius: var(--radius-sm);
+            margin-bottom: 6px;
+            border: 1px solid var(--border);
+        }
+
+        .summary-stat-label {
+            display: flex; align-items: center; gap: 8px;
+            font-size: 12px; color: var(--text);
+        }
+
+        .summary-stat-value {
+            font-size: 14px; font-weight: 700;
+            font-family: var(--font-mono);
+        }
+
+        /* ===== Recent Events (small) ===== */
+        .events-mini {
+            margin-top: 8px;
+        }
+
+        .event-item {
+            display: flex; align-items: flex-start; gap: 8px;
+            padding: 6px 0;
+            border-bottom: 1px solid rgba(0,0,0,0.03);
+        }
+
+        .event-time {
+            font-size: 10px; color: var(--text-system);
+            font-family: var(--font-mono);
+            flex-shrink: 0; width: 36px;
+        }
+
+        .event-dot {
+            width: 5px; height: 5px; border-radius: 50%;
+            margin-top: 4px; flex-shrink: 0;
+        }
+
+        .event-dot.error { background: var(--danger); }
+        .event-dot.warn { background: var(--warning); }
+        .event-dot.info { background: var(--info); }
+        .event-dot.success { background: var(--online); }
+
+        .event-text {
+            font-size: 11px; color: var(--text);
+            line-height: 1.4;
+        }
+
+        /* ===== Terminal Page ===== */
+        .terminal-container {
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow);
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .terminal-tabs {
+            display: flex; gap: 1px;
+            padding: 0;
+            background: var(--bg);
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+
+        .terminal-tab {
+            padding: 9px 18px;
+            font-size: 11px; font-weight: 500;
+            color: var(--text-dim);
+            cursor: pointer;
+            border: none;
+            border-bottom: 2px solid transparent;
+            background: transparent;
+            display: flex; align-items: center; gap: 7px;
+            transition: all 0.1s ease;
+        }
+
+        .terminal-tab:hover {
+            color: var(--text);
+            background: var(--bg-subtle);
+        }
+
+        .terminal-tab.active {
+            background: var(--bg-panel);
+            color: var(--text-bright);
+            border-bottom-color: var(--accent);
+            font-weight: 600;
+        }
+
+        .terminal-tab .tab-status {
+            width: 6px; height: 6px; border-radius: 50%;
+        }
+
+        .terminal-toolbar {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 6px 14px;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg-input);
+            flex-shrink: 0;
+        }
+
+        .terminal-toolbar-left {
+            display: flex; align-items: center; gap: 8px;
+            font-size: 11px; color: var(--text-dim);
+        }
+
+        .terminal-toolbar-right {
+            display: flex; gap: 4px;
+        }
+
+        .terminal-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px 16px;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            line-height: 1.6;
+            background: var(--bg-panel);
+        }
+
+        .terminal-pane {
+            display: none;
+        }
+
+        .terminal-pane.active {
+            display: block;
+        }
+
+        .log-line {
+            margin-bottom: 2px;
+            display: flex; gap: 10px;
+        }
+
+        .log-time {
+            color: var(--text-system);
+            flex-shrink: 0;
+            width: 55px;
+        }
+
+        .log-level {
+            flex-shrink: 0;
+            width: 42px;
+            font-weight: 600;
+        }
+
+        .log-level-info { color: var(--info); }
+        .log-level-warn { color: var(--warning); }
+        .log-level-error { color: var(--danger); }
+        .log-level-success { color: var(--online); }
+
+        .log-msg { color: var(--text); }
+        .log-msg.dim { color: var(--text-dim); }
+
+        /* ===== Settings Page ===== */
+        .settings-grid {
+            max-width: 600px;
+        }
+
+        .settings-group {
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 20px;
+            margin-bottom: 16px;
+            box-shadow: var(--shadow);
+        }
+
+        .settings-group-title {
+            font-size: 14px; font-weight: 600;
+            color: var(--text-bright);
+            margin-bottom: 16px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .settings-field {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(0,0,0,0.03);
+        }
+
+        .settings-field:last-child { border-bottom: none; }
+
+        .settings-field-label {
+            font-size: 13px; color: var(--text);
+        }
+
+        .settings-field-desc {
+            font-size: 11px; color: var(--text-dim);
+            margin-top: 2px;
+        }
+
+        .settings-field-input {
+            display: flex; align-items: center; gap: 8px;
+        }
+
+        .settings-field-input input, .settings-field-input select {
+            padding: 6px 10px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            background: var(--bg-input);
+            color: var(--text);
+            font-size: 12px;
+            min-width: 120px;
+        }
+
+        /* ===== Scrollbar ===== */
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: var(--radius-full); }
+        ::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+        /* ===== Animations ===== */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .agent-card {
+            animation: fadeIn 0.3s ease forwards;
+        }
+
+        .agent-card:nth-child(1) { animation-delay: 0.05s; }
+        .agent-card:nth-child(2) { animation-delay: 0.1s; }
+        .agent-card:nth-child(3) { animation-delay: 0.15s; }
+        .agent-card:nth-child(4) { animation-delay: 0.2s; }
+        .agent-card:nth-child(5) { animation-delay: 0.25s; }
+        .agent-card:nth-child(6) { animation-delay: 0.3s; }
+
+        /* ===== Drawer ===== */
+        .drawer-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(15, 23, 42, 0.35);
+            z-index: 100;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.2s ease;
+        }
+
+        .drawer-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .drawer {
+            position: fixed;
+            top: 0; right: 0;
+            width: 420px;
+            height: 100vh;
+            background: var(--bg-panel);
+            border-left: 1px solid var(--border);
+            box-shadow: -8px 0 32px rgba(15, 23, 42, 0.12);
+            z-index: 101;
+            transform: translateX(100%);
+            transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .drawer.active {
+            transform: translateX(0);
+        }
+
+        .drawer-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .drawer-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-bright);
+        }
+
+        .drawer-close {
+            width: 28px; height: 28px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+            background: var(--bg-input);
+            color: var(--text-dim);
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 16px;
+            transition: all 0.15s ease;
+        }
+
+        .drawer-close:hover {
+            background: var(--bg-subtle);
+            color: var(--text);
+        }
+
+        .drawer-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+        }
+
+        .drawer-footer {
+            padding: 14px 20px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+            background: var(--bg-input);
+        }
+
+        .form-group {
+            margin-bottom: 18px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-bright);
+            margin-bottom: 6px;
+        }
+
+        .form-label .optional {
+            font-weight: 400;
+            color: var(--text-dim);
+            margin-left: 4px;
+        }
+
+        .form-input, .form-select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            background: var(--bg-input);
+            color: var(--text);
+            font-size: 13px;
+            font-family: var(--font-sans);
+            transition: all 0.15s ease;
+        }
+
+        .form-input:focus, .form-select:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-soft);
+        }
+
+        .form-input::placeholder {
+            color: var(--text-system);
+        }
+
+        .form-readonly {
+            padding: 8px 12px;
+            background: var(--bg-subtle);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+            color: var(--text-dim);
+        }
+
+        .segmented-control {
+            display: flex;
+            gap: 2px;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 2px;
+        }
+
+        .segment-btn {
+            flex: 1;
+            padding: 6px 10px;
+            border-radius: var(--radius-sm);
+            border: none;
+            background: transparent;
+            color: var(--text-dim);
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .segment-btn:hover {
+            color: var(--text);
+        }
+
+        .segment-btn.active {
+            background: var(--bg-panel);
+            color: var(--text-bright);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+            font-weight: 600;
+        }
+
+        .form-hint {
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-top: 4px;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .toggle-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 12px;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+        }
+
+        .toggle-label {
+            font-size: 13px;
+            color: var(--text);
+        }
+
+        .toggle-label-desc {
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-top: 2px;
+        }
+
+        .toggle-switch {
+            position: relative;
+            width: 40px;
+            height: 22px;
+            background: var(--border);
+            border-radius: var(--radius-full);
+            cursor: pointer;
+            transition: background 0.2s ease;
+            flex-shrink: 0;
+        }
+
+        .toggle-switch.active {
+            background: var(--accent);
+        }
+
+        .toggle-switch::after {
+            content: '';
+            position: absolute;
+            top: 2px; left: 2px;
+            width: 18px; height: 18px;
+            background: #fff;
+            border-radius: 50%;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+            transition: transform 0.2s ease;
+        }
+
+        .toggle-switch.active::after {
+            transform: translateX(18px);
+        }
+
+        /* ===== Advanced Toggle ===== */
+        .advanced-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            padding: 8px 0;
+            user-select: none;
+        }
+
+        .advanced-toggle svg {
+            transition: transform 0.2s ease;
+            color: var(--text-dim);
+        }
+
+        .advanced-toggle.open svg {
+            transform: rotate(90deg);
+        }
+
+        /* ===== Toast ===== */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 200;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .toast {
+            padding: 10px 16px;
+            border-radius: var(--radius-md);
+            font-size: 13px;
+            font-weight: 500;
+            color: #fff;
+            background: var(--text-bright);
+            box-shadow: var(--shadow-md);
+            transform: translateX(120%);
+            transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .toast.show {
+            transform: translateX(0);
+        }
+
+        .toast.success { background: var(--online); }
+        .toast.error { background: var(--danger); }
+    </style>
+</head>
+<body>
+
+    <!-- Top Bar -->
+    <div class="top-bar">
+        <div class="top-bar-left">
+            <div class="logo-mark">A</div>
+            <div class="top-title">agentchattr 控制台</div>
+        </div>
+        <div class="top-actions">
+            <button class="btn btn-primary" onclick="openChat()">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3a1 1 0 011-1h10a1 1 0 011 1v7a1 1 0 01-1 1H5l-3 3V3z"/></svg>
+                打开聊天
+            </button>
+            <button class="btn btn-success" onclick="startAll()">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M4 2.5a.5.5 0 01.8-.4l7 5.5a.5.5 0 010 .8l-7 5.5a.5.5 0 01-.8-.4V2.5z"/></svg>
+                全部启动
+            </button>
+            <button class="btn btn-danger" onclick="stopAll()">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 3.5A1.5 1.5 0 015 2h6a1.5 1.5 0 011.5 1.5v9a1.5 1.5 0 01-1.5 1.5H5a1.5 1.5 0 01-1.5-1.5v-9z"/></svg>
+                全部停止
+            </button>
+            <button class="btn" onclick="restartAll()">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7.151a.5.5 0 01-.742-.437 4 4 0 00-7.036-2.088.5.5 0 11-.824-.564 5 5 0 018.796 2.61.5.5 0 01-.194.479z"/></svg>
+                全部重启
+            </button>
+        </div>
+    </div>
+
+    <!-- Page Navigation -->
+    <div class="page-nav">
+        <button class="page-nav-tab active" onclick="switchPage('dashboard', this)">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3a1 1 0 011-1h10a1 1 0 011 1v7a1 1 0 01-1 1H5l-3 3V3z"/></svg>
+            概览
+        </button>
+        <button class="page-nav-tab" onclick="switchPage('agents', this)">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 8a3 3 0 100-6 3 3 0 000 6zm0 1a4 4 0 00-4 4v1h8v-1a4 4 0 00-4-4z"/></svg>
+            代理
+            <span style="background:var(--accent-soft);color:var(--accent);padding:1px 6px;border-radius:999px;font-size:10px;font-weight:700;">6</span>
+        </button>
+        <button class="page-nav-tab" onclick="switchPage('terminal', this)">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 2A3.5 3.5 0 002 5.5v5A3.5 3.5 0 005.5 14h5a3.5 3.5 0 003.5-3.5v-5A3.5 3.5 0 0010.5 2h-5z"/></svg>
+            终端
+        </button>
+        <button class="page-nav-tab" onclick="switchPage('settings', this)">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M6.5 1L7.1 3.1C7.4 3.2 7.7 3.4 8 3.6L10 2.8L11.5 5.4L9.8 6.7C9.8 7 9.8 7.3 9.8 7.6L11.5 8.9L10 11.5L8 10.7C7.7 10.9 7.4 11 7.1 11.2L6.5 13.3H3.5L2.9 11.2C2.6 11 2.3 10.9 2 10.7L0 11.5L-1.5 8.9L0.2 7.6C0.2 7.3 0.2 7 0.2 6.7L-1.5 5.4L0 2.8L2 3.6C2.3 3.4 2.6 3.2 2.9 3.1L3.5 1H6.5Z" transform="translate(3 1)" stroke="currentColor" stroke-width="1.2" fill="none"/><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+            设置
+        </button>
+    </div>
+
+    <!-- Page Content -->
+    <div class="page-content">
+
+        <!-- ===== DASHBOARD PAGE ===== -->
+        <div class="page active" id="page-dashboard">
+            <div class="dashboard-grid">
+                <!-- Left: Server -->
+                <div class="panel-card">
+                    <div class="panel-header">
+                        <span>服务</span>
+                        <span class="status-badge online"><span class="status-dot online"></span>运行中</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="server-controls">
+                            <div class="server-btn-row">
+                                <button class="btn btn-success btn-sm" onclick="startServer()">
+                                    <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M4 2.5a.5.5 0 01.8-.4l7 5.5a.5.5 0 010 .8l-7 5.5a.5.5 0 01-.8-.4V2.5z"/></svg>
+                                    启动服务
+                                </button>
+                                <button class="btn btn-danger btn-sm" onclick="stopServer()">
+                                    <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 3.5A1.5 1.5 0 015 2h6a1.5 1.5 0 011.5 1.5v9a1.5 1.5 0 01-1.5 1.5H5a1.5 1.5 0 01-1.5-1.5v-9z"/></svg>
+                                    停止服务
+                                </button>
+                            </div>
+                            <button class="btn btn-sm" onclick="restartServer()" style="width:100%;justify-content:center;">
+                                <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7.151a.5.5 0 01-.742-.437 4 4 0 00-7.036-2.088.5.5 0 11-.824-.564 5 5 0 018.796 2.61.5.5 0 01-.194.479z"/></svg>
+                                重启服务
+                            </button>
+                            <button class="btn btn-primary btn-sm" onclick="openChat()" style="width:100%;justify-content:center;">
+                                <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3a1 1 0 011-1h10a1 1 0 011 1v7a1 1 0 01-1 1H5l-3 3V3z"/></svg>
+                                打开聊天
+                            </button>
+                        </div>
+
+                        <div class="server-section">
+                            <div class="server-section-title">服务信息</div>
+                            <div class="status-row">
+                                <span class="status-row-label">HTTP 端口</span>
+                                <span class="status-row-value">8300</span>
+                            </div>
+                            <div class="status-row">
+                                <span class="status-row-label">MCP SSE</span>
+                                <span class="status-row-value" style="color:var(--online)">活跃</span>
+                            </div>
+                            <div class="status-row">
+                                <span class="status-row-label">MCP HTTP</span>
+                                <span class="status-row-value" style="color:var(--online)">活跃</span>
+                            </div>
+                            <div class="status-row">
+                                <span class="status-row-label">数据目录</span>
+                                <span class="status-row-value" style="font-size:10px">D:\agentchattr</span>
+                            </div>
+                        </div>
+
+                        <div class="server-section">
+                            <div class="server-section-title">资源</div>
+                            <div class="metric-grid">
+                                <div class="metric-card">
+                                    <div class="metric-value" style="color:var(--online)">2</div>
+                                    <div class="metric-label">在线</div>
+                                </div>
+                                <div class="metric-card">
+                                    <div class="metric-value" style="color:var(--working)">1</div>
+                                    <div class="metric-label">工作中</div>
+                                </div>
+                                <div class="metric-card">
+                                    <div class="metric-value">128MB</div>
+                                    <div class="metric-label">内存占用</div>
+                                </div>
+                                <div class="metric-card">
+                                    <div class="metric-value">0</div>
+                                    <div class="metric-label">近1小时错误</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="server-section">
+                            <div class="server-section-title">运行时长</div>
+                            <div class="status-row">
+                                <span class="status-row-label">服务</span>
+                                <span class="status-row-value">2h 14m</span>
+                            </div>
+                            <div class="status-row">
+                                <span class="status-row-label">会话</span>
+                                <span class="status-row-value">#7a3f2b</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Center: Agent List -->
+                <div class="panel-card">
+                    <div class="panel-header">
+                        <span>代理实例</span>
+                        <span style="font-size:11px;color:var(--text-dim);font-weight:400;text-transform:none;letter-spacing:0;">6 个实例 · 3 在线 · 1 工作中</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="agent-toolbar">
+                            <div class="agent-filter-tabs">
+                                <button class="agent-filter-tab active" onclick="filterAgents('all', this)">全部 (6)</button>
+                                <button class="agent-filter-tab" onclick="filterAgents('codex', this)">Codex (1)</button>
+                                <button class="agent-filter-tab" onclick="filterAgents('kimi', this)">Kimi (3)</button>
+                                <button class="agent-filter-tab" onclick="filterAgents('claude', this)">Claude (1)</button>
+                                <button class="agent-filter-tab" onclick="filterAgents('gemini', this)">Gemini (1)</button>
+                            </div>
+                            <button class="btn btn-sm btn-primary" onclick="addAgent()">
+                                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.5.5 0 01.5.5v5h5a.5.5 0 010 1h-5v5a.5.5 0 01-1 0v-5h-5a.5.5 0 010-1h5v-5A.5.5 0 018 2z"/></svg>
+                                新增代理
+                            </button>
+                        </div>
+
+                        <div class="agent-list" id="agent-list">
+                            <!-- codex -->
+                            <div class="agent-card" data-type="codex">
+                                <div class="agent-avatar codex">CX</div>
+                                <div class="agent-info">
+                                    <div class="agent-name-row">
+                                        <span class="agent-name">codex</span>
+                                        <span class="agent-type-tag">codex</span>
+                                        <span class="status-badge working"><span class="status-dot working"></span>工作中</span>
+                                    </div>
+                                    <div class="agent-role">通用开发代理 · Python/JS/架构/代码审查</div>
+                                    <div class="agent-meta">
+                                        <span>
+                                            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a4 4 0 100 8 4 4 0 000-8z"/></svg>
+                                            心跳: 2秒前
+                                        </span>
+                                        <span>
+                                            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 2A3.5 3.5 0 002 5.5v5A3.5 3.5 0 005.5 14h5a3.5 3.5 0 003.5-3.5v-5A3.5 3.5 0 0010.5 2h-5z"/></svg>
+                                            wrapper.py
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="agent-actions">
+                                    <button class="btn btn-sm btn-outline-danger" onclick="toggleAgent(this)">停止</button>
+                                    <button class="btn btn-sm btn-ghost" onclick="restartAgent(this)" title="重启">
+                                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7.151a.5.5 0 01-.742-.437 4 4 0 00-7.036-2.088.5.5 0 11-.824-.564 5 5 0 018.796 2.61.5.5 0 01-.194.479z"/></svg>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- kimi -->
+                            <div class="agent-card" data-type="kimi">
+                                <div class="agent-avatar kimi">KM</div>
+                                <div class="agent-info">
+                                    <div class="agent-name-row">
+                                        <span class="agent-name">kimi</span>
+                                        <span class="agent-type-tag">kimi</span>
+                                        <span class="status-badge online"><span class="status-dot online"></span>在线</span>
+                                    </div>
+                                    <div class="agent-role">通用助手代理 · 中文优先/任务执行/协调</div>
+                                    <div class="agent-meta">
+                                        <span>
+                                            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a4 4 0 100 8 4 4 0 000-8z"/></svg>
+                                            心跳: 1秒前
+                                        </span>
+                                        <span>
+                                            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 2A3.5 3.5 0 002 5.5v5A3.5 3.5 0 005.5 14h5a3.5 3.5 0 003.5-3.5v-5A3.5 3.5 0 0010.5 2h-5z"/></svg>
+                                            wrapper.py
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="agent-actions">
+                                    <button class="btn btn-sm btn-outline-danger" onclick="toggleAgent(this)">停止</button>
+                                    <button class="btn btn-sm btn-ghost" onclick="restartAgent(this)" title="重启">
+                                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7.151a.5.5 0 01-.742-.437 4 4 0 00-7.036-2.088.5.5 0 11-.824-.564 5 5 0 018.796 2.61.5.5 0 01-.194.479z"/></svg>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- kimi-2 -->
+                            <div class="agent-card" data-type="kimi">
+                                <div class="agent-avatar kimi">KM</div>
+                                <div class="agent-info">
+                                    <div class="agent-name-row">
+                                        <span class="agent-name">kimi-2</span>
+                                        <span class="agent-type-tag">kimi</span>
+                                        <span class="status-badge online"><span class="status-dot online"></span>在线</span>
+                                    </div>
+                                    <div class="agent-role">通用助手代理 · 中文优先/任务执行/协调</div>
+                                    <div class="agent-meta">
+                                        <span>
+                                            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a4 4 0 100 8 4 4 0 000-8z"/></svg>
+                                            心跳: 3秒前
+                                        </span>
+                                        <span>
+                                            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 2A3.5 3.5 0 002 5.5v5A3.5 3.5 0 005.5 14h5a3.5 3.5 0 003.5-3.5v-5A3.5 3.5 0 0010.5 2h-5z"/></svg>
+                                            wrapper.py
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="agent-actions">
+                                    <button class="btn btn-sm btn-outline-danger" onclick="toggleAgent(this)">停止</button>
+                                    <button class="btn btn-sm btn-ghost" onclick="restartAgent(this)" title="重启">
+                                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7.151a.5.5 0 01-.742-.437 4 4 0 00-7.036-2.088.5.5 0 11-.824-.564 5 5 0 018.796 2.61.5.5 0 01-.194.479z"/></svg>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- kimi-3 -->
+                            <div class="agent-card" data-type="kimi">
+                                <div class="agent-avatar kimi">KM</div>
+                                <div class="agent-info">
+                                    <div class="agent-name-row">
+                                        <span class="agent-name">kimi-3</span>
+                                        <span class="agent-type-tag">kimi</span>
+                                        <span class="status-badge offline"><span class="status-dot offline"></span>离线</span>
+                                    </div>
+                                    <div class="agent-role">通用助手代理 · 中文优先/任务执行/协调</div>
+                                    <div class="agent-meta">
+                                        <span>
+                                            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a4 4 0 100 8 4 4 0 000-8z"/></svg>
+                                            最后在线: 30分钟前
+                                        </span>
+                                        <span>
+                                            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 2A3.5 3.5 0 002 5.5v5A3.5 3.5 0 005.5 14h5a3.5 3.5 0 003.5-3.5v-5A3.5 3.5 0 0010.5 2h-5z"/></svg>
+                                            wrapper.py
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="agent-actions">
+                                    <button class="btn btn-sm btn-outline-success" onclick="toggleAgent(this)">启动</button>
+                                    <button class="btn btn-sm btn-ghost" disabled title="重启">
+                                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7.151a.5.5 0 01-.742-.437 4 4 0 00-7.036-2.088.5.5 0 11-.824-.564 5 5 0 018.796 2.61.5.5 0 01-.194.479z"/></svg>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- claude -->
+                            <div class="agent-card" data-type="claude">
+                                <div class="agent-avatar claude">CL</div>
+                                <div class="agent-info">
+                                    <div class="agent-name-row">
+                                        <span class="agent-name">claude</span>
+                                        <span class="agent-type-tag">claude</span>
+                                        <span class="status-badge offline"><span class="status-dot offline"></span>离线</span>
+                                    </div>
+                                    <div class="agent-role">分析代理 · 深度推理/文档/复杂决策</div>
+                                    <div class="agent-meta">
+                                        <span>
+                                            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a4 4 0 100 8 4 4 0 000-8z"/></svg>
+                                            最后在线: 3小时前
+                                        </span>
+                                        <span>
+                                            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 2A3.5 3.5 0 002 5.5v5A3.5 3.5 0 005.5 14h5a3.5 3.5 0 003.5-3.5v-5A3.5 3.5 0 0010.5 2h-5z"/></svg>
+                                            wrapper.py
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="agent-actions">
+                                    <button class="btn btn-sm btn-outline-success" onclick="toggleAgent(this)">启动</button>
+                                    <button class="btn btn-sm btn-ghost" disabled title="重启">
+                                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7.151a.5.5 0 01-.742-.437 4 4 0 00-7.036-2.088.5.5 0 11-.824-.564 5 5 0 018.796 2.61.5.5 0 01-.194.479z"/></svg>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- gemini -->
+                            <div class="agent-card" data-type="gemini">
+                                <div class="agent-avatar gemini">GM</div>
+                                <div class="agent-info">
+                                    <div class="agent-name-row">
+                                        <span class="agent-name">gemini</span>
+                                        <span class="agent-type-tag">gemini</span>
+                                        <span class="status-badge offline"><span class="status-dot offline"></span>离线</span>
+                                    </div>
+                                    <div class="agent-role">搜索代理 · 联网检索/信息聚合/实时数据</div>
+                                    <div class="agent-meta">
+                                        <span>
+                                            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a4 4 0 100 8 4 4 0 000-8z"/></svg>
+                                            最后在线: 5小时前
+                                        </span>
+                                        <span>
+                                            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 2A3.5 3.5 0 002 5.5v5A3.5 3.5 0 005.5 14h5a3.5 3.5 0 003.5-3.5v-5A3.5 3.5 0 0010.5 2h-5z"/></svg>
+                                            wrapper.py
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="agent-actions">
+                                    <button class="btn btn-sm btn-outline-success" onclick="toggleAgent(this)">启动</button>
+                                    <button class="btn btn-sm btn-ghost" disabled title="重启">
+                                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7.151a.5.5 0 01-.742-.437 4 4 0 00-7.036-2.088.5.5 0 11-.824-.564 5 5 0 018.796 2.61.5.5 0 01-.194.479z"/></svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right: Summary + Events -->
+                <div>
+                    <div class="panel-card" style="margin-bottom:16px;">
+                        <div class="panel-header">
+                            <span>运行摘要</span>
+                        </div>
+                        <div class="panel-body">
+                            <div class="summary-section">
+                                <div class="summary-stat">
+                                    <span class="summary-stat-label">
+                                        <span class="status-dot online"></span>
+                                        在线代理
+                                    </span>
+                                    <span class="summary-stat-value" style="color:var(--online)">3</span>
+                                </div>
+                                <div class="summary-stat">
+                                    <span class="summary-stat-label">
+                                        <span class="status-dot working"></span>
+                                        工作中
+                                    </span>
+                                    <span class="summary-stat-value" style="color:var(--working)">1</span>
+                                </div>
+                                <div class="summary-stat">
+                                    <span class="summary-stat-label">
+                                        <span class="status-dot offline"></span>
+                                        离线代理
+                                    </span>
+                                    <span class="summary-stat-value" style="color:var(--offline)">3</span>
+                                </div>
+                                <div class="summary-stat">
+                                    <span class="summary-stat-label">
+                                        <span class="status-dot error"></span>
+                                        异常
+                                    </span>
+                                    <span class="summary-stat-value" style="color:var(--danger)">0</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="panel-card">
+                        <div class="panel-header">
+                            <span>最近事件</span>
+                            <button class="btn btn-xs btn-ghost" onclick="switchPage('terminal', document.querySelectorAll('.page-nav-tab')[2])">查看全部</button>
+                        </div>
+                        <div class="panel-body">
+                            <div class="events-mini">
+                                <div class="event-item">
+                                    <span class="event-time">14:20</span>
+                                    <span class="event-dot info"></span>
+                                    <span class="event-text"><strong>kimi</strong> 发送消息到 <strong>#agentchat</strong></span>
+                                </div>
+                                <div class="event-item">
+                                    <span class="event-time">14:19</span>
+                                    <span class="event-dot success"></span>
+                                    <span class="event-text"><strong>codex</strong> WebSocket 连接已建立</span>
+                                </div>
+                                <div class="event-item">
+                                    <span class="event-time">14:15</span>
+                                    <span class="event-dot warn"></span>
+                                    <span class="event-text"><strong>claude</strong> 心跳超时 — 最后在线 3小时前</span>
+                                </div>
+                                <div class="event-item">
+                                    <span class="event-time">14:10</span>
+                                    <span class="event-dot info"></span>
+                                    <span class="event-text">会话恢复（循环保护后）</span>
+                                </div>
+                                <div class="event-item">
+                                    <span class="event-time">13:50</span>
+                                    <span class="event-dot success"></span>
+                                    <span class="event-text">服务由 <strong>林婉音</strong> 重启</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== AGENTS PAGE ===== -->
+        <div class="page" id="page-agents">
+            <div class="panel-card" style="height:100%;">
+                <div class="panel-header">
+                    <span>代理管理</span>
+                    <button class="btn btn-sm btn-primary" onclick="addAgent()">
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.5.5 0 01.5.5v5h5a.5.5 0 010 1h-5v5a.5.5 0 01-1 0v-5h-5a.5.5 0 010-1h5v-5A.5.5 0 018 2z"/></svg>
+                        新增代理
+                    </button>
+                </div>
+                <div class="panel-body">
+                    <div class="agent-toolbar" style="margin-bottom:20px;">
+                        <div class="agent-filter-tabs">
+                            <button class="agent-filter-tab active" onclick="filterAgents('all', this)">全部 (6)</button>
+                            <button class="agent-filter-tab" onclick="filterAgents('codex', this)">Codex (1)</button>
+                            <button class="agent-filter-tab" onclick="filterAgents('kimi', this)">Kimi (3)</button>
+                            <button class="agent-filter-tab" onclick="filterAgents('claude', this)">Claude (1)</button>
+                            <button class="agent-filter-tab" onclick="filterAgents('gemini', this)">Gemini (1)</button>
+                        </div>
+                    </div>
+                    <div class="agent-list" id="agent-list-page">
+                        <!-- Same agent cards, duplicated for the agents page -->
+                        <div class="agent-card" data-type="codex">
+                            <div class="agent-avatar codex">CX</div>
+                            <div class="agent-info">
+                                <div class="agent-name-row">
+                                    <span class="agent-name">codex</span>
+                                    <span class="agent-type-tag">codex</span>
+                                    <span class="status-badge working"><span class="status-dot working"></span>工作中</span>
+                                </div>
+                                <div class="agent-role">通用开发代理 · Python/JS/架构/代码审查</div>
+                                <div class="agent-meta">
+                                    <span><svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a4 4 0 100 8 4 4 0 000-8z"/></svg>心跳: 2秒前</span>
+                                    <span><svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 2A3.5 3.5 0 002 5.5v5A3.5 3.5 0 005.5 14h5a3.5 3.5 0 003.5-3.5v-5A3.5 3.5 0 0010.5 2h-5z"/></svg>wrapper.py</span>
+                                </div>
+                            </div>
+                            <div class="agent-actions">
+                                <button class="btn btn-sm btn-outline-danger" onclick="toggleAgent(this)">停止</button>
+                                <button class="btn btn-sm btn-ghost" onclick="restartAgent(this)" title="重启"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7.151a.5.5 0 01-.742-.437 4 4 0 00-7.036-2.088.5.5 0 11-.824-.564 5 5 0 018.796 2.61.5.5 0 01-.194.479z"/></svg></button>
+                            </div>
+                        </div>
+                        <div class="agent-card" data-type="kimi">
+                            <div class="agent-avatar kimi">KM</div>
+                            <div class="agent-info">
+                                <div class="agent-name-row">
+                                    <span class="agent-name">kimi</span>
+                                    <span class="agent-type-tag">kimi</span>
+                                    <span class="status-badge online"><span class="status-dot online"></span>在线</span>
+                                </div>
+                                <div class="agent-role">通用助手代理 · 中文优先/任务执行/协调</div>
+                                <div class="agent-meta">
+                                    <span><svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a4 4 0 100 8 4 4 0 000-8z"/></svg>心跳: 1秒前</span>
+                                    <span><svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 2A3.5 3.5 0 002 5.5v5A3.5 3.5 0 005.5 14h5a3.5 3.5 0 003.5-3.5v-5A3.5 3.5 0 0010.5 2h-5z"/></svg>wrapper.py</span>
+                                </div>
+                            </div>
+                            <div class="agent-actions">
+                                <button class="btn btn-sm btn-outline-danger" onclick="toggleAgent(this)">停止</button>
+                                <button class="btn btn-sm btn-ghost" onclick="restartAgent(this)" title="重启"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7.151a.5.5 0 01-.742-.437 4 4 0 00-7.036-2.088.5.5 0 11-.824-.564 5 5 0 018.796 2.61.5.5 0 01-.194.479z"/></svg></button>
+                            </div>
+                        </div>
+                        <div class="agent-card" data-type="kimi">
+                            <div class="agent-avatar kimi">KM</div>
+                            <div class="agent-info">
+                                <div class="agent-name-row">
+                                    <span class="agent-name">kimi-2</span>
+                                    <span class="agent-type-tag">kimi</span>
+                                    <span class="status-badge online"><span class="status-dot online"></span>在线</span>
+                                </div>
+                                <div class="agent-role">通用助手代理 · 中文优先/任务执行/协调</div>
+                                <div class="agent-meta">
+                                    <span><svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a4 4 0 100 8 4 4 0 000-8z"/></svg>心跳: 3秒前</span>
+                                    <span><svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 2A3.5 3.5 0 002 5.5v5A3.5 3.5 0 005.5 14h5a3.5 3.5 0 003.5-3.5v-5A3.5 3.5 0 0010.5 2h-5z"/></svg>wrapper.py</span>
+                                </div>
+                            </div>
+                            <div class="agent-actions">
+                                <button class="btn btn-sm btn-outline-danger" onclick="toggleAgent(this)">停止</button>
+                                <button class="btn btn-sm btn-ghost" onclick="restartAgent(this)" title="重启"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7.151a.5.5 0 01-.742-.437 4 4 0 00-7.036-2.088.5.5 0 11-.824-.564 5 5 0 018.796 2.61.5.5 0 01-.194.479z"/></svg></button>
+                            </div>
+                        </div>
+                        <div class="agent-card" data-type="kimi">
+                            <div class="agent-avatar kimi">KM</div>
+                            <div class="agent-info">
+                                <div class="agent-name-row">
+                                    <span class="agent-name">kimi-3</span>
+                                    <span class="agent-type-tag">kimi</span>
+                                    <span class="status-badge offline"><span class="status-dot offline"></span>离线</span>
+                                </div>
+                                <div class="agent-role">通用助手代理 · 中文优先/任务执行/协调</div>
+                                <div class="agent-meta">
+                                    <span><svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a4 4 0 100 8 4 4 0 000-8z"/></svg>最后在线: 30分钟前</span>
+                                    <span><svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 2A3.5 3.5 0 002 5.5v5A3.5 3.5 0 005.5 14h5a3.5 3.5 0 003.5-3.5v-5A3.5 3.5 0 0010.5 2h-5z"/></svg>wrapper.py</span>
+                                </div>
+                            </div>
+                            <div class="agent-actions">
+                                <button class="btn btn-sm btn-outline-success" onclick="toggleAgent(this)">启动</button>
+                                <button class="btn btn-sm btn-ghost" disabled title="重启"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7.151a.5.5 0 01-.742-.437 4 4 0 00-7.036-2.088.5.5 0 11-.824-.564 5 5 0 018.796 2.61.5.5 0 01-.194.479z"/></svg></button>
+                            </div>
+                        </div>
+                        <div class="agent-card" data-type="claude">
+                            <div class="agent-avatar claude">CL</div>
+                            <div class="agent-info">
+                                <div class="agent-name-row">
+                                    <span class="agent-name">claude</span>
+                                    <span class="agent-type-tag">claude</span>
+                                    <span class="status-badge offline"><span class="status-dot offline"></span>离线</span>
+                                </div>
+                                <div class="agent-role">分析代理 · 深度推理/文档/复杂决策</div>
+                                <div class="agent-meta">
+                                    <span><svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a4 4 0 100 8 4 4 0 000-8z"/></svg>最后在线: 3小时前</span>
+                                    <span><svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 2A3.5 3.5 0 002 5.5v5A3.5 3.5 0 005.5 14h5a3.5 3.5 0 003.5-3.5v-5A3.5 3.5 0 0010.5 2h-5z"/></svg>wrapper.py</span>
+                                </div>
+                            </div>
+                            <div class="agent-actions">
+                                <button class="btn btn-sm btn-outline-success" onclick="toggleAgent(this)">启动</button>
+                                <button class="btn btn-sm btn-ghost" disabled title="重启"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7.151a.5.5 0 01-.742-.437 4 4 0 00-7.036-2.088.5.5 0 11-.824-.564 5 5 0 018.796 2.61.5.5 0 01-.194.479z"/></svg></button>
+                            </div>
+                        </div>
+                        <div class="agent-card" data-type="gemini">
+                            <div class="agent-avatar gemini">GM</div>
+                            <div class="agent-info">
+                                <div class="agent-name-row">
+                                    <span class="agent-name">gemini</span>
+                                    <span class="agent-type-tag">gemini</span>
+                                    <span class="status-badge offline"><span class="status-dot offline"></span>离线</span>
+                                </div>
+                                <div class="agent-role">搜索代理 · 联网检索/信息聚合/实时数据</div>
+                                <div class="agent-meta">
+                                    <span><svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a4 4 0 100 8 4 4 0 000-8z"/></svg>最后在线: 5小时前</span>
+                                    <span><svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 2A3.5 3.5 0 002 5.5v5A3.5 3.5 0 005.5 14h5a3.5 3.5 0 003.5-3.5v-5A3.5 3.5 0 0010.5 2h-5z"/></svg>wrapper.py</span>
+                                </div>
+                            </div>
+                            <div class="agent-actions">
+                                <button class="btn btn-sm btn-outline-success" onclick="toggleAgent(this)">启动</button>
+                                <button class="btn btn-sm btn-ghost" disabled title="重启"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7.151a.5.5 0 01-.742-.437 4 4 0 00-7.036-2.088.5.5 0 11-.824-.564 5 5 0 018.796 2.61.5.5 0 01-.194.479z"/></svg></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== TERMINAL PAGE ===== -->
+        <div class="page" id="page-terminal">
+            <div class="terminal-container">
+                <div class="terminal-tabs">
+                    <div class="terminal-tab active" onclick="switchTermTab('server', this)">
+                        <span class="tab-status" style="background:var(--online)"></span>
+                        server
+                    </div>
+                    <div class="terminal-tab" onclick="switchTermTab('codex', this)">
+                        <span class="tab-status" style="background:var(--working)"></span>
+                        codex
+                    </div>
+                    <div class="terminal-tab" onclick="switchTermTab('kimi', this)">
+                        <span class="tab-status" style="background:var(--online)"></span>
+                        kimi
+                    </div>
+                    <div class="terminal-tab" onclick="switchTermTab('kimi-2', this)">
+                        <span class="tab-status" style="background:var(--online)"></span>
+                        kimi-2
+                    </div>
+                    <div class="terminal-tab" onclick="switchTermTab('kimi-3', this)">
+                        <span class="tab-status" style="background:var(--offline)"></span>
+                        kimi-3
+                    </div>
+                    <div class="terminal-tab" onclick="switchTermTab('claude', this)">
+                        <span class="tab-status" style="background:var(--offline)"></span>
+                        claude
+                    </div>
+                    <div class="terminal-tab" onclick="switchTermTab('gemini', this)">
+                        <span class="tab-status" style="background:var(--offline)"></span>
+                        gemini
+                    </div>
+                </div>
+                <div class="terminal-toolbar">
+                    <div class="terminal-toolbar-left">
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 2A3.5 3.5 0 002 5.5v5A3.5 3.5 0 005.5 14h5a3.5 3.5 0 003.5-3.5v-5A3.5 3.5 0 0010.5 2h-5z"/></svg>
+                        统一终端 — 所有代理日志集中显示
+                    </div>
+                    <div class="terminal-toolbar-right">
+                        <button class="btn btn-xs btn-ghost" onclick="clearLogs()">清空</button>
+                        <button class="btn btn-xs btn-ghost" onclick="copyLogs()">复制</button>
+                    </div>
+                </div>
+                <div class="terminal-content">
+                    <div class="terminal-pane active" id="term-server">
+                        <div class="log-line"><span class="log-time">14:20:01</span><span class="log-level log-level-info">INFO</span><span class="log-msg">agentchattr 服务启动，端口 8300</span></div>
+                        <div class="log-line"><span class="log-time">14:20:02</span><span class="log-level log-level-success">OK</span><span class="log-msg">数据库初始化完成: agentchattr.db</span></div>
+                        <div class="log-line"><span class="log-time">14:20:02</span><span class="log-level log-level-success">OK</span><span class="log-msg">MCP SSE 端点就绪 /mcp/v1/sse</span></div>
+                        <div class="log-line"><span class="log-time">14:20:03</span><span class="log-level log-level-success">OK</span><span class="log-msg">服务就绪 http://127.0.0.1:8300</span></div>
+                        <div class="log-line"><span class="log-time">14:20:15</span><span class="log-level log-level-info">INFO</span><span class="log-msg dim">POST /api/heartbeat/codex 200 (12ms)</span></div>
+                        <div class="log-line"><span class="log-time">14:20:16</span><span class="log-level log-level-info">INFO</span><span class="log-msg dim">POST /api/heartbeat/kimi 200 (8ms)</span></div>
+                        <div class="log-line"><span class="log-time">14:20:17</span><span class="log-level log-level-info">INFO</span><span class="log-msg dim">POST /api/heartbeat/kimi-2 200 (9ms)</span></div>
+                        <div class="log-line"><span class="log-time">14:20:20</span><span class="log-level log-level-warn">WARN</span><span class="log-msg">claude 心跳丢失，最后在线 3小时前</span></div>
+                        <div class="log-line"><span class="log-time">14:20:23</span><span class="log-level log-level-info">INFO</span><span class="log-msg">WebSocket 连接建立: kimi</span></div>
+                    </div>
+                    <div class="terminal-pane" id="term-codex">
+                        <div class="log-line"><span class="log-time">14:19:55</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[codex] Wrapper 启动中...</span></div>
+                        <div class="log-line"><span class="log-time">14:19:57</span><span class="log-level log-level-success">OK</span><span class="log-msg">[codex] 14 个技能已加载</span></div>
+                        <div class="log-line"><span class="log-time">14:19:58</span><span class="log-level log-level-success">OK</span><span class="log-msg">[codex] WebSocket 连接成功</span></div>
+                        <div class="log-line"><span class="log-time">14:20:10</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[codex] 收到 #agentchat 消息</span></div>
+                        <div class="log-line"><span class="log-time">14:20:15</span><span class="log-level log-level-success">OK</span><span class="log-msg">[codex] 消息已发送</span></div>
+                    </div>
+                    <div class="terminal-pane" id="term-kimi">
+                        <div class="log-line"><span class="log-time">14:19:50</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[kimi] Wrapper 启动中...</span></div>
+                        <div class="log-line"><span class="log-time">14:19:52</span><span class="log-level log-level-success">OK</span><span class="log-msg">[kimi] 12 个技能已加载</span></div>
+                        <div class="log-line"><span class="log-time">14:19:53</span><span class="log-level log-level-success">OK</span><span class="log-msg">[kimi] WebSocket 连接成功</span></div>
+                        <div class="log-line"><span class="log-time">14:20:02</span><span class="log-level log-level-success">OK</span><span class="log-msg">[kimi] 消息已发送</span></div>
+                    </div>
+                    <div class="terminal-pane" id="term-kimi-2">
+                        <div class="log-line"><span class="log-time">14:18:30</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[kimi-2] Wrapper 启动中...</span></div>
+                        <div class="log-line"><span class="log-time">14:18:32</span><span class="log-level log-level-success">OK</span><span class="log-msg">[kimi-2] 12 个技能已加载</span></div>
+                        <div class="log-line"><span class="log-time">14:18:33</span><span class="log-level log-level-success">OK</span><span class="log-msg">[kimi-2] WebSocket 连接成功</span></div>
+                    </div>
+                    <div class="terminal-pane" id="term-kimi-3">
+                        <div class="log-line"><span class="log-time">13:50:01</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[kimi-3] Wrapper 启动中...</span></div>
+                        <div class="log-line"><span class="log-time">13:50:03</span><span class="log-level log-level-success">OK</span><span class="log-msg">[kimi-3] 12 个技能已加载</span></div>
+                        <div class="log-line"><span class="log-time">13:50:04</span><span class="log-level log-level-success">OK</span><span class="log-msg">[kimi-3] WebSocket 连接成功</span></div>
+                        <div class="log-line"><span class="log-time">14:20:30</span><span class="log-level log-level-warn">WARN</span><span class="log-msg">[kimi-3] 心跳超时</span></div>
+                        <div class="log-line"><span class="log-time">14:20:31</span><span class="log-level log-level-error">ERR</span><span class="log-msg">[kimi-3] WebSocket 连接断开</span></div>
+                    </div>
+                    <div class="terminal-pane" id="term-claude">
+                        <div class="log-line"><span class="log-time">11:15:02</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[claude] Wrapper 启动中...</span></div>
+                        <div class="log-line"><span class="log-time">11:15:04</span><span class="log-level log-level-success">OK</span><span class="log-msg">[claude] 10 个技能已加载</span></div>
+                        <div class="log-line"><span class="log-time">11:20:31</span><span class="log-level log-level-error">ERR</span><span class="log-msg">[claude] WebSocket 连接丢失</span></div>
+                        <div class="log-line"><span class="log-time">11:20:37</span><span class="log-level log-level-error">ERR</span><span class="log-msg">[claude] 重连失败，进程退出</span></div>
+                    </div>
+                    <div class="terminal-pane" id="term-gemini">
+                        <div class="log-line"><span class="log-time">09:30:01</span><span class="log-level log-level-info">INFO</span><span class="log-msg">[gemini] Wrapper 启动中...</span></div>
+                        <div class="log-line"><span class="log-time">09:30:03</span><span class="log-level log-level-success">OK</span><span class="log-msg">[gemini] 8 个技能已加载</span></div>
+                        <div class="log-line"><span class="log-time">10:00:46</span><span class="log-level log-level-error">ERR</span><span class="log-msg">[gemini] WebSocket 连接丢失</span></div>
+                        <div class="log-line"><span class="log-time">10:00:47</span><span class="log-level log-level-info">INFO</span><span class="log-msg dim">--- gemini 进程已退出 ---</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== SETTINGS PAGE ===== -->
+        <div class="page" id="page-settings">
+            <div class="settings-grid">
+                <div class="settings-group">
+                    <div class="settings-group-title">服务设置</div>
+                    <div class="settings-field">
+                        <div>
+                            <div class="settings-field-label">HTTP 端口</div>
+                            <div class="settings-field-desc">agentchattr 服务监听端口</div>
+                        </div>
+                        <div class="settings-field-input">
+                            <input type="number" value="8300" style="width:80px;">
+                        </div>
+                    </div>
+                    <div class="settings-field">
+                        <div>
+                            <div class="settings-field-label">数据目录</div>
+                            <div class="settings-field-desc">数据库存储位置</div>
+                        </div>
+                        <div class="settings-field-input">
+                            <input type="text" value="D:\agentchattr" style="width:180px;">
+                        </div>
+                    </div>
+                    <div class="settings-field">
+                        <div>
+                            <div class="settings-field-label">自动启动代理</div>
+                            <div class="settings-field-desc">服务启动时自动启动所有代理</div>
+                        </div>
+                        <div class="settings-field-input">
+                            <input type="checkbox" checked>
+                        </div>
+                    </div>
+                </div>
+                <div class="settings-group">
+                    <div class="settings-group-title">代理默认配置</div>
+                    <div class="settings-field">
+                        <div>
+                            <div class="settings-field-label">心跳间隔</div>
+                            <div class="settings-field-desc">代理向服务发送心跳的频率</div>
+                        </div>
+                        <div class="settings-field-input">
+                            <select><option>3 秒</option><option selected>5 秒</option><option>10 秒</option></select>
+                        </div>
+                    </div>
+                    <div class="settings-field">
+                        <div>
+                            <div class="settings-field-label">心跳超时</div>
+                            <div class="settings-field-desc">超过此时间未收到心跳视为离线</div>
+                        </div>
+                        <div class="settings-field-input">
+                            <select><option>15 秒</option><option selected>30 秒</option><option>60 秒</option></select>
+                        </div>
+                    </div>
+                    <div class="settings-field">
+                        <div>
+                            <div class="settings-field-label">自动重连</div>
+                            <div class="settings-field-desc">断开后自动尝试重新连接</div>
+                        </div>
+                        <div class="settings-field-input">
+                            <input type="checkbox" checked>
+                        </div>
+                    </div>
+                </div>
+                <div class="settings-group">
+                    <div class="settings-group-title">界面设置</div>
+                    <div class="settings-field">
+                        <div>
+                            <div class="settings-field-label">语言</div>
+                            <div class="settings-field-desc">控制台显示语言</div>
+                        </div>
+                        <div class="settings-field-input">
+                            <select><option selected>中文</option><option>English</option></select>
+                        </div>
+                    </div>
+                    <div class="settings-field">
+                        <div>
+                            <div class="settings-field-label">主题</div>
+                            <div class="settings-field-desc">浅色 / 深色模式</div>
+                        </div>
+                        <div class="settings-field-input">
+                            <select><option selected>浅色</option><option>深色</option><option>跟随系统</option></select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Drawer Overlay -->
+    <div class="drawer-overlay" id="drawer-overlay" onclick="closeDrawer()"></div>
+
+    <!-- Add Agent Drawer -->
+    <div class="drawer" id="agent-drawer">
+        <div class="drawer-header">
+            <span class="drawer-title">新增代理</span>
+            <button class="drawer-close" onclick="closeDrawer()">&times;</button>
+        </div>
+        <div class="drawer-body">
+            <div class="form-group">
+                <label class="form-label">代理类型</label>
+                <select class="form-select" id="agent-type" onchange="onTypeChange()">
+                    <option value="codex">Codex — 开发代理</option>
+                    <option value="kimi" selected>Kimi — 助手代理</option>
+                    <option value="claude">Claude — 分析代理</option>
+                    <option value="gemini">Gemini — 搜索代理</option>
+                    <option value="custom">自定义</option>
+                </select>
+                <div class="form-hint">选择要新增的代理类型</div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">启动模式</label>
+                <div class="segmented-control" id="launch-mode">
+                    <button class="segment-btn active" onclick="setMode('normal', this)">普通模式</button>
+                    <button class="segment-btn" onclick="setMode('yolo', this)">Yolo 模式</button>
+                </div>
+                <div class="form-hint" id="mode-hint">普通模式：高风险操作需要确认</div>
+            </div>
+
+            <div class="form-group" style="display:none;">
+                <label class="form-label">实例名称</label>
+                <div class="form-readonly" id="instance-name-display">
+                    <span style="color:var(--text-dim);">启动后由 wrapper.py 自动分配</span>
+                </div>
+                <div class="form-hint" id="instance-hint">例如：kimi、kimi-2、codex-2，根据已有实例自动命名</div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">角色 <span class="optional">（可选）</span></label>
+                <select class="form-select" id="agent-role" onchange="onRoleChange()">
+                    <option value="none" selected>无</option>
+                    <option value="planner">Planner — 规划者</option>
+                    <option value="builder">Builder — 构建者</option>
+                    <option value="reviewer">Reviewer — 审查者</option>
+                    <option value="researcher">Researcher — 研究者</option>
+                    <option value="custom">自定义</option>
+                </select>
+            </div>
+
+            <div class="form-group" id="custom-role-group" style="display:none;">
+                <label class="form-label">自定义角色</label>
+                <input type="text" class="form-input" id="custom-role-input" placeholder="请输入自定义角色描述">
+            </div>
+
+            <div class="form-group" style="display:none;">
+                <label class="form-label">启动命令预览</label>
+                <input type="text" class="form-input" id="agent-command" value="python wrapper.py kimi" placeholder="python wrapper.py ..." >
+                <div class="form-hint">从配置文件自动读取，如需修改请编辑配置后重启</div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">工作目录</label>
+                <input type="text" class="form-input" id="agent-workdir" value="D:\\kimicode" placeholder="D:\\path">
+            </div>
+
+            <!-- Advanced Settings -->
+            <div class="form-group">
+                <div style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px 0;" onclick="toggleAdvanced(this)">
+                    <svg id="adv-arrow" width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="transition:transform 0.2s ease;color:var(--text-dim);"><path d="M4.646 1.646a.5.5 0 01.708 0l6 6a.5.5 0 010 .708l-6 6a.5.5 0 01-.708-.708L10.293 8 4.646 2.354a.5.5 0 010-.708z"/></svg>
+                    <span style="font-size:13px;font-weight:600;color:var(--text-bright);">高级设置</span>
+                    <span style="font-size:11px;color:var(--text-dim);">（可选）</span>
+                </div>
+                <div id="advanced-fields" style="display:none;margin-top:12px;">
+                    <div class="form-group">
+                        <label class="form-label">HTTP 端口</label>
+                        <input type="text" class="form-input" id="agent-port" value="8300" placeholder="8300">
+                        <div class="form-hint">代理独立 HTTP 端口，留空使用服务默认端口</div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">环境变量 <span class="optional">（可选）</span></label>
+                        <input type="text" class="form-input" id="agent-env" placeholder="KEY=value;KEY2=value2">
+                        <div class="form-hint">代理启动时注入的环境变量</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <div class="toggle-row">
+                    <div>
+                        <div class="toggle-label">自动启动</div>
+                        <div class="toggle-label-desc">保存后立即启动该代理</div>
+                    </div>
+                    <div class="toggle-switch active" id="auto-start-toggle" onclick="toggleSwitch(this)"></div>
+                </div>
+            </div>
+        </div>
+        <div class="drawer-footer">
+            <button class="btn btn-ghost" onclick="closeDrawer()">取消</button>
+            <button class="btn" onclick="saveAgent(false)">仅保存</button>
+            <button class="btn btn-primary" onclick="saveAgent(true)">保存并启动</button>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script>
+        // Page switching
+        function switchPage(pageId, el) {
+            document.querySelectorAll('.page-nav-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            if (el) el.classList.add('active');
+            document.getElementById('page-' + pageId).classList.add('active');
+        }
+
+        // Agent filtering
+        function filterAgents(type, el) {
+            document.querySelectorAll('.agent-filter-tab').forEach(t => t.classList.remove('active'));
+            el.classList.add('active');
+
+            const lists = [document.getElementById('agent-list'), document.getElementById('agent-list-page')];
+            lists.forEach(list => {
+                if (!list) return;
+                list.querySelectorAll('.agent-card').forEach(card => {
+                    if (type === 'all' || card.dataset.type === type) {
+                        card.style.display = 'flex';
+                    } else {
+                        card.style.display = 'none';
+                    }
+                });
+            });
+        }
+
+        // Agent toggle
+        function toggleAgent(btn) {
+            const card = btn.closest('.agent-card');
+            const badge = card.querySelector('.status-badge');
+            const restartBtn = card.querySelector('.agent-actions button:last-child');
+
+            if (btn.textContent === '停止') {
+                btn.textContent = '启动';
+                btn.className = 'btn btn-sm btn-outline-success';
+                badge.className = 'status-badge offline';
+                badge.innerHTML = '<span class="status-dot offline"></span>离线';
+                restartBtn.disabled = true;
+            } else {
+                btn.textContent = '停止';
+                btn.className = 'btn btn-sm btn-outline-danger';
+                badge.className = 'status-badge online';
+                badge.innerHTML = '<span class="status-dot online"></span>在线';
+                restartBtn.disabled = false;
+            }
+        }
+
+        function restartAgent(btn) {
+            const card = btn.closest('.agent-card');
+            const badge = card.querySelector('.status-badge');
+            badge.className = 'status-badge working';
+            badge.innerHTML = '<span class="status-dot working"></span>重启中...';
+            setTimeout(() => {
+                badge.className = 'status-badge online';
+                badge.innerHTML = '<span class="status-dot online"></span>在线';
+            }, 1500);
+        }
+
+        // ===== Drawer & Add Agent =====
+        function openDrawer() {
+            document.getElementById('drawer-overlay').classList.add('active');
+            document.getElementById('agent-drawer').classList.add('active');
+            // Reset custom role
+            document.getElementById('custom-role-group').style.display = 'none';
+            document.getElementById('custom-role-input').value = '';
+            onTypeChange();
+        }
+
+        function closeDrawer() {
+            document.getElementById('drawer-overlay').classList.remove('active');
+            document.getElementById('agent-drawer').classList.remove('active');
+        }
+
+        function toggleSwitch(el) {
+            el.classList.toggle('active');
+        }
+
+        function toggleAdvanced(el) {
+            const fields = document.getElementById('advanced-fields');
+            const arrow = document.getElementById('adv-arrow');
+            const isOpen = fields.style.display === 'block';
+            fields.style.display = isOpen ? 'none' : 'block';
+            el.classList.toggle('open', !isOpen);
+        }
+
+        function getExistingInstances() {
+            const names = new Set();
+            document.querySelectorAll('.agent-name').forEach(el => names.add(el.textContent.trim()));
+            return Array.from(names);
+        }
+
+        function suggestInstanceName(type) {
+            const existing = getExistingInstances();
+            const base = type;
+            if (!existing.includes(base)) return base;
+            let n = 2;
+            while (existing.includes(base + '-' + n)) n++;
+            return base + '-' + n;
+        }
+
+        function getMode() {
+            const btns = document.querySelectorAll('.segment-btn');
+            return btns[0].classList.contains('active') ? 'normal' : 'yolo';
+        }
+
+        function setMode(mode, el) {
+            document.querySelectorAll('.segment-btn').forEach(b => b.classList.remove('active'));
+            el.classList.add('active');
+            const hint = document.getElementById('mode-hint');
+            hint.textContent = mode === 'normal'
+                ? '普通模式：高风险操作需要确认'
+                : 'Yolo 模式：自动执行，适合可信本地任务';
+            updateCommandPreview();
+        }
+
+        function onRoleChange() {
+            const role = document.getElementById('agent-role').value;
+            const customGroup = document.getElementById('custom-role-group');
+            customGroup.style.display = role === 'custom' ? 'block' : 'none';
+        }
+
+        function updateCommandPreview() {
+            const type = document.getElementById('agent-type').value;
+            const cmdInput = document.getElementById('agent-command');
+            const mode = getMode();
+            if (type === 'custom') {
+                cmdInput.value = '';
+                cmdInput.placeholder = '自定义启动命令';
+                return;
+            }
+            const suffix = mode === 'yolo' ? ' --yolo' : '';
+            cmdInput.value = 'python wrapper.py ' + type + suffix;
+        }
+
+        function onTypeChange() {
+            const type = document.getElementById('agent-type').value;
+            const hint = document.getElementById('instance-hint');
+
+            if (type === 'custom') {
+                hint.textContent = '自定义代理的实例名和启动命令需手动配置';
+                updateCommandPreview();
+                return;
+            }
+
+            updateCommandPreview();
+
+            const existing = getExistingInstances().filter(n => n === type || n.startsWith(type + '-'));
+            if (existing.length === 0) {
+                hint.textContent = '当前无该类型实例，启动后将分配为 ' + type;
+            } else {
+                const next = suggestInstanceName(type);
+                hint.textContent = '当前已有 ' + existing.join('、') + '，启动后将自动分配为 ' + next;
+            }
+        }
+
+        function addAgent() {
+            openDrawer();
+        }
+
+        function saveAgent(autoStart) {
+            const type = document.getElementById('agent-type').value;
+            const role = document.getElementById('agent-role').value;
+            const customRole = document.getElementById('custom-role-input').value.trim();
+            const cmd = document.getElementById('agent-command').value;
+
+            // Auto-generate instance name (simulating wrapper.py behavior)
+            const name = type === 'custom'
+                ? (customRole || 'custom-' + Date.now())
+                : suggestInstanceName(type);
+
+            const existing = getExistingInstances();
+            if (existing.includes(name)) {
+                showToast('实例名 "' + name + '" 已存在', 'error');
+                return;
+            }
+
+            const effectiveRole = role === 'custom' && customRole ? customRole : role;
+
+            // Simulate adding a card
+            const list = document.getElementById('agent-list');
+            const listPage = document.getElementById('agent-list-page');
+            const card = createAgentCard(name, type, effectiveRole, cmd, autoStart);
+
+            if (list) list.appendChild(card.cloneNode(true));
+            if (listPage) listPage.appendChild(card);
+
+            // Update filter counts
+            updateFilterCounts();
+
+            closeDrawer();
+
+            const typeLabels = { codex: 'Codex', kimi: 'Kimi', claude: 'Claude', gemini: 'Gemini', custom: '自定义' };
+            const typeLabel = typeLabels[type] || type;
+
+            if (autoStart) {
+                showToast('已启动 ' + typeLabel + '，实例名：' + name, 'success');
+            } else {
+                showToast('已保存 ' + typeLabel + ' 配置，启动后自动分配名称', 'success');
+            }
+        }
+
+        function createAgentCard(name, type, role, cmd, autoStart) {
+            const div = document.createElement('div');
+            div.className = 'agent-card';
+            div.dataset.type = type;
+            div.style.animation = 'none';
+
+            const typeColor = { codex: 'codex', kimi: 'kimi', claude: 'claude', gemini: 'gemini', custom: 'kimi' };
+            const color = typeColor[type] || 'kimi';
+            const initials = name.substring(0, 2).toUpperCase();
+            const roleLabels = {
+                none: '',
+                planner: '规划者',
+                builder: '构建者',
+                reviewer: '审查者',
+                researcher: '研究者'
+            };
+            const roleLabel = roleLabels[role] || role;
+            const statusBadge = autoStart
+                ? '<span class="status-badge online"><span class="status-dot online"></span>在线</span>'
+                : '<span class="status-badge offline"><span class="status-dot offline"></span>离线</span>';
+            const mainBtn = autoStart
+                ? '<button class="btn btn-sm btn-outline-danger" onclick="toggleAgent(this)">停止</button>'
+                : '<button class="btn btn-sm btn-outline-success" onclick="toggleAgent(this)">启动</button>';
+            const restartDisabled = autoStart ? '' : 'disabled';
+
+            div.innerHTML = `
+                <div class="agent-avatar ${color}">${initials}</div>
+                <div class="agent-info">
+                    <div class="agent-name-row">
+                        <span class="agent-name">${name}</span>
+                        <span class="agent-type-tag">${type}</span>
+                        ${statusBadge}
+                    </div>
+                    <div class="agent-role">${roleLabel ? roleLabel + ' · ' : ''}${cmd}</div>
+                    <div class="agent-meta">
+                        <span><svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a4 4 0 100 8 4 4 0 000-8z"/></svg>心跳: 刚刚</span>
+                        <span><svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 2A3.5 3.5 0 002 5.5v5A3.5 3.5 0 005.5 14h5a3.5 3.5 0 003.5-3.5v-5A3.5 3.5 0 0010.5 2h-5z"/></svg>wrapper.py</span>
+                    </div>
+                </div>
+                <div class="agent-actions">
+                    ${mainBtn}
+                    <button class="btn btn-sm btn-ghost" onclick="restartAgent(this)" title="重启" ${restartDisabled}>
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7.151a.5.5 0 01-.742-.437 4 4 0 00-7.036-2.088.5.5 0 11-.824-.564 5 5 0 018.796 2.61.5.5 0 01-.194.479z"/></svg>
+                    </button>
+                </div>
+            `;
+            return div;
+        }
+
+        function updateFilterCounts() {
+            const types = ['codex', 'kimi', 'claude', 'gemini'];
+            const tabs = document.querySelectorAll('.agent-filter-tab');
+            let total = 0;
+            types.forEach((type, i) => {
+                const count = document.querySelectorAll('.agent-card[data-type="' + type + '"]').length;
+                total += count;
+                if (tabs[i + 1]) {
+                    const base = type.charAt(0).toUpperCase() + type.slice(1);
+                    tabs[i + 1].textContent = base + ' (' + count + ')';
+                }
+            });
+            if (tabs[0]) tabs[0].textContent = '全部 (' + total + ')';
+        }
+
+        function showToast(message, type) {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = 'toast ' + (type || 'success');
+            toast.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 16A8 8 0 108 0a8 8 0 000 16zm3.78-9.72a.75.75 0 00-1.06-1.06L6.75 9.19 5.28 7.72a.75.75 0 00-1.06 1.06l2 2a.75.75 0 001.06 0l4.5-4.5z"/></svg>' + message;
+            container.appendChild(toast);
+            setTimeout(() => toast.classList.add('show'), 10);
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        // Top bar actions
+        function openChat() {
+            alert('将打开: http://127.0.0.1:8300');
+        }
+
+        function startAll() {
+            document.querySelectorAll('.agent-actions button:first-child').forEach(btn => {
+                if (btn.textContent === '启动') toggleAgent(btn);
+            });
+        }
+
+        function stopAll() {
+            document.querySelectorAll('.agent-actions button:first-child').forEach(btn => {
+                if (btn.textContent === '停止') toggleAgent(btn);
+            });
+        }
+
+        function restartAll() {
+            document.querySelectorAll('.agent-actions button:last-child').forEach(btn => {
+                if (!btn.disabled) btn.click();
+            });
+        }
+
+        // Server controls
+        function startServer() {
+            const badge = document.querySelector('.panel-header .status-badge');
+            badge.className = 'status-badge online';
+            badge.innerHTML = '<span class="status-dot online"></span>运行中';
+        }
+
+        function stopServer() {
+            const badge = document.querySelector('.panel-header .status-badge');
+            badge.className = 'status-badge offline';
+            badge.innerHTML = '<span class="status-dot offline"></span>已停止';
+        }
+
+        function restartServer() {
+            const badge = document.querySelector('.panel-header .status-badge');
+            badge.className = 'status-badge working';
+            badge.innerHTML = '<span class="status-dot working"></span>重启中...';
+            setTimeout(() => {
+                badge.className = 'status-badge online';
+                badge.innerHTML = '<span class="status-dot online"></span>运行中';
+            }, 2000);
+        }
+
+        // Terminal tab switching
+        function switchTermTab(name, el) {
+            document.querySelectorAll('.terminal-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.terminal-pane').forEach(p => p.classList.remove('active'));
+            el.classList.add('active');
+            document.getElementById('term-' + name).classList.add('active');
+        }
+
+        function clearLogs() {
+            const activePane = document.querySelector('.terminal-pane.active');
+            if (activePane) activePane.innerHTML = '<div class="log-line"><span class="log-msg dim">--- 日志已清空 ---</span></div>';
+        }
+
+        function copyLogs() {
+            alert('将复制当前标签页日志到剪贴板');
+        }
+    </script>
+
+</body>
+</html>

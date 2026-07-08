@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>agentchattr 控制台</title>
+    <link rel="stylesheet" href="/static/launcher.css">
+</head>
+<body>
+    <!-- Top Bar -->
+    <div class="top-bar">
+        <div class="top-bar-left">
+            <div class="logo-mark">A</div>
+            <div class="top-title">agentchattr 控制台</div>
+        </div>
+        <div class="top-actions">
+            <button class="btn btn-primary" id="btn-open-chat">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3a1 1 0 011-1h10a1 1 0 011 1v7a1 1 0 01-1 1H5l-3 3V3z"/></svg>
+                打开聊天
+            </button>
+            <button class="btn btn-success" id="btn-start-all">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M4 2.5a.5.5 0 01.8-.4l7 5.5a.5.5 0 010 .8l-7 5.5a.5.5 0 01-.8-.4V2.5z"/></svg>
+                全部启动
+            </button>
+            <button class="btn btn-danger" id="btn-stop-all">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 3.5A1.5 1.5 0 015 2h6a1.5 1.5 0 011.5 1.5v9a1.5 1.5 0 01-1.5 1.5H5a1.5 1.5 0 01-1.5-1.5v-9z"/></svg>
+                全部停止
+            </button>
+            <button class="btn" id="btn-restart-all">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7.151a.5.5 0 01-.742-.437 4 4 0 00-7.036-2.088.5.5 0 11-.824-.564 5 5 0 018.796 2.61.5.5 0 01-.194.479z"/></svg>
+                全部重启
+            </button>
+        </div>
+    </div>
+
+    <!-- Page Navigation -->
+    <div class="page-nav">
+        <button class="page-nav-tab active" data-page="dashboard">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3a1 1 0 011-1h10a1 1 0 011 1v7a1 1 0 01-1 1H5l-3 3V3z"/></svg>
+            概览
+        </button>
+        <button class="page-nav-tab" data-page="agents">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 8a3 3 0 100-6 3 3 0 000 6zm0 1a4 4 0 00-4 4v1h8v-1a4 4 0 00-4-4z"/></svg>
+            代理
+            <span id="nav-agent-count" style="background:var(--accent-soft);color:var(--accent);padding:1px 6px;border-radius:999px;font-size:10px;font-weight:700;">0</span>
+        </button>
+        <button class="page-nav-tab" data-page="terminal">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 2A3.5 3.5 0 002 5.5v5A3.5 3.5 0 005.5 14h5a3.5 3.5 0 003.5-3.5v-5A3.5 3.5 0 0010.5 2h-5z"/></svg>
+            终端
+        </button>
+        <button class="page-nav-tab" data-page="settings">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M6.5 1L7.1 3.1C7.4 3.2 7.7 3.4 8 3.6L10 2.8L11.5 5.4L9.8 6.7C9.8 7 9.8 7.3 9.8 7.6L11.5 8.9L10 11.5L8 10.7C7.7 10.9 7.4 11 7.1 11.2L6.5 13.3H3.5L2.9 11.2C2.6 11 2.3 10.9 2 10.7L0 11.5L-1.5 8.9L0.2 7.6C0.2 7.3 0.2 7 0.2 6.7L-1.5 5.4L0 2.8L2 3.6C2.3 3.4 2.6 3.2 2.9 3.1L3.5 1H6.5Z" transform="translate(3 1)" stroke="currentColor" stroke-width="1.2" fill="none"/><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+            设置
+        </button>
+    </div>
+
+    <!-- Page Content -->
+    <div class="page-content">
+        <!-- ===== DASHBOARD PAGE ===== -->
+        <div class="page active" id="page-dashboard">
+            <div class="dashboard-grid">
+                <!-- Left: Server -->
+                <div class="panel-card">
+                    <div class="panel-header">
+                        <span>服务</span>
+                        <span class="status-badge" id="server-status-badge">
+                            <span class="status-dot" id="server-status-dot"></span>
+                            <span id="server-status-text">检测中...</span>
+                        </span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="server-controls">
+                            <div class="server-btn-row">
+                                <button class="btn btn-success btn-sm" id="btn-start-server">
+                                    <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M4 2.5a.5.5 0 01.8-.4l7 5.5a.5.5 0 010 .8l-7 5.5a.5.5 0 01-.8-.4V2.5z"/></svg>
+                                    启动服务
+                                </button>
+                                <button class="btn btn-danger btn-sm" id="btn-stop-server">
+                                    <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 3.5A1.5 1.5 0 015 2h6a1.5 1.5 0 011.5 1.5v9a1.5 1.5 0 01-1.5 1.5H5a1.5 1.5 0 01-1.5-1.5v-9z"/></svg>
+                                    停止服务
+                                </button>
+                            </div>
+                            <button class="btn btn-sm" id="btn-restart-server" style="width:100%;justify-content:center;">
+                                <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7.151a.5.5 0 01-.742-.437 4 4 0 00-7.036-2.088.5.5 0 11-.824-.564 5 5 0 018.796 2.61.5.5 0 01-.194.479z"/></svg>
+                                重启服务
+                            </button>
+                            <button class="btn btn-primary btn-sm" id="btn-open-chat-2" style="width:100%;justify-content:center;">
+                                <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3a1 1 0 011-1h10a1 1 0 011 1v7a1 1 0 01-1 1H5l-3 3V3z"/></svg>
+                                打开聊天
+                            </button>
+                        </div>
+
+                        <div class="server-section">
+                            <div class="server-section-title">服务信息</div>
+                            <div class="status-row">
+                                <span class="status-row-label">HTTP 端口</span>
+                                <span class="status-row-value" id="server-port">--</span>
+                            </div>
+                            <div class="status-row">
+                                <span class="status-row-label">MCP SSE</span>
+                                <span class="status-row-value" id="server-mcp-sse">--</span>
+                            </div>
+                            <div class="status-row">
+                                <span class="status-row-label">MCP HTTP</span>
+                                <span class="status-row-value" id="server-mcp-http">--</span>
+                            </div>
+                            <div class="status-row">
+                                <span class="status-row-label">数据目录</span>
+                                <span class="status-row-value" style="font-size:10px" id="server-data-dir">--</span>
+                            </div>
+                        </div>
+
+                        <div class="server-section">
+                            <div class="server-section-title">资源</div>
+                            <div class="metric-grid">
+                                <div class="metric-card">
+                                    <div class="metric-value" style="color:var(--online)" id="metric-online">0</div>
+                                    <div class="metric-label">在线</div>
+                                </div>
+                                <div class="metric-card">
+                                    <div class="metric-value" style="color:var(--working)" id="metric-working">0</div>
+                                    <div class="metric-label">工作中</div>
+                                </div>
+                                <div class="metric-card">
+                                    <div class="metric-value" id="metric-memory">--</div>
+                                    <div class="metric-label">内存占用</div>
+                                </div>
+                                <div class="metric-card">
+                                    <div class="metric-value" id="metric-errors">0</div>
+                                    <div class="metric-label">近1小时错误</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Center: Agent List -->
+                <div class="panel-card">
+                    <div class="panel-header">
+                        <span>代理实例</span>
+                        <span style="font-size:11px;color:var(--text-dim);font-weight:400;text-transform:none;letter-spacing:0;" id="agent-summary-text">0 个实例</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="agent-toolbar">
+                            <div class="agent-filter-tabs" id="dashboard-filter-tabs">
+                                <button class="agent-filter-tab active" data-filter="all">全部</button>
+                            </div>
+                            <button class="btn btn-sm btn-primary" id="btn-add-agent-dash">
+                                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.5.5 0 01.5.5v5h5a.5.5 0 010 1h-5v5a.5.5 0 01-1 0v-5h-5a.5.5 0 010-1h5v-5A.5.5 0 018 2z"/></svg>
+                                新增代理
+                            </button>
+                        </div>
+                        <div class="agent-list" id="dashboard-agent-list">
+                            <div class="empty-state">加载中...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right: Summary + Events -->
+                <div>
+                    <div class="panel-card" style="margin-bottom:16px;">
+                        <div class="panel-header">
+                            <span>运行摘要</span>
+                        </div>
+                        <div class="panel-body">
+                            <div class="summary-section">
+                                <div class="summary-stat">
+                                    <span class="summary-stat-label"><span class="status-dot online"></span>在线代理</span>
+                                    <span class="summary-stat-value" style="color:var(--online)" id="summary-online">0</span>
+                                </div>
+                                <div class="summary-stat">
+                                    <span class="summary-stat-label"><span class="status-dot working"></span>工作中</span>
+                                    <span class="summary-stat-value" style="color:var(--working)" id="summary-working">0</span>
+                                </div>
+                                <div class="summary-stat">
+                                    <span class="summary-stat-label"><span class="status-dot offline"></span>离线代理</span>
+                                    <span class="summary-stat-value" style="color:var(--offline)" id="summary-offline">0</span>
+                                </div>
+                                <div class="summary-stat">
+                                    <span class="summary-stat-label"><span class="status-dot error"></span>异常</span>
+                                    <span class="summary-stat-value" style="color:var(--danger)" id="summary-error">0</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="panel-card">
+                        <div class="panel-header">
+                            <span>最近事件</span>
+                            <button class="btn btn-xs btn-ghost" id="btn-view-all-events">查看全部</button>
+                        </div>
+                        <div class="panel-body">
+                            <div class="events-mini" id="recent-events">
+                                <div class="empty-state">暂无事件</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== AGENTS PAGE ===== -->
+        <div class="page" id="page-agents">
+            <div class="panel-card" style="height:100%;">
+                <div class="panel-header">
+                    <span>代理管理</span>
+                    <button class="btn btn-sm btn-primary" id="btn-add-agent-page">
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.5.5 0 01.5.5v5h5a.5.5 0 010 1h-5v5a.5.5 0 01-1 0v-5h-5a.5.5 0 010-1h5v-5A.5.5 0 018 2z"/></svg>
+                        新增代理
+                    </button>
+                </div>
+                <div class="panel-body">
+                    <div class="agent-toolbar" style="margin-bottom:20px;">
+                        <div class="agent-filter-tabs" id="agents-filter-tabs">
+                            <button class="agent-filter-tab active" data-filter="all">全部</button>
+                        </div>
+                    </div>
+                    <div class="agent-list" id="agents-agent-list">
+                        <div class="empty-state">加载中...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== TERMINAL PAGE ===== -->
+        <div class="page" id="page-terminal">
+            <div class="terminal-container">
+                <div class="terminal-tabs" id="terminal-tabs">
+                    <!-- Tabs rendered by JS -->
+                </div>
+                <div class="terminal-toolbar">
+                    <div class="terminal-toolbar-left">
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 2A3.5 3.5 0 002 5.5v5A3.5 3.5 0 005.5 14h5a3.5 3.5 0 003.5-3.5v-5A3.5 3.5 0 0010.5 2h-5z"/></svg>
+                        <span id="terminal-title">统一终端 — 所有代理日志集中显示</span>
+                    </div>
+                    <div class="terminal-toolbar-right">
+                        <button class="btn btn-xs btn-ghost" id="btn-clear-logs">清空</button>
+                        <button class="btn btn-xs btn-ghost" id="btn-copy-logs">复制</button>
+                    </div>
+                </div>
+                <div class="terminal-content" id="terminal-content">
+                    <!-- Panes rendered by JS -->
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== SETTINGS PAGE ===== -->
+        <div class="page" id="page-settings">
+            <div class="settings-grid">
+                <div class="settings-group">
+                    <div class="settings-group-title">服务设置</div>
+                    <div class="settings-field">
+                        <div>
+                            <div class="settings-field-label">HTTP 端口</div>
+                            <div class="settings-field-desc">agentchattr 服务监听端口</div>
+                        </div>
+                        <div class="settings-field-input">
+                            <input type="number" value="8300" style="width:80px;" id="setting-port">
+                        </div>
+                    </div>
+                    <div class="settings-field">
+                        <div>
+                            <div class="settings-field-label">数据目录</div>
+                            <div class="settings-field-desc">数据库存储位置</div>
+                        </div>
+                        <div class="settings-field-input">
+                            <input type="text" value="./data" style="width:180px;" id="setting-data-dir">
+                        </div>
+                    </div>
+                    <div class="settings-field">
+                        <div>
+                            <div class="settings-field-label">自动启动代理</div>
+                            <div class="settings-field-desc">服务启动时自动启动所有代理</div>
+                        </div>
+                        <div class="settings-field-input">
+                            <input type="checkbox" checked id="setting-auto-start">
+                        </div>
+                    </div>
+                </div>
+                <div class="settings-group">
+                    <div class="settings-group-title">界面设置</div>
+                    <div class="settings-field">
+                        <div>
+                            <div class="settings-field-label">语言</div>
+                            <div class="settings-field-desc">控制台显示语言</div>
+                        </div>
+                        <div class="settings-field-input">
+                            <select id="setting-lang"><option selected>中文</option><option>English</option></select>
+                        </div>
+                    </div>
+                    <div class="settings-field">
+                        <div>
+                            <div class="settings-field-label">主题</div>
+                            <div class="settings-field-desc">浅色 / 深色模式</div>
+                        </div>
+                        <div class="settings-field-input">
+                            <select id="setting-theme"><option selected>浅色</option><option>深色</option><option>跟随系统</option></select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Drawer Overlay -->
+    <div class="drawer-overlay" id="drawer-overlay"></div>
+
+    <!-- Add Agent Drawer -->
+    <div class="drawer" id="agent-drawer">
+        <div class="drawer-header">
+            <span class="drawer-title">新增代理</span>
+            <button class="drawer-close" id="drawer-close">&times;</button>
+        </div>
+        <div class="drawer-body">
+            <div class="form-group">
+                <label class="form-label">代理类型</label>
+                <select class="form-select" id="drawer-agent-type">
+                    <!-- Options rendered by JS from templates -->
+                </select>
+                <div class="form-hint">选择要新增的代理类型</div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">启动模式</label>
+                <div class="segmented-control" id="drawer-mode-control">
+                    <button class="segment-btn active" data-mode="normal">普通模式</button>
+                    <button class="segment-btn" data-mode="yolo">Yolo 模式</button>
+                </div>
+                <div class="form-hint" id="drawer-mode-hint">普通模式：高风险操作需要确认</div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">实例名称</label>
+                <div class="form-readonly">
+                    <span style="color:var(--text-dim);">启动后由 wrapper.py 自动分配</span>
+                </div>
+                <div class="form-hint" id="drawer-instance-hint">例如：kimi、kimi-2、codex-2，根据已有实例自动命名</div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">角色 <span class="optional">（可选）</span></label>
+                <select class="form-select" id="drawer-agent-role">
+                    <option value="none" selected>无</option>
+                    <option value="planner">Planner — 规划者</option>
+                    <option value="builder">Builder — 构建者</option>
+                    <option value="reviewer">Reviewer — 审查者</option>
+                    <option value="researcher">Researcher — 研究者</option>
+                    <option value="custom">自定义</option>
+                </select>
+            </div>
+
+            <div class="form-group" id="drawer-custom-role-group" style="display:none;">
+                <label class="form-label">自定义角色</label>
+                <input type="text" class="form-input" id="drawer-custom-role-input" placeholder="请输入自定义角色描述">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">工作目录</label>
+                <input type="text" class="form-input" id="drawer-workdir" value="D:\\kimicode" placeholder="D:\\path">
+            </div>
+
+            <!-- Advanced Settings -->
+            <div class="form-group">
+                <div class="advanced-toggle" id="drawer-advanced-toggle">
+                    <svg id="adv-arrow" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4.646 1.646a.5.5 0 01.708 0l6 6a.5.5 0 010 .708l-6 6a.5.5 0 01-.708-.708L10.293 8 4.646 2.354a.5.5 0 010-.708z"/></svg>
+                    <span style="font-size:13px;font-weight:600;color:var(--text-bright);">高级设置</span>
+                    <span style="font-size:11px;color:var(--text-dim);">（可选）</span>
+                </div>
+                <div id="drawer-advanced-fields" style="display:none;margin-top:12px;">
+                    <div class="form-group">
+                        <label class="form-label">HTTP 端口</label>
+                        <input type="text" class="form-input" id="drawer-port" value="" placeholder="留空使用服务默认端口">
+                        <div class="form-hint">代理独立 HTTP 端口，留空使用服务默认端口</div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">环境变量 <span class="optional">（可选）</span></label>
+                        <input type="text" class="form-input" id="drawer-env" placeholder="KEY=value;KEY2=value2">
+                        <div class="form-hint">代理启动时注入的环境变量</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <div class="toggle-row">
+                    <div>
+                        <div class="toggle-label">自动启动</div>
+                        <div class="toggle-label-desc">保存后立即启动该代理</div>
+                    </div>
+                    <div class="toggle-switch active" id="drawer-auto-start"></div>
+                </div>
+            </div>
+        </div>
+        <div class="drawer-footer">
+            <button class="btn btn-ghost" id="drawer-btn-cancel">取消</button>
+            <button class="btn" id="drawer-btn-save">仅保存</button>
+            <button class="btn btn-primary" id="drawer-btn-save-start">保存并启动</button>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script src="/static/launcher.js"></script>
+</body>
+</html>

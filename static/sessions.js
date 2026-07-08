@@ -32,7 +32,7 @@ function _renderSessionDraftResolvedCard(label, detail = '') {
     return `
         <div class="proposal-card session-proposal-card proposal-resolved">
             <div class="proposal-header">
-                <span class="proposal-pill">Session Proposal</span>
+                <span class="proposal-pill">${t('sessions.proposal')}</span>
             </div>
             <div class="proposal-title">${window.escapeHtml(label)}</div>
             ${detail ? `<div class="proposal-body session-proposal-desc">${window.escapeHtml(detail)}</div>` : ''}
@@ -48,7 +48,7 @@ window._messageRenderers['session_start'] = function (el, msg) {
 window._messageRenderers['session_end'] = function (el, msg) {
     el.classList.add('system-msg', 'session-banner', 'session-banner-end');
     const outputId = msg.metadata?.output_message_id;
-    const jumpLink = outputId ? ` <span class="session-output-link" onclick="scrollToSessionOutput(${outputId})">View output</span>` : '';
+    const jumpLink = outputId ? ` <span class="session-output-link" onclick="scrollToSessionOutput(${outputId})">${t('sessions.viewOutput')}</span>` : '';
     el.innerHTML = `<span class="session-banner-icon">&#9632;</span> <strong>${window.escapeHtml(msg.text)}</strong>${jumpLink}`;
 };
 
@@ -77,36 +77,36 @@ window._messageRenderers['session_draft'] = function (el, msg) {
 
     if (isSuperseded) {
         el.classList.add('session-draft-superseded');
-        el.innerHTML = _renderSessionDraftResolvedCard('Superseded draft', `Replaced by revision ${revision}.`);
+        el.innerHTML = _renderSessionDraftResolvedCard(t('sessions.superseded'), t('sessions.replacedByRevision', { revision }));
     } else if (!valid) {
         el.classList.add('session-draft-invalid');
         const errorList = errors.map(e => `<li>${window.escapeHtml(e)}</li>`).join('');
         el.innerHTML = `
             <div class="proposal-card session-proposal-card session-proposal-invalid">
                 <div class="proposal-header">
-                    <span class="proposal-pill">Session Proposal</span>
+                    <span class="proposal-pill">${t('sessions.proposal')}</span>
                     <span class="proposal-author" style="color: ${proposedByColor}">${window.escapeHtml(proposedBy)}</span>
                 </div>
-                <div class="proposal-title">Invalid session draft</div>
-                <div class="proposal-body session-proposal-desc">This draft needs changes before it can be run or saved.</div>
+                <div class="proposal-title">${t('sessions.invalidDraft')}</div>
+                <div class="proposal-body session-proposal-desc">${t('sessions.invalidDraftHelp')}</div>
                 <ul class="session-draft-errors">${errorList}</ul>
                 <div class="proposal-actions">
-                    <button class="proposal-request-changes" onclick="requestDraftChanges('${window.escapeHtml(draftId)}', '${window.escapeHtml(proposedBy)}', ${msg.id})">Request Changes</button>
-                    <button class="proposal-dismiss" onclick="dismissDraft(${msg.id})">Dismiss</button>
+                    <button class="proposal-request-changes" onclick="requestDraftChanges('${window.escapeHtml(draftId)}', '${window.escapeHtml(proposedBy)}', ${msg.id})">${t('sessions.requestChanges')}</button>
+                    <button class="proposal-dismiss" onclick="dismissDraft(${msg.id})">${t('common.dismiss')}</button>
                 </div>
             </div>`;
     } else {
         const phases = tmpl.phases || [];
         const phasesDetailHtml = phases.map((p, i) => {
             const parts = (p.participants || [])
-                .map(r => `<span class="session-draft-phase-participant-pill">${window.escapeHtml(r)}</span>`)
+                .map(r => `<span class="session-draft-phase-participant-pill">${window.escapeHtml(_sessionRoleLabel(r))}</span>`)
                 .join('');
             const promptText = p.prompt ? window.escapeHtml(p.prompt) : '';
             return `<div class="session-draft-phase-detail">
                 <span class="session-draft-phase-num">${i + 1}</span>
                 <div class="session-draft-phase-copy">
                     <div class="session-draft-phase-top">
-                        <span class="session-draft-phase-name">${window.escapeHtml(p.name)}</span>
+                        <span class="session-draft-phase-name">${window.escapeHtml(_sessionPhaseLabel(p.name, i))}</span>
                         ${parts ? `<span class="session-draft-phase-participants">${parts}</span>` : ''}
                     </div>
                     ${promptText ? `<div class="session-draft-phase-prompt">${promptText}</div>` : ''}
@@ -119,20 +119,20 @@ window._messageRenderers['session_draft'] = function (el, msg) {
         el.innerHTML = `
             <div class="proposal-card session-proposal-card">
                 <div class="proposal-header">
-                    <span class="proposal-pill">Session Proposal</span>
+                    <span class="proposal-pill">${t('sessions.proposal')}</span>
                     <span class="proposal-author" style="color: ${proposedByColor}">${window.escapeHtml(proposedBy)}</span>
                     ${metaLabel ? `<span class="session-draft-meta">${metaLabel}</span>` : ''}
                 </div>
-                <div class="proposal-title">${window.escapeHtml(tmpl.name || '?')}</div>
-                ${tmpl.description ? `<div class="proposal-body session-proposal-desc">${window.escapeHtml(tmpl.description)}</div>` : ''}
+                <div class="proposal-title">${window.escapeHtml(_sessionTemplateName(tmpl))}</div>
+                ${_sessionTemplateDescription(tmpl) ? `<div class="proposal-body session-proposal-desc">${window.escapeHtml(_sessionTemplateDescription(tmpl))}</div>` : ''}
                 <div class="session-draft-details">
                     ${phasesDetailHtml}
                 </div>
                 <div class="proposal-actions">
-                    <button class="proposal-accept" onclick="runDraft(${msg.id})">Run</button>
-                    <button class="proposal-request-changes session-draft-btn-save" onclick="saveDraft(${msg.id}, this)">Save Template</button>
-                    <button class="proposal-request-changes" onclick="requestDraftChanges('${window.escapeHtml(draftId)}', '${window.escapeHtml(proposedBy)}', ${msg.id})">Request Changes</button>
-                    <button class="proposal-dismiss" onclick="dismissDraft(${msg.id})">Dismiss</button>
+                    <button class="proposal-accept" onclick="runDraft(${msg.id})">${t('sessions.run')}</button>
+                    <button class="proposal-request-changes session-draft-btn-save" onclick="saveDraft(${msg.id}, this)">${t('sessions.saveTemplate')}</button>
+                    <button class="proposal-request-changes" onclick="requestDraftChanges('${window.escapeHtml(draftId)}', '${window.escapeHtml(proposedBy)}', ${msg.id})">${t('sessions.requestChanges')}</button>
+                    <button class="proposal-dismiss" onclick="dismissDraft(${msg.id})">${t('common.dismiss')}</button>
                 </div>
             </div>`;
         // Supersede older revisions of the same draft
@@ -244,7 +244,10 @@ function updateSessionBar() {
         const target = otherSessions[0];
         const extraCount = otherSessions.length - 1;
         const targetChannel = target.channel || 'general';
-        const targetName = target.template_name || target.template_id || 'Session';
+        const targetName = _sessionTemplateName({
+            id: target.template_id,
+            name: target.template_name || target.template_id || t('sessions.session'),
+        });
         const channelListText = otherSessions.map(session => `#${session.channel || 'general'}`).join(', ');
 
         sessionIndicatorTargetChannel = targetChannel;
@@ -252,16 +255,16 @@ function updateSessionBar() {
         bar.classList.remove('hidden');
         bar.classList.add('session-elsewhere');
         templateEl.textContent = otherSessions.length === 1
-            ? `Session active in #${targetChannel}`
-            : `${otherSessions.length} sessions active elsewhere`;
+            ? t('sessions.activeIn', { channel: targetChannel })
+            : t('sessions.activeElsewhere', { count: otherSessions.length });
         phaseEl.textContent = otherSessions.length === 1
             ? targetName
             : channelListText;
         waitingEl.style.display = 'none';
         if (jumpBtn) {
             jumpBtn.textContent = extraCount > 0
-                ? `Go to #${targetChannel} (+${extraCount})`
-                : `Go to #${targetChannel}`;
+                ? t('sessions.goToChannelExtra', { channel: targetChannel, count: extraCount })
+                : t('sessions.goToChannelNamed', { channel: targetChannel });
             jumpBtn.classList.remove('hidden');
             jumpBtn.style.display = '';
         }
@@ -273,8 +276,11 @@ function updateSessionBar() {
     bar.classList.remove('session-elsewhere');
     sessionIndicatorTargetChannel = null;
     const s = activeSession;
-    const templateName = s.template_name || s.template_id || '?';
-    const phaseName = s.phase_name || `Phase ${(s.current_phase || 0) + 1}`;
+    const templateName = _sessionTemplateName({
+        id: s.template_id,
+        name: s.template_name || s.template_id || '?',
+    });
+    const phaseName = _sessionPhaseLabel(s.phase_name, s.current_phase || 0);
     const totalPhases = s.total_phases || '?';
     const phaseNum = (s.current_phase || 0) + 1;
 
@@ -288,10 +294,10 @@ function updateSessionBar() {
 
     const waitingAgent = s.current_agent || s.waiting_on;
     if (s.state === 'waiting' && waitingAgent) {
-        waitingEl.textContent = `Waiting for ${waitingAgent}`;
+        waitingEl.textContent = t('sessions.waitingFor', { agent: waitingAgent });
         waitingEl.style.display = '';
     } else if (s.state === 'paused') {
-        waitingEl.textContent = 'Paused';
+        waitingEl.textContent = t('sessions.paused');
         waitingEl.style.display = '';
     } else {
         waitingEl.style.display = 'none';
@@ -324,6 +330,43 @@ function _autoCast(roles, agents) {
     return cast;
 }
 
+function _sessionTemplateKey(id) {
+    return {
+        'code-review': 'codeReview',
+        'debate': 'debate',
+        'design-critique': 'designCritique',
+        'planning': 'planning',
+    }[id || ''] || '';
+}
+
+function _tFallback(key, fallback) {
+    const value = t(key);
+    return value === key ? fallback : value;
+}
+
+function _sessionTemplateName(tmpl) {
+    const key = _sessionTemplateKey(tmpl?.id || tmpl?.template_id);
+    if (!key || tmpl?.is_custom) return tmpl?.name || '?';
+    return _tFallback(`sessions.template.${key}.name`, tmpl?.name || '?');
+}
+
+function _sessionTemplateDescription(tmpl) {
+    const key = _sessionTemplateKey(tmpl?.id || tmpl?.template_id);
+    if (!key || tmpl?.is_custom) return tmpl?.description || '';
+    return _tFallback(`sessions.template.${key}.description`, tmpl?.description || '');
+}
+
+function _sessionRoleLabel(role) {
+    if (!role) return '';
+    return _tFallback(`sessions.role.${role}`, role);
+}
+
+function _sessionPhaseLabel(phaseName, index) {
+    if (!phaseName) return t('sessions.phaseNumber', { number: index + 1 });
+    const key = String(phaseName).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    return _tFallback(`sessions.phase.${key}`, phaseName);
+}
+
 function syncSessionCastRole(selectEl) {
     const role = selectEl?.dataset?.role;
     if (!role) return;
@@ -344,7 +387,7 @@ function buildSessionCastEditor(tmpl, cast, assignees) {
                 `<option value="${window.escapeHtml(a)}" ${a === assigned ? 'selected' : ''}>${window.escapeHtml(a)}</option>`
             ).join('');
             return `<div class="session-cast-row">
-                <span class="session-cast-role">${window.escapeHtml(role)}</span>
+                <span class="session-cast-role">${window.escapeHtml(_sessionRoleLabel(role))}</span>
                 <select class="session-cast-select" data-role="${window.escapeHtml(role)}" onchange="syncSessionCastRole(this)">${options}</select>
             </div>`;
         }).join('');
@@ -357,7 +400,7 @@ function buildSessionCastEditor(tmpl, cast, assignees) {
                 `<option value="${window.escapeHtml(a)}" ${a === assigned ? 'selected' : ''}>${window.escapeHtml(a)}</option>`
             ).join('');
             return `<div class="session-cast-row">
-                <span class="session-cast-role">${window.escapeHtml(role)}</span>
+                <span class="session-cast-role">${window.escapeHtml(_sessionRoleLabel(role))}</span>
                 <select class="session-cast-select" data-role="${window.escapeHtml(role)}" onchange="syncSessionCastRole(this)">${options}</select>
             </div>`;
         }).join('');
@@ -365,7 +408,7 @@ function buildSessionCastEditor(tmpl, cast, assignees) {
         return `<div class="session-cast-phase">
             <div class="session-cast-phase-head">
                 <span class="session-cast-phase-num">${idx + 1}.</span>
-                <span class="session-cast-phase-name">${window.escapeHtml(phase.name || `Phase ${idx + 1}`)}</span>
+                <span class="session-cast-phase-name">${window.escapeHtml(_sessionPhaseLabel(phase.name, idx))}</span>
             </div>
             <div class="session-cast-phase-list">${participantRows}</div>
         </div>`;
@@ -385,12 +428,12 @@ function showSessionLauncher() {
     modal.className = 'session-launcher-overlay';
     modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
 
-    let templateOptions = sessionTemplates.map(t =>
-        `<div class="session-tmpl-card" onclick="showCastPreview('${window.escapeHtml(t.id)}')" title="${window.escapeHtml(t.description || '')}">
-            ${t.is_custom ? `<span class="session-tmpl-delete-wrap"><button class="session-tmpl-delete" onclick="toggleDeleteSessionTemplateConfirm(this, '${window.escapeHtml(t.id)}', event)" title="Delete custom template">Delete</button></span>` : ''}
-            <div class="session-tmpl-name">${window.escapeHtml(t.name)}</div>
-            <div class="session-tmpl-desc">${window.escapeHtml(t.description || '')}</div>
-            <div class="session-tmpl-roles">${(t.roles || []).map(r => `<span class="session-role-pill">${window.escapeHtml(r)}</span>`).join(' ')}</div>
+    let templateOptions = sessionTemplates.map(tmpl =>
+        `<div class="session-tmpl-card" onclick="showCastPreview('${window.escapeHtml(tmpl.id)}')" title="${window.escapeHtml(_sessionTemplateDescription(tmpl))}">
+            ${tmpl.is_custom ? `<span class="session-tmpl-delete-wrap"><button class="session-tmpl-delete" onclick="toggleDeleteSessionTemplateConfirm(this, '${window.escapeHtml(tmpl.id)}', event)" title="${window.escapeHtml(window.t('sessions.deleteTemplate.title'))}">${window.t('common.delete')}</button></span>` : ''}
+            <div class="session-tmpl-name">${window.escapeHtml(_sessionTemplateName(tmpl))}</div>
+            <div class="session-tmpl-desc">${window.escapeHtml(_sessionTemplateDescription(tmpl))}</div>
+            <div class="session-tmpl-roles">${(tmpl.roles || []).map(r => `<span class="session-role-pill">${window.escapeHtml(_sessionRoleLabel(r))}</span>`).join(' ')}</div>
         </div>`
     ).join('');
 
@@ -401,23 +444,23 @@ function showSessionLauncher() {
     ).join('');
     const designCard = `
         <div class="session-tmpl-card session-design-card">
-            <div class="session-tmpl-name">+ Design a session</div>
-            <div class="session-tmpl-desc">Ask an agent to draft a custom session template</div>
+            <div class="session-tmpl-name">+ ${t('sessions.customSession')}</div>
+            <div class="session-tmpl-desc">${t('sessions.design.placeholder')}</div>
             <div class="session-design-row">
                 <select id="session-design-agent" class="session-design-select">${agentOptions}</select>
-                <input id="session-design-desc" type="text" class="session-design-input" placeholder="Describe the session you want..." />
-                <button class="session-draft-btn run" onclick="sendDesignRequest()">Ask</button>
+                <input id="session-design-desc" type="text" class="session-design-input" placeholder="${t('sessions.design.placeholder')}" />
+                <button class="session-draft-btn run" onclick="sendDesignRequest()">${t('common.send')}</button>
             </div>
         </div>`;
 
     modal.innerHTML = `
         <div class="session-launcher-dialog">
             <div class="session-launcher-header">
-                <span>Start a Session</span>
+                <span>${t('composer.startSession.title')}</span>
                 <button onclick="this.closest('.session-launcher-overlay').remove()">&times;</button>
             </div>
             <div class="session-launcher-goal">
-                <input id="session-goal-input" type="text" placeholder="Goal (optional) -- what should this session achieve?" />
+                <input id="session-goal-input" type="text" placeholder="${t('sessions.goal.placeholder')}" />
             </div>
             <div id="session-step-templates">
                 <div class="session-launcher-templates">${templateOptions}${designCard}</div>
@@ -441,9 +484,9 @@ async function sendDesignRequest() {
             headers: { 'Content-Type': 'application/json', 'X-Session-Token': window.SESSION_TOKEN },
             body: JSON.stringify({ agent: agent, description: desc, channel: window.activeChannel, sender: window.username }),
         });
-        if (!res.ok) alert('Failed to send design request (HTTP ' + res.status + ')');
+        if (!res.ok) alert(t('sessions.sendDesignFailed', { status: res.status }));
     } catch (e) {
-        alert('Error: ' + e.message);
+        alert(t('common.error', { message: e.message }));
     }
 }
 
@@ -469,10 +512,10 @@ function showCastPreview(templateId) {
     castStep.innerHTML = `
         <div class="session-cast-header">
             <button class="session-back-btn" onclick="sessionCastBack()">&larr;</button>
-            <span>${window.escapeHtml(tmpl.name)} -- Cast</span>
+            <span>${window.escapeHtml(_sessionTemplateName(tmpl))} -- ${t('sessions.cast')}</span>
         </div>
         <div class="session-cast-list">${roleRows}</div>
-        <button class="session-start-btn" onclick="launchSessionWithCast('${window.escapeHtml(templateId)}')">Start Session</button>
+        <button class="session-start-btn" onclick="launchSessionWithCast('${window.escapeHtml(templateId)}')">${t('composer.startSession.title')}</button>
     `;
 }
 
@@ -510,10 +553,10 @@ async function launchSessionWithCast(templateId) {
         });
         if (!res.ok) {
             const data = await res.json();
-            alert(data.error || 'Failed to start session');
+            alert(data.error || t('sessions.startFailed'));
         }
     } catch (e) {
-        alert('Error starting session: ' + e.message);
+        alert(t('sessions.startError', { message: e.message }));
     }
 }
 
@@ -526,7 +569,7 @@ function clearEndSessionConfirm() {
     const confirm = document.getElementById('session-end-confirm');
     if (confirm) confirm.remove();
     if (btn) {
-        btn.textContent = 'End Session';
+        btn.textContent = t('sessions.end');
         btn.classList.remove('confirming');
     }
 }
@@ -541,17 +584,17 @@ function toggleEndSessionConfirm(event) {
         return;
     }
 
-    btn.textContent = 'End Session?';
+    btn.textContent = t('sessions.endConfirm');
     btn.classList.add('confirming');
 
     const confirmWrap = document.createElement('span');
     confirmWrap.id = 'session-end-confirm';
     confirmWrap.className = 'session-inline-confirm';
     confirmWrap.innerHTML = `
-        <button class="session-inline-confirm-yes ch-confirm-yes" title="Confirm end session">
+        <button class="session-inline-confirm-yes ch-confirm-yes" title="${t('sessions.confirmEnd.title')}">
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3.5 3.5 6.5-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
-        <button class="session-inline-confirm-no ch-confirm-no" title="Cancel">
+        <button class="session-inline-confirm-no ch-confirm-no" title="${t('common.cancel')}">
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
         </button>
     `;
@@ -577,10 +620,10 @@ async function endActiveSession() {
         });
         if (!res.ok) {
             const data = await res.json();
-            alert(data.error || 'Failed to end session');
+            alert(data.error || t('sessions.endFailed'));
         }
     } catch (e) {
-        alert('Error ending session: ' + e.message);
+        alert(t('sessions.endError', { message: e.message }));
     } finally {
         clearEndSessionConfirm();
     }
@@ -609,8 +652,8 @@ function _supersedePreviousDrafts(draftId, currentRevision) {
             if (!card.classList.contains('session-draft-superseded')) {
                 card.classList.add('session-draft-superseded');
                 card.innerHTML = _renderSessionDraftResolvedCard(
-                    `Superseded (rev ${card.dataset.draftRevision})`,
-                    'A newer revision is now the active draft.'
+                    t('sessions.superseded'),
+                    t('sessions.replacedByRevision', { revision: currentRevision })
                 );
             }
         }
@@ -644,15 +687,15 @@ function showDraftCastPreview(tmpl, draftMsgId) {
     modal.innerHTML = `
         <div class="session-launcher-dialog">
             <div class="session-launcher-header">
-                <span>${window.escapeHtml(tmpl.name || '?')} -- Cast</span>
+                <span>${window.escapeHtml(_sessionTemplateName(tmpl))} -- ${t('sessions.cast')}</span>
                 <button onclick="this.closest('.session-launcher-overlay').remove()">&times;</button>
             </div>
             <div class="session-launcher-goal">
-                <input id="session-goal-input" type="text" placeholder="Goal (optional)" />
+                <input id="session-goal-input" type="text" placeholder="${t('sessions.goalShort.placeholder')}" />
             </div>
             <div id="session-step-cast">
                 <div class="session-cast-list">${roleRows}</div>
-                <button class="session-start-btn" onclick="launchDraftSession(${draftMsgId})">Start Session</button>
+                <button class="session-start-btn" onclick="launchDraftSession(${draftMsgId})">${t('composer.startSession.title')}</button>
             </div>
         </div>
     `;
@@ -685,10 +728,10 @@ async function launchDraftSession(draftMsgId) {
         });
         if (!res.ok) {
             const data = await res.json();
-            alert(data.error || 'Failed to start session from draft');
+            alert(data.error || t('sessions.startDraftFailed'));
         }
     } catch (e) {
-        alert('Error: ' + e.message);
+        alert(t('common.error', { message: e.message }));
     }
 }
 
@@ -701,17 +744,17 @@ async function saveDraft(msgId, btn) {
         });
         if (res.ok) {
             if (btn) {
-                btn.textContent = 'Saved';
+                btn.textContent = t('common.saved');
                 btn.disabled = true;
                 btn.classList.add('saved');
             }
             fetchSessionTemplates();
         } else {
             const data = await res.json();
-            alert(data.error || 'Failed to save template');
+            alert(data.error || t('sessions.saveFailed'));
         }
     } catch (e) {
-        alert('Error: ' + e.message);
+        alert(t('common.error', { message: e.message }));
     }
 }
 
@@ -719,7 +762,7 @@ function clearSessionTemplateDeleteConfirms() {
     document.querySelectorAll('.session-tmpl-delete-confirm').forEach(el => el.remove());
     document.querySelectorAll('.session-tmpl-delete.confirming').forEach(btn => {
         btn.classList.remove('confirming');
-        btn.textContent = 'Delete';
+        btn.textContent = t('common.delete');
     });
 }
 
@@ -734,15 +777,15 @@ function toggleDeleteSessionTemplateConfirm(btn, templateId, event) {
 
     clearSessionTemplateDeleteConfirms();
     btn.classList.add('confirming');
-    btn.textContent = 'Delete?';
+    btn.textContent = t('common.delete?');
 
     const confirmWrap = document.createElement('span');
     confirmWrap.className = 'session-tmpl-delete-confirm';
     confirmWrap.innerHTML = `
-        <button class="session-inline-confirm-yes ch-confirm-yes" title="Confirm delete">
+        <button class="session-inline-confirm-yes ch-confirm-yes" title="${t('common.confirm')}">
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3.5 3.5 6.5-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
-        <button class="session-inline-confirm-no ch-confirm-no" title="Cancel">
+        <button class="session-inline-confirm-no ch-confirm-no" title="${t('common.cancel')}">
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
         </button>
     `;
@@ -769,10 +812,10 @@ async function deleteSessionTemplate(templateId) {
             showSessionLauncher();
         } else {
             const data = await res.json();
-            alert(data.error || 'Failed to delete template');
+            alert(data.error || t('sessions.deleteFailed'));
         }
     } catch (e) {
-        alert('Error: ' + e.message);
+        alert(t('common.error', { message: e.message }));
     } finally {
         clearSessionTemplateDeleteConfirms();
     }
@@ -797,10 +840,10 @@ function requestDraftChanges(draftId, proposedBy, msgId) {
     const inputRow = document.createElement('div');
     inputRow.className = 'draft-changes-input';
     inputRow.innerHTML = `
-        <textarea class="draft-changes-textarea" rows="2" placeholder="What changes do you want?"></textarea>
+        <textarea class="draft-changes-textarea" rows="2" placeholder="${t('sessions.changes.placeholder')}"></textarea>
         <div class="draft-changes-btns">
-            <button class="session-draft-btn run" onclick="submitDraftChanges('${window.escapeHtml(draftId)}', '${window.escapeHtml(proposedBy)}', ${msgId})">Send</button>
-            <button class="session-draft-btn dismiss" onclick="dismissDraftChanges(this)">Cancel</button>
+            <button class="session-draft-btn run" onclick="submitDraftChanges('${window.escapeHtml(draftId)}', '${window.escapeHtml(proposedBy)}', ${msgId})">${t('common.send')}</button>
+            <button class="session-draft-btn dismiss" onclick="dismissDraftChanges(this)">${t('common.cancel')}</button>
         </div>
     `;
     actions.after(inputRow);
@@ -833,7 +876,7 @@ function submitDraftChanges(draftId, proposedBy, msgId) {
             channel: window.activeChannel,
         }));
     } else {
-        alert('Connection lost. Reconnect and try again.');
+        alert(t('sessions.connectionLost'));
         return;
     }
     if (inputRow) inputRow.remove();
@@ -844,10 +887,10 @@ function dismissDraft(msgId) {
         method: 'POST',
         headers: { 'X-Session-Token': window.SESSION_TOKEN },
     }).then((res) => {
-        if (!res.ok) alert('Failed to dismiss session proposal (HTTP ' + res.status + ')');
+        if (!res.ok) alert(t('sessions.dismissFailed') + ' (HTTP ' + res.status + ')');
     }).catch((e) => {
         console.error('Failed to demote session draft:', e);
-        alert('Failed to dismiss session proposal');
+        alert(t('sessions.dismissFailed'));
     });
 }
 

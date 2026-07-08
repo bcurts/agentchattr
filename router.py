@@ -38,7 +38,7 @@ class Router:
             if name in ("both", "all"):
                 # Only tag online agents when using @all
                 if self._online_checker:
-                    online = self._online_checker()
+                    online = {n.lower() for n in self._online_checker()}
                     mentions.update(n for n in self.agent_names if n in online)
                 else:
                     mentions.update(self.agent_names)

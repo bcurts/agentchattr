@@ -1,6 +1,8 @@
 /* agentchattr — dark theme / design tokens */
 
 :root {
+    color-scheme: dark;
+
     /* --- Surfaces --- */
     --bg: #0f0f17;
     --bg-header: #14141f;
@@ -106,6 +108,66 @@
     --sb-motion-fast: 160ms;
 }
 
+html[data-theme="light"] {
+    color-scheme: light;
+
+    --bg: #f4f7fb;
+    --bg-header: #ffffff;
+    --bg-input: #f8fafc;
+    --bg-msg: #ffffff;
+    --bg-msg-hover: #eef4fb;
+    --bg-elevated: #eaf2ff;
+    --bg-subtle: rgba(15, 23, 42, 0.04);
+    --bg-overlay: rgba(15, 23, 42, 0.28);
+
+    --border: #d8e0ea;
+    --border-strong: #b8c4d4;
+    --border-subtle: rgba(15, 23, 42, 0.08);
+
+    --text: #182230;
+    --text-dim: #667085;
+    --text-system: #98a2b3;
+    --text-on-accent: #fff;
+    --text-muted: #475467;
+
+    --accent: #2563eb;
+    --accent-soft: rgba(37, 99, 235, 0.12);
+    --accent-hover: rgba(37, 99, 235, 0.14);
+    --user-color: #1d4ed8;
+    --system-color: #98a2b3;
+
+    --success: #059669;
+    --success-soft: rgba(5, 150, 105, 0.12);
+    --online: #16a34a;
+
+    --danger: #dc2626;
+    --danger-soft: rgba(220, 38, 38, 0.08);
+    --error-color: #dc2626;
+    --error-soft: rgba(220, 38, 38, 0.10);
+
+    --warning: #b45309;
+    --pending: #c2410c;
+    --info: #2563eb;
+
+    --white-02: rgba(15, 23, 42, 0.02);
+    --white-03: rgba(15, 23, 42, 0.03);
+    --white-06: rgba(15, 23, 42, 0.06);
+    --white-08: rgba(15, 23, 42, 0.08);
+    --white-10: rgba(15, 23, 42, 0.10);
+    --white-12: rgba(15, 23, 42, 0.12);
+    --white-15: rgba(15, 23, 42, 0.15);
+
+    --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.08);
+    --shadow-md: 0 10px 24px rgba(15, 23, 42, 0.10);
+    --shadow-lg: 0 20px 48px rgba(15, 23, 42, 0.16);
+
+    --sb-card-border-color: rgba(15, 23, 42, 0.05);
+}
+
+html[data-theme="dark"] {
+    color-scheme: dark;
+}
+
 * {
     margin: 0;
     padding: 0;
@@ -138,6 +200,15 @@ body.high-contrast {
     --border: #3a3a55;
     --border-subtle: rgba(255, 255, 255, 0.10);
     --bg-subtle: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="light"] body.high-contrast {
+    --text-dim: #344054;
+    --text-system: #667085;
+    --text-muted: #182230;
+    --border: #98a2b3;
+    --border-subtle: rgba(15, 23, 42, 0.14);
+    --bg-subtle: rgba(15, 23, 42, 0.07);
 }
 
 #app {
@@ -2151,7 +2222,11 @@ body.channels-in-sidebar #channel-bar {
 .msg-text p:first-child { margin-top: 0; }
 .msg-text p:last-child { margin-bottom: 0; }
 
-.msg-text strong { font-weight: 700; color: #f0f0f5; }
+.msg-text strong,
+.msg-text b {
+    font-weight: 700;
+    color: var(--text);
+}
 .msg-text em { font-style: italic; }
 
 .msg-text code {
@@ -2203,7 +2278,7 @@ body.channels-in-sidebar #channel-bar {
     margin: 6px 0 2px;
     font-size: 1em;
     font-weight: 700;
-    color: #f0f0f5;
+    color: var(--text);
 }
 
 .msg-text h1 { font-size: 1.15em; }
@@ -2234,8 +2309,17 @@ body.channels-in-sidebar #channel-bar {
 }
 
 .msg-text th {
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--bg-subtle);
     font-weight: 600;
+}
+
+html[data-theme="light"] .msg-text :is(h1, h2, h3, h4, h5, h6, strong, b) {
+    color: var(--text) !important;
+}
+
+html[data-theme="light"] .msg-text th {
+    background: var(--bg-subtle);
+    color: var(--text);
 }
 
 /* --- Join/leave messages --- */
@@ -2947,6 +3031,11 @@ pre:hover .code-copy-btn { opacity: 1; }
     font-family: inherit;
 }
 .pill-popover-input:focus { border-color: var(--accent); outline: none; }
+.pill-popover-id-hint {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--text-dim);
+}
 .pill-popover-confirm {
     background: var(--agent-color, var(--accent));
     color: var(--text-on-accent, #000);
@@ -2981,7 +3070,7 @@ pre:hover .code-copy-btn { opacity: 1; }
     align-items: center;
     opacity: 0;
     margin-left: 2px;
-    color: #fff;
+    color: var(--text-on-accent);
     transition: opacity 0.15s, color 0.15s;
     cursor: pointer;
 }
@@ -4067,7 +4156,7 @@ footer {
 .hg-modal-title {
     font-size: 13px;
     font-weight: 600;
-    color: #e0e0f0;
+    color: var(--text);
 }
 .hg-modal-close {
     background: none;
@@ -4089,7 +4178,7 @@ footer {
 .hg-module-title {
     font-size: 13px;
     font-weight: 600;
-    color: #e0e0f0;
+    color: var(--text);
     margin-bottom: 6px;
     display: flex;
     align-items: baseline;
@@ -4473,3 +4562,29 @@ footer {
     50% { box-shadow: 0 0 8px 2px var(--accent); }
 }
 .help-pulse { animation: helpPulse 1s ease 3; }
+
+/* --- Light theme refinements for overlays with legacy dark literals --- */
+html[data-theme="light"] header,
+html[data-theme="light"] footer {
+    box-shadow: 0 1px 10px rgba(15, 23, 42, 0.08);
+}
+
+html[data-theme="light"] .hg-backdrop {
+    background: rgba(15, 23, 42, 0.28);
+}
+
+html[data-theme="light"] .hg-card,
+html[data-theme="light"] .hg-card--light,
+html[data-theme="light"] .hg-content,
+html[data-theme="light"] .hg-modal-header {
+    background: rgba(255, 255, 255, 0.96);
+}
+
+html[data-theme="light"] .hg-card,
+html[data-theme="light"] .hg-content {
+    box-shadow: var(--shadow-lg);
+}
+
+html[data-theme="light"] .hg-modal-title {
+    color: var(--text);
+}

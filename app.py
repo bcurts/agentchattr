@@ -2,9 +2,13 @@
 
 import asyncio
 import json
+import os
 import re as _re
+import secrets
+import signal
 import sys
 import threading
+import time
 import uuid
 import logging
 from pathlib import Path
@@ -21,13 +25,16 @@ from jobs import JobStore
 from schedules import ScheduleStore, parse_schedule_spec
 from router import Router
 from agents import AgentTrigger
-from registry import RuntimeRegistry
+from registry import RuntimeRegistry, canonicalize_name
 from session_store import SessionStore, validate_session_template
 from session_engine import SessionEngine
+from launcher import launcher
+from launcher_routes import router as launcher_router, launcher_events_ws
 
 log = logging.getLogger(__name__)
 
 app = FastAPI(title="agentchattr")
+app.include_router(launcher_router)
 
 # --- globals (set by configure()) ---
 store: MessageStore | None = None
@@ -45,6 +52,7 @@ ws_clients: set[WebSocket] = set()
 
 # --- Security: session token (set by configure()) ---
 session_token: str = ""
+launcher_shutdown_token: str = ""
 
 # Room settings (persisted to data/settings.json)
 room_settings: dict = {
@@ -184,8 +192,17 @@ def _install_security_middleware(token: str, cfg: dict):
             # Static assets, index page, and uploaded images are public.
             # The index page injects the token client-side via same-origin script.
             # Uploads use random filenames and have path-traversal protection.
-            if path == "/" or path.startswith(("/static/", "/uploads/", "/api/roles")):
+            if path == "/" or path == "/launcher" or path.startswith(("/static/", "/uploads/", "/api/roles")):
                 return await call_next(request)
+
+            # Local desktop launcher endpoints are restricted to loopback.
+            if (
+                path in ("/api/status", "/api/launcher/shutdown", "/api/shutdown_launcher_server")
+                or path.startswith("/api/launcher/agents/")
+            ):
+                client_ip = request.client.host if request.client else ""
+                if client_ip in ("127.0.0.1", "::1", "localhost"):
+                    return await call_next(request)
 
             # Agent registration/heartbeat: loopback only (no remote agent minting).
             if path.startswith(("/api/register", "/api/deregister/", "/api/heartbeat/")):
@@ -229,9 +246,10 @@ def _install_security_middleware(token: str, cfg: dict):
     app.add_middleware(SecurityMiddleware)
 
 
-def configure(cfg: dict, session_token: str = ""):
-    global store, rules, summaries, jobs, schedules, router, agents, registry, session_store, session_engine, config
+def configure(cfg: dict, session_token: str = "", launcher_token: str = ""):
+    global store, rules, summaries, jobs, schedules, router, agents, registry, session_store, session_engine, config, launcher_shutdown_token
     config = cfg
+    launcher_shutdown_token = launcher_token or ""
     # --- Security: store the session token and install middleware ---
     _install_security_middleware(session_token, cfg)
 
@@ -360,7 +378,7 @@ def configure(cfg: dict, session_token: str = ""):
 
                 # Crash timeout: if a wrapper hasn't heartbeated for 60s,
                 # it's dead — deregister it to free the slot.
-                _CRASH_TIMEOUT = 15
+                _CRASH_TIMEOUT = 90
                 registered = set(registry.get_all_names())
                 for name in registered:
                     with mcp_bridge._presence_lock:
@@ -672,6 +690,9 @@ async def _handle_new_message(msg: dict):
 
     if not suppress_broadcast:
         await broadcast(msg)
+        # Clear typing indicator when an agent finishes responding
+        if sender in known_agents:
+            await broadcast_typing(sender, False)
 
     # If the raw slash command was persisted (MCP path), silently remove it.
     # It was never broadcast to WebSocket clients, so no delete event needed.
@@ -1279,6 +1300,10 @@ async def websocket_endpoint(websocket: WebSocket):
                 agent_name = (event.get("name") or "").strip()
                 new_label = (event.get("label") or "").strip()
                 if agent_name and new_label and registry:
+                    registry.set_label(agent_name, new_label)
+                    await broadcast_agents()
+                    await broadcast_status()
+                    continue
                     # Derive a sanitized sender ID from the label
                     import re as _re
                     new_id = _re.sub(r'[^a-z0-9-]', '', new_label.lower().replace(' ', '-')).strip('-')
@@ -1312,6 +1337,32 @@ async def websocket_endpoint(websocket: WebSocket):
                 agent_name = (event.get("name") or "").strip()
                 new_label = (event.get("label") or "").strip()
                 if agent_name and registry:
+                    if not new_label:
+                        registry.confirm_pending(agent_name)
+                    else:
+                        new_id = canonicalize_name(new_label)
+                        if new_id and new_id != canonicalize_name(agent_name):
+                            result = registry.rename(agent_name, new_id, new_label)
+                            if isinstance(result, str):
+                                registry.set_label(agent_name, new_label)
+                                registry.confirm_pending(agent_name)
+                            else:
+                                registry.confirm_pending(new_id)
+                                import mcp_bridge
+                                mcp_bridge.migrate_identity(agent_name, new_id)
+                                store.rename_sender(agent_name, new_id)
+                                rename_event = json.dumps({
+                                    "type": "agent_renamed",
+                                    "old_name": agent_name,
+                                    "new_name": new_id,
+                                })
+                                await _broadcast(rename_event)
+                        else:
+                            registry.set_label(agent_name, new_label)
+                            registry.confirm_pending(agent_name)
+                    await broadcast_status()
+                    await broadcast_agents()
+                    continue
                     if not new_label:
                         # Accept default name
                         registry.confirm_pending(agent_name)
@@ -1535,6 +1586,13 @@ async def api_send(request: Request):
 @app.get("/api/status")
 async def get_status():
     status = agents.get_status()
+    if registry:
+        for name, info in registry.get_all().items():
+            agent_status = status.setdefault(name, {})
+            agent_status.setdefault("label", info.get("label", name))
+            agent_status.setdefault("color", info.get("color", "#888"))
+            agent_status["base"] = info.get("base")
+            agent_status["state"] = info.get("state")
     status["paused"] = any(router.is_paused(ch) for ch in room_settings.get("channels", ["general"]))
     return status
 
@@ -1542,6 +1600,99 @@ async def get_status():
 @app.get("/api/settings")
 async def get_settings():
     return room_settings
+
+
+async def _handle_launcher_shutdown(request: Request):
+    """Stop this server when requested by the native desktop launcher."""
+    client_ip = request.client.host if request.client else ""
+    if client_ip not in ("127.0.0.1", "::1", "localhost"):
+        return JSONResponse(
+            {"error": "forbidden: launcher shutdown is restricted to local loopback"},
+            status_code=403,
+        )
+    provided = (
+        request.headers.get("x-launcher-token")
+        or request.query_params.get("launcher_token")
+        or ""
+    )
+    if not launcher_shutdown_token or not secrets.compare_digest(
+        provided, launcher_shutdown_token
+    ):
+        return JSONResponse(
+            {"error": "forbidden: invalid or missing launcher token"},
+            status_code=403,
+        )
+
+    def shutdown_process() -> None:
+        time.sleep(0.25)
+        try:
+            os.kill(os.getpid(), signal.SIGTERM)
+        except Exception:
+            os._exit(0)
+
+    threading.Thread(target=shutdown_process, daemon=True).start()
+    return JSONResponse({"ok": True, "status": "shutting_down"})
+
+
+def _validate_launcher_request(request: Request) -> JSONResponse | None:
+    client_ip = request.client.host if request.client else ""
+    if client_ip not in ("127.0.0.1", "::1", "localhost"):
+        return JSONResponse(
+            {"error": "forbidden: launcher endpoint is restricted to local loopback"},
+            status_code=403,
+        )
+    if not launcher_shutdown_token:
+        return None
+    provided = (
+        request.headers.get("x-launcher-token")
+        or request.query_params.get("launcher_token")
+        or ""
+    )
+    if not secrets.compare_digest(provided, launcher_shutdown_token):
+        return JSONResponse(
+            {"error": "forbidden: invalid or missing launcher token"},
+            status_code=403,
+        )
+    return None
+
+
+@app.post("/api/launcher/shutdown")
+async def launcher_shutdown(request: Request):
+    return await _handle_launcher_shutdown(request)
+
+
+@app.post("/api/shutdown_launcher_server")
+async def shutdown_launcher_server(request: Request):
+    return await _handle_launcher_shutdown(request)
+
+
+@app.post("/api/launcher/agents/{name}/release")
+async def launcher_release_agent(name: str, request: Request):
+    """Release a launcher-owned agent identity after its wrapper process exits."""
+    denied = _validate_launcher_request(request)
+    if denied:
+        return denied
+
+    canonical = canonicalize_name(name)
+    result = registry.deregister(canonical)
+
+    import mcp_bridge
+
+    mcp_bridge.purge_identity(canonical)
+    registry.clean_renames_for(canonical)
+    if result:
+        renamed = result.pop("_renamed_back", None)
+        if renamed:
+            mcp_bridge.migrate_identity(renamed["old"], renamed["new"])
+            store.rename_sender(renamed["old"], renamed["new"])
+            if _event_loop:
+                rename_event = json.dumps({
+                    "type": "agent_renamed",
+                    "old_name": renamed["old"],
+                    "new_name": renamed["new"],
+                })
+                asyncio.run_coroutine_threadsafe(_broadcast(rename_event), _event_loop)
+    return JSONResponse({"ok": True, "name": canonical, "released": bool(result)})
 
 
 @app.delete("/api/hat/{agent_name}")
@@ -2086,15 +2237,36 @@ async def register_agent(request: Request):
         return JSONResponse({"error": "invalid JSON"}, status_code=400)
     base = body.get("base", "")
     label = body.get("label")
+    preferred_name = body.get("preferred_name")
     if not base:
         return JSONResponse({"error": "base is required"}, status_code=400)
-    result = registry.register(base, label)
+    import mcp_bridge
+
+    replace_existing = False
+    if preferred_name:
+        existing = registry.get_instance(preferred_name)
+        if existing:
+            if mcp_bridge.is_online(existing["name"]):
+                return JSONResponse(
+                    {"error": "preferred_name_in_use", "name": existing["name"]},
+                    status_code=409,
+                )
+            mcp_bridge.purge_identity(existing["name"])
+            registry.clean_renames_for(existing["name"])
+            replace_existing = True
+
+    result = registry.register(
+        base,
+        label,
+        preferred_name=preferred_name,
+        replace_existing=replace_existing,
+    )
     if result is None:
         return JSONResponse({"error": f"unknown base: {base}"}, status_code=400)
+    if result.get("error"):
+        return JSONResponse(result, status_code=409)
     # Touch presence so the instance doesn't immediately time out
-    import mcp_bridge
-    with mcp_bridge._presence_lock:
-        mcp_bridge._presence[result["name"]] = __import__("time").time()
+    mcp_bridge._touch_presence(result["name"])
     # If slot 1 was renamed (e.g. "claude" → "claude-1"), migrate state
     renamed = result.pop("_renamed_slot1", None)
     if renamed:
@@ -2165,6 +2337,15 @@ async def rename_agent_label(name: str, request: Request):
     if not label:
         return JSONResponse({"error": "label is required"}, status_code=400)
 
+    if registry.set_label(name, label):
+        inst = registry.get_instance(name)
+        return JSONResponse({
+            "ok": True,
+            "name": inst["name"] if inst else registry.resolve_name(name),
+            "label": inst.get("label", label) if inst else label,
+        })
+    return JSONResponse({"error": "not found"}, status_code=404)
+
     import re as _re
     new_id = _re.sub(r'[^a-z0-9-]', '', label.lower().replace(' ', '-')).strip('-')
     if not new_id:
@@ -2205,9 +2386,12 @@ async def heartbeat(agent_name: str, request: Request):
     if registry and registry.is_agent_family(agent_name) and not auth_inst:
         return JSONResponse({"error": "authenticated agent session required"}, status_code=403)
 
-    current_name = auth_inst["name"] if auth_inst else agent_name
-    with mcp_bridge._presence_lock:
-        mcp_bridge._presence[current_name] = __import__("time").time()
+    if auth_inst:
+        current_name = auth_inst["name"]
+    else:
+        resolved_name = registry.resolve_name(agent_name)
+        current_name = resolved_name if registry.is_registered(resolved_name) else canonicalize_name(agent_name)
+    mcp_bridge._touch_presence(current_name)
     # Optional activity report from wrapper's terminal monitor
     _activity_changed = False
     try:
@@ -2222,6 +2406,7 @@ async def heartbeat(agent_name: str, request: Request):
     # Immediately broadcast on activity state change (don't wait for background checker)
     if _activity_changed:
         await broadcast_status()
+        await broadcast_typing(current_name, active_val)
     # Return canonical name so wrapper can track renames
     resp = {"ok": True, "name": current_name}
     if registry:
@@ -2609,3 +2794,12 @@ async def serve_upload(filename: str):
     if filepath.exists():
         return FileResponse(filepath)
     return JSONResponse({"error": "not found"}, status_code=404)
+
+@app.websocket("/ws/launcher/events")
+async def ws_launcher_events(websocket: WebSocket):
+    token = websocket.query_params.get("token", "")
+    if token != session_token:
+        await websocket.accept()
+        await websocket.close(code=4003, reason="forbidden: invalid session token")
+        return
+    await launcher_events_ws(websocket)

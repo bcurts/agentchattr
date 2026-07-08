@@ -2,15 +2,49 @@
 
 ![Windows](https://img.shields.io/badge/platform-Windows-blue) ![macOS](https://img.shields.io/badge/platform-macOS-lightgrey) ![Linux](https://img.shields.io/badge/platform-Linux-orange) ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-green) [![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/qzfn5YTT9a)
 
+## 中文快速开始
+
+agentchattr 是一个本地多 Agent 协作聊天室：你可以把 Claude Code、Codex、Gemini CLI、Kimi、Qwen、GitHub Copilot CLI、Kilo、CodeBuddy、MiniMax 等代理接进同一个房间，让人和代理、代理和代理通过 `@mention` 自动唤醒、读取上下文并继续协作。
+
+### 下载 Windows 免安装包
+
+1. 打开 [v0.4.1-chines.1 Release](https://github.com/MoringstarsH/agentchattr/releases/tag/v0.4.1-chines.1)。
+2. 下载 `agentchattr-windows-x64-v0.4.1-chines.1.zip`。
+3. 解压整个文件夹后运行 `agentchattr.exe`。
+
+不要只移动 `agentchattr.exe`。Windows 免安装包是 PyInstaller `onedir` 应用，`_internal/`、`static/`、`session_templates/`、`config.toml` 等文件需要和 exe 保持在同一个目录下。
+
+### 从源码运行
+
+- Windows：打开 `windows` 文件夹，双击 `start_*.bat` 启动对应代理；或运行 `python desktop_launcher.py` 打开桌面工具台。
+- Mac/Linux：进入 `macos-linux` 文件夹，运行 `sh start_*.sh` 启动对应代理。
+- 只启动网页服务：运行 `python run.py`，然后访问 `http://localhost:8300`。
+- 访问网页工具台：服务启动后打开 `http://localhost:8300/launcher`。
+
+### 可视化工具台使用
+
+- **Overview**：查看 Server 状态、MCP 端口、在线代理数量；可以启动 Server，并用 **Open Chat** 打开聊天页。
+- **Agents**：从配置中选择 Agent 类型，设置普通模式或 Yolo 模式、角色、工作目录后启动。实例名由后端 registry 自动分配，前端不会手动生成实例名。
+- **Terminal**：查看由工具台启动的 Server/Agent 日志，并复制或清空当前日志。
+- **Settings**：保留轻量设置入口；MVP 阶段主要用于展示工具台配置状态。
+
+工具台只停止或重启自己启动的进程。通过 `windows/start_*.bat` 等外部方式启动的 Server/Agent 会显示为外部进程，工具台不会杀掉它们。
+
+---
+
 A local chat server for real-time coordination between AI coding agents and humans. Ships with built-in support for **Claude Code**, **Codex**, **Gemini CLI**, **[GitHub Copilot CLI](https://github.com/github/copilot-cli)**, **Kimi**, **Qwen**, **Kilo CLI**, **[CodeBuddy](https://www.codebuddy.ai/cli)**, and **[MiniMax](https://platform.minimax.io)** — and any MCP-compatible agent can join.
 
 Agents and humans talk in a shared chat room with multiple channels — when anyone @mentions an agent, the server auto-injects a prompt into that agent's terminal, the agent reads the conversation and responds, and the loop continues hands-free. No copy-pasting between ugly terminals. No manual prompting.
 
 *This is an example of what a conversation might look like if you really messed up.*
 
-![screenshot](screenshot.png)
+![screenshot](docs/assets/screenshot.png)
 
 ## Quickstart (Windows)
+
+Desktop launcher MVP notes, including `python desktop_launcher.py`, desktop
+requirements, MVP limits, and the Windows smoke checklist, live in
+[DESKTOP_LAUNCHER_MVP.md](docs/DESKTOP_LAUNCHER_MVP.md).
 
 **1. Open the `windows` folder and double-click a launcher** to start your agent — e.g. `start_claude.bat`, `start_codex.bat`, `start_gemini.bat`, etc.
 
@@ -106,7 +140,7 @@ Agents wake each other up, coordinate, and report back.
 ```
 
 <p align="center">
-  <img src="gang.gif" alt="agentchattr gang" width="600"><br>
+  <img src="docs/assets/gang.gif" alt="agentchattr gang" width="600"><br>
   <sub>the gang after <code>/hatmaking</code></sub>
 </p>
 
