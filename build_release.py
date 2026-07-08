@@ -46,11 +46,8 @@ INCLUDE_FILES = [
     "requirements.txt",
     "requirements-desktop.txt",
     "README.md",
-    "DESKTOP_LAUNCHER_MVP.md",
     "LICENSE",
     "VERSION",
-    "screenshot.png",
-    "gang.gif",
 ]
 
 INCLUDE_DIRS = [
@@ -58,6 +55,7 @@ INCLUDE_DIRS = [
     "windows",
     "macos-linux",
     "session_templates",
+    "docs",
 ]
 
 

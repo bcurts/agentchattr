@@ -1,15 +1,20 @@
 """Quick test for typing indicator wiring changes."""
 
 import asyncio
+import sys
 import unittest
+from pathlib import Path
 from unittest.mock import AsyncMock, patch, MagicMock
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 
 class TypingIndicatorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_heartbeat_broadcasts_typing_on_activity_change(self):
         """When wrapper reports active state change, broadcast_typing should be called."""
-        import sys
         # Import app and patch globals
         import app as _app
 

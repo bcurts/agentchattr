@@ -1,7 +1,7 @@
 /**
  * agentchattr Launcher Control Panel - Frontend
  * 
- * Design baseline: launcher-control-panel-v3.1.2.html mockup
+ * Design baseline: docs/mockups/launcher-control-panel-v3.1.2.html mockup
  * Constraints:
  *   - Frontend does NOT generate instance names
  *   - Frontend does NOT construct yolo command arguments

@@ -1,7 +1,7 @@
 # Launcher Control Panel MVP — 验收清单
 
 > 角色：Qwen（测试）
-> 基于：`LAUNCHER_CONTROL_PANEL_MVP.md` § Testing Plan
+> 基于：`./LAUNCHER_CONTROL_PANEL_MVP.md` § Testing Plan
 > 目标平台：Windows
 
 ---
