@@ -308,9 +308,14 @@ function switchChannel(name) {
     const savedId = _channelScrollMsg[name];
     if (savedId) {
         const el = document.querySelector(`.message[data-id="${savedId}"]`);
-        if (el) { el.scrollIntoView({ block: 'start' }); return; }
+        if (el) {
+            el.scrollIntoView({ block: 'start' });
+            if (typeof dayFloatRefresh === 'function') dayFloatRefresh();
+            return;
+        }
     }
     window.scrollToBottom();
+    if (typeof dayFloatRefresh === 'function') dayFloatRefresh();
 }
 
 function filterMessagesByChannel() {

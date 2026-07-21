@@ -2553,6 +2553,38 @@ body.channels-in-sidebar #channel-bar {
     background: var(--border);
 }
 
+/* --- Floating day indicator --- */
+
+#day-float {
+    position: sticky;
+    top: 8px;
+    height: 0;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    z-index: 6;
+    pointer-events: none;
+}
+
+#day-float span {
+    background: var(--bg-msg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-full);
+    padding: 3px 10px;
+    color: var(--text-dim);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    text-indent: 0.06em;
+    opacity: 0;
+    transition: opacity 0.25s ease;
+}
+
+#day-float.visible span {
+    opacity: 1;
+}
+
 /* --- Code copy button --- */
 
 .code-copy-btn {

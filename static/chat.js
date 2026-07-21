@@ -577,7 +577,8 @@ function connectWebSocket() {
                 const container = document.getElementById('messages');
                 const toRemove = [];
                 for (const el of container.children) {
-                    if (el.dataset.id && (el.dataset.channel || 'general') === clearChannel) {
+                    const isDivider = el.classList.contains('date-divider');
+                    if ((el.dataset.id || isDivider) && (el.dataset.channel || 'general') === clearChannel) {
                         toRemove.push(el);
                     }
                 }
@@ -591,6 +592,7 @@ function connectWebSocket() {
                 lastMessageDate = null;
                 lastMessageDates = {};
             }
+            dayFloatRefresh();
             requestAnimationFrame(() => {
                 const _clearDbgAfter = _clearDbgList ? _clearDbgList.children.length : -1;
                 console.log('CLEAR_DEBUG after clear (next frame), jobs-panel-children=' + _clearDbgAfter);
@@ -664,6 +666,69 @@ function maybeInsertDateDivider(container, msg) {
         }
         container.appendChild(divider);
     }
+}
+
+// --- Floating day indicator ---
+
+let dayFloatDividers = null;   // live HTMLCollection — follows divider add/remove
+let dayFloatFadeTimer = null;
+let dayFloatRafPending = false;
+
+function dayFloatLabel() {
+    if (!dayFloatDividers) {
+        const container = document.getElementById('messages');
+        if (!container) return null;
+        dayFloatDividers = container.getElementsByClassName('date-divider');
+    }
+    const scroll = document.getElementById('timeline');
+    if (!scroll) return null;
+    const top = scroll.getBoundingClientRect().top;
+    let label = null;
+    for (const d of dayFloatDividers) {
+        if (d.style.display === 'none') continue;
+        if (d.getBoundingClientRect().top <= top) {
+            label = d.textContent;
+        } else {
+            break;
+        }
+    }
+    return label;
+}
+
+function dayFloatHide() {
+    const float = document.getElementById('day-float');
+    if (!float) return;
+    if (dayFloatFadeTimer) { clearTimeout(dayFloatFadeTimer); dayFloatFadeTimer = null; }
+    float.classList.remove('visible');
+}
+
+function dayFloatOnScroll() {
+    if (dayFloatRafPending) return;
+    dayFloatRafPending = true;
+    requestAnimationFrame(() => {
+        dayFloatRafPending = false;
+        const float = document.getElementById('day-float');
+        if (!float) return;
+        const label = dayFloatLabel();
+        if (!label) { dayFloatHide(); return; }
+        float.querySelector('span').textContent = label;
+        float.classList.add('visible');
+        if (dayFloatFadeTimer) clearTimeout(dayFloatFadeTimer);
+        dayFloatFadeTimer = setTimeout(() => {
+            dayFloatFadeTimer = null;
+            float.classList.remove('visible');
+        }, 1200);
+    });
+}
+
+function dayFloatRefresh() {
+    // Recompute without starting the show/fade cycle: swap the label if the
+    // pill is relevant, hide (cancelling any fade) if no day is above the top.
+    const float = document.getElementById('day-float');
+    if (!float) return;
+    const label = dayFloatLabel();
+    if (!label) { dayFloatHide(); return; }
+    float.querySelector('span').textContent = label;
 }
 
 // --- Messages ---
@@ -2499,6 +2564,7 @@ function setupScroll() {
             unreadCount = 0;
         }
         updateScrollAnchor();
+        dayFloatOnScroll();
     });
 
     // Keep pinned to bottom when content changes (e.g. images load)
