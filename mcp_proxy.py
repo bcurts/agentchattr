@@ -138,7 +138,6 @@ class McpIdentityProxy:
                 for key in (
                     "Content-Type",
                     "Mcp-Session-Id",
-                    "mcp-session-id",
                     "Cache-Control",
                     "X-Accel-Buffering",
                     "Connection",
@@ -242,10 +241,23 @@ class McpIdentityProxy:
                     req.add_header("Authorization", f"Bearer {proxy.token}")
                     req.add_header("X-Agent-Token", proxy.token)
                     resp = urlopen(req, timeout=10)
-                    self.send_response(resp.status)
-                    self.end_headers()
-                except Exception:
-                    self.send_error(502)
+                    status = resp.status
+                    resp_body = resp.read()
+                    resp_headers = resp.headers
+                except HTTPError as e:
+                    status = e.code
+                    resp_body = e.read()
+                    resp_headers = e.headers
+                except (URLError, OSError) as e:
+                    self.send_error(502, f"Upstream error: {e}")
+                    return
+
+                self.send_response(status)
+                self._send_response_headers(resp_headers)
+                self.send_header("Content-Length", str(len(resp_body)))
+                self.end_headers()
+                if resp_body:
+                    self.wfile.write(resp_body)
 
             def _rewrite_sse_endpoint(self, line: bytes) -> bytes:
                 """Rewrite upstream endpoint URLs in SSE data lines.
