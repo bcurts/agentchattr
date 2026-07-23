@@ -2,6 +2,8 @@
 port = 8300
 host = "127.0.0.1"
 data_dir = "./data"
+# Published via tailscale serve (tailnet only — Resonant holds 443, room takes 8443).
+extra_origins = ["https://thinkcenter1.taile058ce.ts.net:8443"]
 
 # Add agents here. Each gets a status pill, @mention routing, and color.
 # "cwd" is the working directory for the agent's terminal session.
@@ -12,6 +14,29 @@ command = "claude"
 cwd = ".."
 color = "#da7756"
 label = "Claude"
+
+# Ezra — the Resonant-backed companion, attached via relay (wrapper_ezra.py).
+# NO CLI is spawned and there is no cwd: @ezra mentions are delivered to the
+# already-running Resonant service over loopback, and his replies post back.
+# The reserved name is used here because this seat IS the real Ezra.
+[agents.ezra]
+type = "api"
+color = "#e8a87c"
+label = "Ezra"
+resonant_url = "http://127.0.0.1:3099"
+internal_token_file = 'C:\Users\aipro\Documents\Codex\Karma-Assistant-System\resonant-app\data\.internal-token'
+
+# Porter — a generic Claude CLI worker seat in a neutral scratch folder.
+# cwd is deliberately away from resonant-app (resonant.db one-writer rule).
+[agents.porter]
+command = "claude"
+cwd = 'C:\Users\aipro\Claude\scratch\porter'
+color = "#7ca982"
+label = "Porter"
+mcp_inject = "flag"
+mcp_flag = "--mcp-config"
+mcp_transport = "http"
+mcp_merge_project = true
 
 [agents.codex]
 command = "codex"

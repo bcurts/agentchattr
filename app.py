@@ -176,6 +176,12 @@ def _install_security_middleware(token: str, cfg: dict):
         f"http://127.0.0.1:{port}",
         f"http://localhost:{port}",
     }
+    # Deliberately-published origins (e.g. the tailscale serve hostname).
+    # Config-driven so the surface never widens by accident: list each
+    # published origin explicitly in [server] extra_origins in config.toml.
+    for _origin in cfg.get("server", {}).get("extra_origins", []):
+        if isinstance(_origin, str) and _origin.strip():
+            allowed_origins.add(_origin.strip().rstrip("/"))
 
     class SecurityMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
