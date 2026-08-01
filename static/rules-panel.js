@@ -534,25 +534,39 @@ function cancelDeleteRule(id) {
 
 async function resolveRuleProposal(msgId, action) {
     try {
-        await fetch(`/api/messages/${msgId}/resolve_rule_proposal`, {
+        const response = await fetch(`/api/messages/${msgId}/resolve_rule_proposal`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-Session-Token': window.SESSION_TOKEN },
             body: JSON.stringify({ action }),
         });
+        if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
+            throw new Error(payload.error || `Request failed (HTTP ${response.status})`);
+        }
     } catch (e) {
         console.error('Failed to resolve rule proposal:', e);
+        if (typeof showToast === 'function') {
+            showToast(`Failed to update rule: ${e.message}`, 'error');
+        }
     }
 }
 
 async function dismissRuleProposal(msgId) {
     // Demote to regular chat message — same as job proposal dismiss
     try {
-        await fetch(`/api/messages/${msgId}/demote_rule_proposal`, {
+        const response = await fetch(`/api/messages/${msgId}/demote_rule_proposal`, {
             method: 'POST',
             headers: { 'X-Session-Token': window.SESSION_TOKEN },
         });
+        if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
+            throw new Error(payload.error || `Request failed (HTTP ${response.status})`);
+        }
     } catch (e) {
         console.error('Failed to dismiss rule proposal:', e);
+        if (typeof showToast === 'function') {
+            showToast(`Failed to dismiss rule proposal: ${e.message}`, 'error');
+        }
     }
 }
 

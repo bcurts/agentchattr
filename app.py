@@ -1778,13 +1778,19 @@ async def resolve_rule_proposal(msg_id: int, request: Request):
     rule_id = meta.get("rule_id")
 
     if action == "activate" and rule_id is not None:
-        rules.activate(int(rule_id))
+        if not rules.activate(int(rule_id)):
+            return JSONResponse(
+                {"error": "could not activate rule (active limit reached or rule not found)"},
+                status_code=409,
+            )
         meta["status"] = "activated"
     elif action == "draft" and rule_id is not None:
-        rules.make_draft(int(rule_id))
+        if not rules.make_draft(int(rule_id)):
+            return JSONResponse({"error": "rule not found"}, status_code=409)
         meta["status"] = "drafted"
     elif action == "dismiss" and rule_id is not None:
-        rules.delete(int(rule_id))
+        if not rules.delete(int(rule_id)):
+            return JSONResponse({"error": "rule not found"}, status_code=409)
         meta["status"] = "dismissed"
     else:
         return JSONResponse({"error": "invalid action"}, status_code=400)
@@ -1814,7 +1820,8 @@ async def demote_rule_proposal(msg_id: int):
     meta = msg.get("metadata", {})
     rule_id = meta.get("rule_id")
     if rule_id is not None:
-        rules.delete(int(rule_id))
+        if not rules.delete(int(rule_id)):
+            return JSONResponse({"error": "rule not found"}, status_code=409)
     text = meta.get("text", msg.get("text", ""))
     updated = store.update_message(msg_id, {
         "type": "chat",
