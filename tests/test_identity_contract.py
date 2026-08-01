@@ -175,6 +175,83 @@ class AppAuthEndpointTests(unittest.TestCase):
 
 
 class WrapperLaunchTests(unittest.TestCase):
+    def test_named_claude_identity_derives_injection_from_command(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args, _env, inject_env, settings_path = wrapper._build_provider_launch(
+                agent="claude2",
+                agent_cfg={"command": "claude"},
+                instance_name="claude2",
+                data_dir=Path(tmp),
+                proxy_url=None,
+                extra_args=[],
+                env={},
+                token="named_claude_token",
+                mcp_cfg={"http_port": 8200},
+            )
+
+            self.assertEqual(args[:1], ["--mcp-config"])
+            self.assertEqual(inject_env, {})
+            payload = json.loads(Path(settings_path).read_text("utf-8"))
+            self.assertEqual(
+                payload["mcpServers"]["agentchattr"]["headers"]["Authorization"],
+                "Bearer named_claude_token",
+            )
+
+    def test_named_codex_identity_derives_injection_from_command_path(self):
+        args, _env, inject_env, settings_path = wrapper._build_provider_launch(
+            agent="codex2",
+            agent_cfg={"command": r"C:\Tools\codex.exe"},
+            instance_name="codex2",
+            data_dir=Path(tempfile.gettempdir()),
+            proxy_url="http://127.0.0.1:7777/mcp",
+            extra_args=[],
+            env={},
+        )
+
+        self.assertEqual(args[0], "-c")
+        self.assertIn('mcp_servers.agentchattr.url="http://127.0.0.1:7777/mcp"', args[1])
+        self.assertEqual(inject_env, {})
+        self.assertIsNone(settings_path)
+
+    def test_command_exe_suffix_resolves_provider_defaults(self):
+        resolved = wrapper._resolve_mcp_inject("claude2", {"command": "claude.exe"})
+
+        self.assertEqual(resolved["mcp_inject"], "flag")
+        self.assertEqual(resolved["mcp_flag"], "--mcp-config")
+
+    def test_explicit_mcp_override_precedes_command_provider_defaults(self):
+        resolved = wrapper._resolve_mcp_inject(
+            "claude2",
+            {
+                "command": "claude",
+                "mcp_inject": "proxy_flag",
+                "mcp_proxy_flag_template": "--server={url}",
+            },
+        )
+
+        self.assertEqual(resolved["mcp_inject"], "proxy_flag")
+        self.assertEqual(resolved["mcp_proxy_flag_template"], "--server={url}")
+        self.assertNotIn("mcp_flag", resolved)
+
+    def test_named_provider_merges_partial_mcp_overrides(self):
+        resolved = wrapper._resolve_mcp_inject(
+            "claude2",
+            {"command": "claude", "mcp_transport": "sse", "mcp_flag": "--custom"},
+        )
+
+        self.assertEqual(resolved["mcp_inject"], "flag")
+        self.assertEqual(resolved["mcp_transport"], "sse")
+        self.assertEqual(resolved["mcp_flag"], "--custom")
+
+    def test_unknown_custom_command_does_not_inherit_provider_defaults(self):
+        self.assertEqual(
+            wrapper._resolve_mcp_inject(
+                "custom-agent",
+                {"command": "claude-compatible"},
+            ),
+            {},
+        )
+
     def test_build_provider_launch_for_claude_uses_direct_server_auth(self):
         """Claude bypasses proxy — connects directly to MCP server with bearer token."""
         with tempfile.TemporaryDirectory() as tmp:
