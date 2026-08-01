@@ -144,5 +144,54 @@ class ChannelFallbackStateTests(unittest.TestCase):
         self.assertEqual(channel, "portfolio")
 
 
+class ChannelFallbackMigrationTests(unittest.TestCase):
+    """Tests that identity and channel lifecycle hooks keep the fallback
+    maps in sync (rename/purge of agents, rename/delete of channels)."""
+
+    def setUp(self):
+        self._saved_ch = dict(mcp_bridge._last_read_channel)
+        self._saved_job = dict(mcp_bridge._last_read_job_id)
+        mcp_bridge._last_read_channel.clear()
+        mcp_bridge._last_read_job_id.clear()
+
+    def tearDown(self):
+        mcp_bridge._last_read_channel.clear()
+        mcp_bridge._last_read_channel.update(self._saved_ch)
+        mcp_bridge._last_read_job_id.clear()
+        mcp_bridge._last_read_job_id.update(self._saved_job)
+
+    def test_identity_rename_carries_fallback_state(self):
+        mcp_bridge._last_read_channel["alice"] = "bugfixing"
+        mcp_bridge._last_read_job_id["alice"] = 7
+        mcp_bridge.migrate_identity("alice", "alice-2")
+        self.assertEqual(mcp_bridge._last_read_channel["alice-2"], "bugfixing")
+        self.assertEqual(mcp_bridge._last_read_job_id["alice-2"], 7)
+        self.assertNotIn("alice", mcp_bridge._last_read_channel)
+        self.assertNotIn("alice", mcp_bridge._last_read_job_id)
+
+    def test_purge_identity_drops_fallback_state(self):
+        mcp_bridge._last_read_channel["alice"] = "bugfixing"
+        mcp_bridge._last_read_job_id["alice"] = 7
+        mcp_bridge.purge_identity("alice")
+        self.assertNotIn("alice", mcp_bridge._last_read_channel)
+        self.assertNotIn("alice", mcp_bridge._last_read_job_id)
+
+    def test_channel_rename_rewrites_matching_fallbacks(self):
+        mcp_bridge._last_read_channel["alice"] = "bugfixing"
+        mcp_bridge._last_read_channel["bob"] = "portfolio"
+        mcp_bridge.migrate_cursors_rename("bugfixing", "hotfixes")
+        self.assertEqual(mcp_bridge._last_read_channel["alice"], "hotfixes")
+        # Other agents' fallbacks are untouched
+        self.assertEqual(mcp_bridge._last_read_channel["bob"], "portfolio")
+
+    def test_channel_delete_resets_fallbacks_to_general(self):
+        mcp_bridge._last_read_channel["alice"] = "bugfixing"
+        mcp_bridge._last_read_channel["bob"] = "portfolio"
+        mcp_bridge.migrate_cursors_delete("bugfixing")
+        self.assertEqual(mcp_bridge._last_read_channel["alice"], "general")
+        # Other agents' fallbacks are untouched
+        self.assertEqual(mcp_bridge._last_read_channel["bob"], "portfolio")
+
+
 if __name__ == "__main__":
     unittest.main()

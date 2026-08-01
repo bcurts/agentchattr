@@ -510,6 +510,11 @@ def migrate_identity(old_name: str, new_name: str):
     with _cursors_lock:
         if old_name in _cursors:
             _cursors[new_name] = _cursors.pop(old_name)
+    with _last_read_lock:
+        if old_name in _last_read_channel:
+            _last_read_channel[new_name] = _last_read_channel.pop(old_name)
+        if old_name in _last_read_job_id:
+            _last_read_job_id[new_name] = _last_read_job_id.pop(old_name)
     if old_name in _roles:
         _roles[new_name] = _roles.pop(old_name)
         _save_roles()
@@ -524,6 +529,9 @@ def purge_identity(name: str):
         _activity_ts.pop(name, None)
     with _cursors_lock:
         _cursors.pop(name, None)
+    with _last_read_lock:
+        _last_read_channel.pop(name, None)
+        _last_read_job_id.pop(name, None)
     if name in _roles:
         del _roles[name]
         _save_roles()
@@ -531,19 +539,27 @@ def purge_identity(name: str):
 
 
 def migrate_cursors_rename(old_name: str, new_name: str):
-    """Move cursor entries from old channel name to new channel name."""
+    """Move cursor and fallback entries from old channel to new channel."""
     with _cursors_lock:
         for agent_cursors in _cursors.values():
             if old_name in agent_cursors:
                 agent_cursors[new_name] = agent_cursors.pop(old_name)
+    with _last_read_lock:
+        for sender, fallback in list(_last_read_channel.items()):
+            if fallback == old_name:
+                _last_read_channel[sender] = new_name
     _save_cursors()
 
 
 def migrate_cursors_delete(channel: str):
-    """Remove cursor entries for a deleted channel."""
+    """Remove cursors and reset every stale fallback to #general."""
     with _cursors_lock:
         for agent_cursors in _cursors.values():
             agent_cursors.pop(channel, None)
+    with _last_read_lock:
+        for sender, fallback in list(_last_read_channel.items()):
+            if fallback == channel:
+                _last_read_channel[sender] = "general"
     _save_cursors()
 
 
