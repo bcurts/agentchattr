@@ -527,6 +527,23 @@ function connectWebSocket() {
             });
             _showNextPendingName();
         } else if (event.type === 'channel_renamed') {
+            // Migrate per-channel client state to the new name
+            const channelIndex = channelList.indexOf(event.old_name);
+            if (channelIndex !== -1) {
+                channelList = [...channelList];
+                channelList[channelIndex] = event.new_name;
+            }
+            if (channelUnread[event.old_name] !== undefined) {
+                channelUnread[event.new_name] = channelUnread[event.old_name];
+                delete channelUnread[event.old_name];
+            }
+            if (_channelMentions[event.old_name] !== undefined) {
+                _channelMentions[event.new_name] = _channelMentions[event.old_name];
+                delete _channelMentions[event.old_name];
+            }
+            if (pendingChannelSwitch === event.old_name) {
+                pendingChannelSwitch = event.new_name;
+            }
             // Migrate data-channel on existing DOM elements
             const container = document.getElementById('messages');
             for (const el of container.children) {
@@ -545,6 +562,8 @@ function connectWebSocket() {
                 localStorage.setItem('agentchattr-channel', event.new_name);
                 Store.set('activeChannel', event.new_name);
             }
+            filterMessagesByChannel();
+            renderChannelTabs();
         } else if (event.type === 'edit') {
             // A message was edited/demoted — re-render it in place
             const updatedMsg = event.message;
