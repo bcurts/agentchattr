@@ -93,6 +93,11 @@ def main():
             temperature = 0.01
         if temperature > 2.0:
             temperature = 2.0
+    
+    custom_params = agent_cfg.get("custom_params", {})
+    if not isinstance(custom_params, dict):
+        custom_params = {}
+
     context_messages = int(agent_cfg.get("context_messages", 20))
     system_prompt = agent_cfg.get("system_prompt",
         f"You are {agent_cfg.get('label', agent)}, a helpful AI assistant participating "
@@ -227,7 +232,7 @@ def main():
     # Call OpenAI-compatible chat completions API
     def call_model(messages):
         url = f"{base_url}/chat/completions"
-        payload = {"messages": messages}
+        payload = {**custom_params, "messages": messages}
         if model:
             payload["model"] = model
         if temperature is not None:

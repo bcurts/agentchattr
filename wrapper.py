@@ -31,9 +31,33 @@ ROOT = Path(__file__).parent
 SERVER_NAME = "agentchattr"
 
 
-# ---------------------------------------------------------------------------
-# Per-instance provider config
-# ---------------------------------------------------------------------------
+def _write_opencode_mcp_settings(config_file: Path, url: str,
+                                    *, token: str = "") -> Path:
+    """Write/merge an OpenCode-specific config file with 'mcp' key.
+    
+    OpenCode expects:
+      - "mcp" key instead of "mcpServers"
+      - "type": "remote" for remote servers
+      - "enabled": true
+    """
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    existing: dict = {}
+    if config_file.exists():
+        try:
+            existing = json.loads(config_file.read_text("utf-8"))
+        except Exception:
+            pass
+    
+    mcp_servers = existing.get("mcp", {})
+    entry: dict = {"type": "remote", "url": url, "enabled": True, "oauth": False}
+    if token:
+        entry["headers"] = {"Authorization": f"Bearer {token}"}
+    
+    mcp_servers[SERVER_NAME] = entry
+    existing["mcp"] = mcp_servers
+    
+    config_file.write_text(json.dumps(existing, indent=2) + "\n", "utf-8")
+    return config_file
 
 def _write_json_mcp_settings(config_file: Path, url: str, transport: str = "http",
                               *, token: str = "", http_key: str = "httpUrl") -> Path:
@@ -160,7 +184,7 @@ _BUILTIN_DEFAULTS: dict[str, dict] = {
     },
 }
 
-_VALID_INJECT_MODES = {"settings_file", "env", "flag", "proxy_flag", "env_content"}
+_VALID_INJECT_MODES = {"settings_file", "env", "flag", "proxy_flag", "env_content", "opencode_json"}
 
 
 def _resolve_mcp_inject(agent: str, agent_cfg: dict) -> dict:
@@ -290,12 +314,21 @@ def _apply_mcp_inject(
         payload = {"mcp": {SERVER_NAME: entry}}
         inject_env[env_var] = json.dumps(payload)
 
-    elif mode == "proxy_flag":
-        # Pass the proxy URL as CLI flags (e.g. codex -c ...)
-        template = inject_cfg.get("mcp_proxy_flag_template",
-                                  '-c mcp_servers.{server}.url="{url}"')
-        expanded = template.format(server=SERVER_NAME, url=proxy_url or "")
-        launch_args = expanded.split()
+    elif mode == "opencode_json":
+        # OpenCode specific config format (mcp key, type=remote, enabled=true)
+        raw_path = inject_cfg.get("mcp_settings_path", "")
+        if not raw_path:
+            raise ValueError(f"mcp_inject = 'opencode_json' requires mcp_settings_path")
+        target = Path(raw_path).expanduser()
+        if not target.is_absolute():
+            base = Path(project_dir) if project_dir else Path.cwd()
+            target = base / target
+        settings_path = _write_opencode_mcp_settings(target, server_url, token=token)
+        
+        env_var = inject_cfg.get("mcp_env_var")
+        if env_var:
+            inject_env[env_var] = str(settings_path)
+
 
     return launch_args, inject_env, settings_path
 
@@ -348,7 +381,7 @@ def _build_provider_launch(
     project_dir: Path | None = None,
 ) -> tuple[list[str], dict[str, str], dict[str, str], Path | None]:
     """Return provider-specific launch args/env/inject_env/settings_path.
-
+    
     inject_env: env vars that must propagate INTO the agent process.  On
     Mac/Linux these are prefixed onto the tmux command via ``env VAR=val``
     because subprocess.run(env=...) only affects the tmux client binary.
@@ -360,10 +393,20 @@ def _build_provider_launch(
         token=token, mcp_cfg=mcp_cfg, project_dir=project_dir,
     )
 
-    launch_args = [*mcp_args, *extra_args]
-    launch_env = dict(env)
+    # Merge config-defined args and env
+    config_args = agent_cfg.get("args", [])
+    if not isinstance(config_args, list):
+        config_args = [str(config_args)]
+        
+    config_env = agent_cfg.get("env", {})
+    if not isinstance(config_env, dict):
+        config_env = {}
+
+    launch_args = [*mcp_args, *config_args, *extra_args]
+    launch_env = {**env, **config_env}
 
     return launch_args, launch_env, inject_env, settings_path
+
 
 
 def _register_instance(server_port: int, base: str, label: str | None = None) -> dict:
@@ -456,7 +499,8 @@ def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = Fals
                    refresh_interval: int = 10):
     """Poll queue file and inject an MCP read task when triggered."""
     first_mention = True
-    last_rules_epoch = 0  # 0 = unknown/cold start — will inject on first trigger
+    last_rules_epoch = 0
+    last_injected_name = None
     trigger_count = 0
     while True:
         try:
@@ -513,6 +557,12 @@ def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = Fals
 
                     # Use current identity (may have changed via rename)
                     current_name, _ = get_identity_fn()
+                    
+                    # Inform agent of its identity if it's the first time or name has changed
+                    if last_injected_name != current_name:
+                        prompt = f"You are {current_name}. {prompt}"
+                        last_injected_name = current_name
+
                     # Append role if set — check both current name and base name
                     role = _fetch_role(server_port, current_name)
                     if not role and current_name != agent_name:
@@ -587,7 +637,24 @@ def main():
 
     agent = args.agent
     agent_cfg = config.get("agents", {}).get(agent, {})
-    cwd = agent_cfg.get("cwd", ".")
+    
+    # Resolve project root (global) vs agent cwd (specific)
+    global_root = config.get("server", {}).get("project_root")
+    agent_cwd = agent_cfg.get("cwd", ".")
+    
+    if global_root:
+        # Resolve agent_cwd relative to global_root.
+        # We ignore ".." as it's usually a legacy value relative to the wrapper's ROOT.
+        project_dir = Path(global_root).expanduser().resolve()
+        if Path(agent_cwd).is_absolute():
+            project_dir = Path(agent_cwd).resolve()
+        elif agent_cwd not in (".", ".."):
+            project_dir = (project_dir / agent_cwd).resolve()
+    else:
+        # Maintain existing behavior: resolve agent_cwd relative to ROOT
+        project_dir = (ROOT / agent_cwd).resolve()
+    
+    cwd = str(project_dir)
     command = agent_cfg.get("command", agent)
     data_dir = ROOT / config.get("server", {}).get("data_dir", "./data")
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -665,7 +732,7 @@ def main():
             _apply_mcp_inject(
                 inject_cfg, instance_name, data_dir, proxy_url,
                 token=new_token, mcp_cfg=mcp_cfg,
-                project_dir=(ROOT / cwd).resolve(),
+                project_dir=project_dir,
             )
         except Exception:
             pass
@@ -739,6 +806,7 @@ def main():
     elif proxy_url:
         print(f"  Local MCP proxy: {proxy_url}")
     print(f"  @{assigned_name} mentions auto-inject MCP reads")
+    # Start the agent in the resolved directory
     print(f"  Starting {command} in {cwd}...\n")
 
     def _heartbeat():
