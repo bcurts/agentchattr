@@ -144,6 +144,7 @@ class Launcher:
         self._session_token = session_token
         self._env_overrides = dict(env_overrides or {})
         self._load_config()
+        self._last_workdirs = self._load_preferences()
 
     def _load_config(self) -> None:
         if not self._config:
@@ -185,6 +186,64 @@ class Launcher:
 
     def _server_state_path(self) -> Path:
         return self._data_dir() / "launcher_server.json"
+
+    def _preferences_path(self) -> Path:
+        return self._data_dir() / "launcher_preferences.json"
+
+    def _load_preferences(self) -> dict[str, str]:
+        try:
+            payload = json.loads(self._preferences_path().read_text(encoding="utf-8"))
+            workdirs = payload.get("last_workdirs", {})
+            if payload.get("version") != 1 or not isinstance(workdirs, dict):
+                return {}
+            return {str(k).lower(): v for k, v in workdirs.items() if isinstance(k, str) and isinstance(v, str) and v}
+        except (OSError, ValueError, TypeError):
+            return {}
+
+    def _save_preferences(self) -> None:
+        path = self._preferences_path()
+        temporary = path.with_suffix(path.suffix + ".tmp")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary.write_text(json.dumps({"version": 1, "last_workdirs": self._last_workdirs}, ensure_ascii=False, indent=2), encoding="utf-8")
+            temporary.replace(path)
+        except OSError:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    def _remember_workdir(self, base: str, work_dir: Path) -> None:
+        self._last_workdirs[base] = str(work_dir)
+        self._save_preferences()
+
+    def _resolve_workdir(self, base: str, cwd: Optional[str]) -> tuple[Path | None, str | None]:
+        raw = cwd.strip() if isinstance(cwd, str) else ""
+        raw = raw or self._last_workdirs.get(base, "")
+        if not raw:
+            return None, "Please choose a working directory before starting this agent"
+        if (
+            platform.system().lower() == "windows"
+            and base == "kimi"
+            and re.fullmatch(r"[A-Za-z]:[\\/]*", raw)
+        ):
+            return None, "Kimi cannot use a drive root as its working directory; choose a project folder instead"
+        try:
+            work_dir = Path(raw).expanduser()
+            if not work_dir.is_absolute():
+                work_dir = self.root / work_dir
+            work_dir = work_dir.resolve()
+        except (OSError, RuntimeError) as exc:
+            return None, f"Invalid working directory: {exc}"
+        if not work_dir.exists():
+            return None, f"Working directory does not exist: {work_dir}"
+        if not work_dir.is_dir():
+            return None, f"Working directory is not a directory: {work_dir}"
+        if platform.system().lower() == "windows" and base == "kimi":
+            drive_root = Path(work_dir.drive + os.sep) if work_dir.drive else None
+            if drive_root and work_dir == drive_root:
+                return None, "Kimi cannot use a drive root as its working directory; choose a project folder instead"
+        return work_dir, None
 
     def _load_server_state(self) -> dict[str, Any]:
         path = self._server_state_path()
@@ -1098,6 +1157,7 @@ class Launcher:
                     "label": t.label,
                     "command": t.command,
                     "cwd": t.cwd,
+                    "remembered_cwd": self._last_workdirs.get(t.base),
                     "color": t.color,
                     "supports_yolo": t.supports_yolo,
                 }
@@ -1195,22 +1255,20 @@ class Launcher:
             return {"error": f"Unknown launch mode: {mode}"}
         if mode == "yolo" and not template.supports_yolo:
             return {"error": f"Agent {base} does not support yolo mode"}
+        work_dir, workdir_error = self._resolve_workdir(base, cwd)
+        if workdir_error:
+            return {"error": workdir_error}
+        assert work_dir is not None
         if not await self._is_server_running():
             return {"error": "Server must be running before starting agents"}
 
         cmd = self._wrapper_command(base)
+        cmd.extend(["--workdir", str(work_dir)])
         if preferred_name:
             cmd.extend(["--preferred-name", preferred_name])
         if mode == "yolo" and template.yolo_args:
             cmd.extend(template.yolo_args)
         cmd = self._ensure_no_restart_arg(cmd)
-
-        raw_work_dir = cwd or template.cwd or str(self.root.parent)
-        work_dir = Path(raw_work_dir)
-        if not work_dir.is_absolute():
-            work_dir = (self.root / work_dir).resolve()
-        else:
-            work_dir = work_dir.resolve()
 
         async with self._lock:
             key = reuse_key or f"agent:{base}:{int(time.time() * 1000)}"
@@ -1252,6 +1310,7 @@ class Launcher:
                 return {"error": f"Failed to start agent: {exc}"}
             pid = proc.pid
             self._subprocesses[key] = proc
+            self._remember_workdir(base, work_dir)
 
             if launch_mode == "external_console" and platform.system().lower() == "windows":
                 self._logs.setdefault(key, deque(maxlen=self.MAX_LOG_LINES)).append(

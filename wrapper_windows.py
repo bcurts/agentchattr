@@ -7,7 +7,9 @@ import ctypes
 from ctypes import wintypes
 import subprocess
 import sys
+import threading
 import time
+from pathlib import Path
 
 if sys.platform != "win32":
     raise ImportError("wrapper_windows only works on Windows")
@@ -19,6 +21,14 @@ STD_INPUT_HANDLE = -10
 STD_OUTPUT_HANDLE_FOR_VT = -11  # kept distinct from STD_OUTPUT_HANDLE below to avoid forward-ref
 KEY_EVENT = 0x0001
 VK_RETURN = 0x0D
+INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+GENERIC_READ = 0x80000000
+GENERIC_WRITE = 0x40000000
+FILE_SHARE_READ = 0x00000001
+FILE_SHARE_WRITE = 0x00000002
+OPEN_EXISTING = 3
+_console_lock = threading.RLock()
+_console_generation = 0
 
 # Console-mode bits for SetConsoleMode (Windows Console API)
 ENABLE_PROCESSED_OUTPUT = 0x0001
@@ -141,7 +151,116 @@ def _write_key(handle, char: str, key_down: bool, vk: int = 0, scan: int = 0):
     evt.wVirtualKeyCode = vk
     evt.wVirtualScanCode = scan
     written = wintypes.DWORD(0)
-    kernel32.WriteConsoleInputW(handle, ctypes.byref(rec), 1, ctypes.byref(written))
+    ok = kernel32.WriteConsoleInputW(handle, ctypes.byref(rec), 1, ctypes.byref(written))
+    return bool(ok and written.value == 1)
+
+
+def _current_console_contains_pid(pid: int) -> bool:
+    """Return whether *pid* shares the wrapper's currently attached console."""
+    kernel32.GetConsoleProcessList.argtypes = [ctypes.POINTER(wintypes.DWORD), wintypes.DWORD]
+    kernel32.GetConsoleProcessList.restype = wintypes.DWORD
+    capacity = 64
+    while True:
+        process_ids = (wintypes.DWORD * capacity)()
+        count = kernel32.GetConsoleProcessList(process_ids, capacity)
+        if count == 0:
+            return False
+        if count <= capacity:
+            return pid in process_ids[:count]
+        capacity = count
+
+
+def _ensure_agent_console(pid: int | None, *, retries: int = 5, delay: float = 0.05) -> tuple[bool, str]:
+    """Attach the wrapper to the agent console without disturbing shared consoles."""
+    global _console_generation
+    with _console_lock:
+        if not pid:
+            return False, "agent PID is not available"
+        if _current_console_contains_pid(pid):
+            return True, "already attached"
+
+        kernel32.FreeConsole.argtypes = []
+        kernel32.FreeConsole.restype = wintypes.BOOL
+        kernel32.AttachConsole.argtypes = [wintypes.DWORD]
+        kernel32.AttachConsole.restype = wintypes.BOOL
+        last_error = 0
+        for attempt in range(max(1, retries)):
+            if kernel32.FreeConsole():
+                _console_generation += 1
+            if kernel32.AttachConsole(pid):
+                _console_generation += 1
+                return True, "attached"
+            last_error = ctypes.get_last_error()
+            if attempt + 1 < retries:
+                time.sleep(delay)
+        return False, f"AttachConsole({pid}) failed (winerror={last_error})"
+
+
+def _open_console_input():
+    """Open the input buffer for the console currently attached to the wrapper."""
+    kernel32.CreateFileW.argtypes = [
+        wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+        ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
+    ]
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    kernel32.WriteConsoleInputW.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(_INPUT_RECORD),
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    kernel32.WriteConsoleInputW.restype = wintypes.BOOL
+    return kernel32.CreateFileW(
+        "CONIN$",
+        GENERIC_READ | GENERIC_WRITE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE,
+        None,
+        OPEN_EXISTING,
+        0,
+        None,
+    )
+
+
+def _open_console_output():
+    """Open the current console output buffer, or return None if unavailable."""
+    kernel32.CreateFileW.argtypes = [
+        wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+        ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
+    ]
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    handle = kernel32.CreateFileW(
+        "CONOUT$",
+        GENERIC_READ | GENERIC_WRITE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE,
+        None,
+        OPEN_EXISTING,
+        0,
+        None,
+    )
+    if not handle or handle == INVALID_HANDLE_VALUE:
+        return None
+    return handle
+
+
+def _report_injection_failure(
+    detail: str,
+    *,
+    agent_pid: int | None,
+    diagnostic_file: Path | None,
+) -> None:
+    message = f"[wrapper] Injection failed for pid={agent_pid or 'unknown'}: {detail}"
+    print(f"  {message}", flush=True)
+    if diagnostic_file is not None:
+        try:
+            diagnostic_file.parent.mkdir(parents=True, exist_ok=True)
+            with diagnostic_file.open("a", encoding="utf-8") as log:
+                log.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {message}\n")
+        except OSError:
+            pass
 
 
 def _send_wm_setfocus():
@@ -155,7 +274,14 @@ def _send_wm_setfocus():
     user32.SendMessageW(hwnd, WM_ACTIVATE, WA_ACTIVE, 0)
 
 
-def inject(text: str, *, delay: float = 0.3, enter_backend: str = "console_input"):
+def inject(
+    text: str,
+    *,
+    delay: float = 0.3,
+    enter_backend: str = "console_input",
+    agent_pid: int | None = None,
+    diagnostic_file: Path | None = None,
+) -> bool:
     """Inject text + Enter into the current console via WriteConsoleInput.
 
     Uses batch WriteConsoleInputW for the text (all records in one call)
@@ -169,7 +295,20 @@ def inject(text: str, *, delay: float = 0.3, enter_backend: str = "console_input
         Copilot CLI, whose Ink-based input layer ignores Enter events
         when the console window is unfocused.
     """
-    handle = kernel32.GetStdHandle(STD_INPUT_HANDLE)
+    with _console_lock:
+        attached, detail = _ensure_agent_console(agent_pid)
+        if not attached:
+            _report_injection_failure(detail, agent_pid=agent_pid, diagnostic_file=diagnostic_file)
+            return False
+        handle = _open_console_input()
+    if not handle or handle == INVALID_HANDLE_VALUE:
+        error = ctypes.get_last_error()
+        _report_injection_failure(
+            f"could not open CONIN$ (winerror={error})",
+            agent_pid=agent_pid,
+            diagnostic_file=diagnostic_file,
+        )
+        return False
 
     # Build all key events at once (key down + key up per character)
     n_events = len(text) * 2
@@ -188,7 +327,16 @@ def inject(text: str, *, delay: float = 0.3, enter_backend: str = "console_input
                 evt.wVirtualScanCode = 0
                 idx += 1
         written = wintypes.DWORD(0)
-        kernel32.WriteConsoleInputW(handle, records, n_events, ctypes.byref(written))
+        ok = kernel32.WriteConsoleInputW(handle, records, n_events, ctypes.byref(written))
+        if not ok or written.value != n_events:
+            error = ctypes.get_last_error()
+            _report_injection_failure(
+                f"wrote {written.value}/{n_events} input events (winerror={error})",
+                agent_pid=agent_pid,
+                diagnostic_file=diagnostic_file,
+            )
+            kernel32.CloseHandle(handle)
+            return False
 
     # Scale delay with text length so longer prompts get more processing time
     scaled_delay = max(delay, len(text) * 0.001)
@@ -199,8 +347,18 @@ def inject(text: str, *, delay: float = 0.3, enter_backend: str = "console_input
         # Tiny pause for the window to process the focus message
         time.sleep(0.05)
 
-    _write_key(handle, "\r", True, vk=VK_RETURN, scan=0x1C)
-    _write_key(handle, "\r", False, vk=VK_RETURN, scan=0x1C)
+    enter_ok = _write_key(handle, "\r", True, vk=VK_RETURN, scan=0x1C)
+    enter_ok = _write_key(handle, "\r", False, vk=VK_RETURN, scan=0x1C) and enter_ok
+    kernel32.CloseHandle(handle)
+    if not enter_ok:
+        error = ctypes.get_last_error()
+        _report_injection_failure(
+            f"could not write Enter (winerror={error})",
+            agent_pid=agent_pid,
+            diagnostic_file=diagnostic_file,
+        )
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -263,17 +421,31 @@ def get_activity_checker(pid_holder, agent_name="unknown", trigger_flag=None):
 
     trigger_flag: shared [bool] list — set to [True] by queue watcher when a
     message is injected. Forces active state immediately (covers thinking phase).
-    pid_holder: not used for screen hashing, but kept for signature compatibility.
+    pid_holder: retained for signature compatibility with other activity backends.
     """
     import array as _array
     import os as _os
 
     last_chars = [None]  # previous poll's character bytes
-    handle = kernel32.GetStdHandle(STD_OUTPUT_HANDLE)
+    handle = [None]
+    handle_generation = [-1]
     MIN_CHANGED_CELLS = 10  # idle noise is 2-5 cells; real work is 50+
     IDLE_COOLDOWN = 5       # need 5 consecutive idle polls (5s) before going idle
     _consecutive_idle = [0]
     _is_active = [False]
+
+    def advance_idle() -> bool:
+        _consecutive_idle[0] += 1
+        if _consecutive_idle[0] >= IDLE_COOLDOWN:
+            _is_active[0] = False
+        return _is_active[0]
+
+    def close_output_handle() -> None:
+        if handle[0] is not None:
+            kernel32.CloseHandle(handle[0])
+            handle[0] = None
+        handle_generation[0] = -1
+        last_chars[0] = None
 
     def check():
         # External trigger: queue watcher injected a message → force active
@@ -284,29 +456,43 @@ def get_activity_checker(pid_holder, agent_name="unknown", trigger_flag=None):
             _consecutive_idle[0] = 0
             _is_active[0] = True
 
-        # Get buffer dimensions
-        csbi = _CONSOLE_SCREEN_BUFFER_INFO()
-        if not kernel32.GetConsoleScreenBufferInfo(handle, ctypes.byref(csbi)):
-            return _is_active[0]
+        # Lazily open CONOUT$ after the wrapper has attached to the agent's
+        # console. Reopen it whenever injection switches console generations.
+        with _console_lock:
+            if handle[0] is not None and handle_generation[0] != _console_generation:
+                close_output_handle()
+            if handle[0] is None:
+                handle[0] = _open_console_output()
+                if handle[0] is None:
+                    return advance_idle()
+                handle_generation[0] = _console_generation
 
-        rect = csbi.srWindow
-        width = rect.Right - rect.Left + 1
-        height = rect.Bottom - rect.Top + 1
-        if width <= 0 or height <= 0:
-            return _is_active[0]
+            # Get buffer dimensions
+            csbi = _CONSOLE_SCREEN_BUFFER_INFO()
+            if not kernel32.GetConsoleScreenBufferInfo(handle[0], ctypes.byref(csbi)):
+                close_output_handle()
+                return advance_idle()
 
-        # Read visible window
-        buffer_size = _COORD(width, height)
-        buffer_coord = _COORD(0, 0)
-        read_rect = _SMALL_RECT(rect.Left, rect.Top, rect.Right, rect.Bottom)
-        char_info_array = (_CHAR_INFO * (width * height))()
+            rect = csbi.srWindow
+            width = rect.Right - rect.Left + 1
+            height = rect.Bottom - rect.Top + 1
+            if width <= 0 or height <= 0:
+                close_output_handle()
+                return advance_idle()
 
-        ok = kernel32.ReadConsoleOutputW(
-            handle, char_info_array, buffer_size, buffer_coord,
-            ctypes.byref(read_rect),
-        )
-        if not ok:
-            return _is_active[0]
+            # Read visible window
+            buffer_size = _COORD(width, height)
+            buffer_coord = _COORD(0, 0)
+            read_rect = _SMALL_RECT(rect.Left, rect.Top, rect.Right, rect.Bottom)
+            char_info_array = (_CHAR_INFO * (width * height))()
+
+            ok = kernel32.ReadConsoleOutputW(
+                handle[0], char_info_array, buffer_size, buffer_coord,
+                ctypes.byref(read_rect),
+            )
+            if not ok:
+                close_output_handle()
+                return advance_idle()
 
         # Extract visible characters only (skip attributes)
         raw = bytes(char_info_array)
@@ -331,9 +517,7 @@ def get_activity_checker(pid_holder, agent_name="unknown", trigger_flag=None):
             _consecutive_idle[0] = 0
             _is_active[0] = True
         else:
-            _consecutive_idle[0] += 1
-            if _consecutive_idle[0] >= IDLE_COOLDOWN:
-                _is_active[0] = False
+            return advance_idle()
 
         return _is_active[0]
 
@@ -417,16 +601,31 @@ def run_agent(command, extra_args, cwd, env, queue_file, agent, no_restart, star
 
     if inject_env:
         env = {**env, **inject_env}
-    start_watcher(lambda text: inject(text, delay=inject_delay, enter_backend=enter_backend))
+    if pid_holder is None:
+        pid_holder = [None]
+    diagnostic_file = None
+    if queue_file is not None:
+        queue_path = Path(queue_file)
+        diagnostic_file = queue_path.with_name(f"{queue_path.stem}_injection.log")
+    watcher_started = False
 
     while True:
         try:
             proc = subprocess.Popen([command] + extra_args, cwd=cwd, env=env)
-            if pid_holder is not None:
-                pid_holder[0] = proc.pid
+            pid_holder[0] = proc.pid
+            if not watcher_started:
+                start_watcher(
+                    lambda text: inject(
+                        text,
+                        delay=inject_delay,
+                        enter_backend=enter_backend,
+                        agent_pid=pid_holder[0],
+                        diagnostic_file=diagnostic_file,
+                    )
+                )
+                watcher_started = True
             proc.wait()
-            if pid_holder is not None:
-                pid_holder[0] = None
+            pid_holder[0] = None
 
             if no_restart:
                 break

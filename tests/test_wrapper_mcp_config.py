@@ -15,7 +15,32 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from wrapper import _build_provider_launch, _write_json_mcp_settings  # noqa: E402
+from wrapper import (  # noqa: E402
+    _build_provider_launch,
+    _resolve_agent_workdir,
+    _write_json_mcp_settings,
+)
+
+
+class WorkdirResolutionTests(unittest.TestCase):
+    def test_absolute_override_takes_precedence(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            override = root / "selected-project"
+            resolved = _resolve_agent_workdir(root, "../configured", override)
+        self.assertEqual(resolved, override.resolve())
+
+    def test_relative_override_resolves_from_runtime_root(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            resolved = _resolve_agent_workdir(root, "../configured", "selected-project")
+        self.assertEqual(resolved, (root / "selected-project").resolve())
+
+    def test_configured_cwd_remains_fallback(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            resolved = _resolve_agent_workdir(root, "../configured")
+        self.assertEqual(resolved, (root / "../configured").resolve())
 
 
 class JsonMcpSettingsTests(unittest.TestCase):

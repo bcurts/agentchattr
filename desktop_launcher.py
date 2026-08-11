@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QFormLayout,
     QFrame,
     QGridLayout,
@@ -645,7 +646,15 @@ class AddAgentDialog(QDialog):
         self.custom_role.setPlaceholderText("仅在角色为自定义时使用")
 
         self.cwd = QLineEdit()
-        self.cwd.setPlaceholderText("可选工作目录，如 D:\\kimicode")
+        self.cwd.setReadOnly(True)
+        self.cwd.setPlaceholderText("请选择项目工作目录")
+        self.choose_cwd = QPushButton("选择文件夹…")
+        self.choose_cwd.clicked.connect(self._choose_workdir)
+        cwd_row = QWidget()
+        cwd_layout = QHBoxLayout(cwd_row)
+        cwd_layout.setContentsMargins(0, 0, 0, 0)
+        cwd_layout.addWidget(self.cwd, 1)
+        cwd_layout.addWidget(self.choose_cwd)
 
         self.start_immediately = QCheckBox("保存后立即启动")
         self.start_immediately.setChecked(True)
@@ -657,7 +666,7 @@ class AddAgentDialog(QDialog):
         form.addRow("启动模式", self.mode)
         form.addRow("角色", self.role)
         form.addRow("自定义角色", self.custom_role)
-        form.addRow("工作目录", self.cwd)
+        form.addRow("工作目录", cwd_row)
         form.addRow("", self.start_immediately)
 
         buttons = QDialogButtonBox(
@@ -675,12 +684,15 @@ class AddAgentDialog(QDialog):
         hint = label("实例名称由 wrapper.py / registry 自动分配", muted=True)
         layout.addWidget(title)
         layout.addWidget(hint)
+        layout.addWidget(label("工作目录是 Agent 的项目上下文，不限制其访问目录外的文件。", muted=True))
         layout.addSpacing(10)
         layout.addLayout(form)
         layout.addSpacing(8)
         layout.addWidget(buttons)
         self.base.currentIndexChanged.connect(self._sync_mode)
+        self.base.currentIndexChanged.connect(self._sync_workdir)
         self._sync_mode()
+        self._sync_workdir()
 
     def _sync_mode(self, *_args: object) -> None:
         base = self.base.currentData()
@@ -688,6 +700,23 @@ class AddAgentDialog(QDialog):
         self.mode.model().item(1).setEnabled(supports_yolo)
         if not supports_yolo and self.mode.currentData() == "yolo":
             self.mode.setCurrentIndex(0)
+
+    def _sync_workdir(self, *_args: object) -> None:
+        template = self.templates.get(self.base.currentData(), {})
+        self.cwd.setText(template.get("remembered_cwd") or "")
+
+    def _choose_workdir(self) -> None:
+        selected = QFileDialog.getExistingDirectory(
+            self, "选择 Agent 工作目录", self.cwd.text() or str(Path.home())
+        )
+        if selected:
+            self.cwd.setText(selected)
+
+    def accept(self) -> None:
+        if not self.cwd.text().strip():
+            QMessageBox.warning(self, "请选择工作目录", "启动 Agent 前，请先选择一个项目工作目录。")
+            return
+        super().accept()
 
     def values(self) -> dict[str, Any]:
         return {

@@ -432,6 +432,19 @@ _IDENTITY_HINT = (
 )
 
 
+def _resolve_agent_workdir(
+    root: Path,
+    configured_cwd: str | os.PathLike[str] | None,
+    override: str | os.PathLike[str] | None = None,
+) -> Path:
+    """Resolve the CLI working directory, preferring an explicit override."""
+    raw = override if override not in (None, "") else configured_cwd
+    work_dir = Path(raw or ".").expanduser()
+    if not work_dir.is_absolute():
+        work_dir = root / work_dir
+    return work_dir.resolve()
+
+
 def _fetch_role(server_port: int, agent_name: str) -> str:
     """Fetch this agent's role from the server status endpoint."""
     try:
@@ -600,6 +613,7 @@ def main():
     parser.add_argument("--no-restart", action="store_true", help="Do not restart on exit")
     parser.add_argument("--label", type=str, default=None, help="Custom display label")
     parser.add_argument("--preferred-name", type=str, default=None, help="Reuse a stopped launcher-owned instance name")
+    parser.add_argument("--workdir", type=str, default=None, help="Override the agent working directory")
     # Per-project isolation flags (must match the server's flags so wrappers
     # launched separately connect to the right instance). Values are consumed
     # by apply_cli_overrides() above; listing here so --help shows them.
@@ -612,7 +626,7 @@ def main():
 
     agent = args.agent
     agent_cfg = config.get("agents", {}).get(agent, {})
-    cwd = agent_cfg.get("cwd", ".")
+    project_dir = _resolve_agent_workdir(ROOT, agent_cfg.get("cwd", "."), args.workdir)
     command = agent_cfg.get("command", agent)
     data_dir = ROOT / config.get("server", {}).get("data_dir", "./data")
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -690,7 +704,7 @@ def main():
             _apply_mcp_inject(
                 inject_cfg, instance_name, data_dir, proxy_url,
                 token=new_token, mcp_cfg=mcp_cfg,
-                project_dir=(ROOT / cwd).resolve(),
+                project_dir=project_dir,
             )
         except Exception:
             pass
@@ -736,8 +750,6 @@ def main():
         sys.exit(1)
     command = resolved
 
-    project_dir = (ROOT / cwd).resolve()
-
     # Gemini: ensure the project directory is trusted so MCPs are allowed.
     # Gemini blocks ALL MCPs for untrusted folders — even system-settings ones.
     if agent == "gemini" or inject_cfg.get("mcp_inject") == "env":
@@ -764,7 +776,7 @@ def main():
     elif proxy_url:
         print(f"  Local MCP proxy: {proxy_url}")
     print(f"  @{assigned_name} mentions auto-inject MCP reads")
-    print(f"  Starting {command} in {cwd}...\n")
+    print(f"  Starting {command} in {project_dir}...\n")
 
     def _heartbeat():
         while True:
@@ -904,7 +916,7 @@ def main():
     run_kwargs = dict(
         command=command,
         extra_args=launch_args,
-        cwd=cwd,
+        cwd=str(project_dir),
         env=env,
         queue_file=queue_file,
         agent=agent,

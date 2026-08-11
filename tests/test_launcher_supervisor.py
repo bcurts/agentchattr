@@ -1,5 +1,6 @@
 import asyncio
 import copy
+import json
 import subprocess
 import sys
 import tempfile
@@ -254,12 +255,13 @@ class LauncherStatusTests(unittest.IsolatedAsyncioTestCase):
             patch("launcher_supervisor.platform.system", return_value="Windows"),
             patch("launcher_supervisor.asyncio.create_subprocess_exec", create_proc),
         ):
-            result = await launcher.start_agent("codex")
+            result = await launcher.start_agent("codex", cwd=str(ROOT))
             status = await launcher.get_status()
 
         self.assertEqual(result["status"], "starting")
         argv = list(create_proc.await_args.args)
         self.assertIn("--no-restart", argv)
+        self.assertEqual(argv[argv.index("--workdir") + 1], str(ROOT.resolve()))
         self.assertEqual(create_proc.await_args.kwargs["stdin"], None)
         self.assertEqual(create_proc.await_args.kwargs["stdout"], None)
         self.assertEqual(create_proc.await_args.kwargs["stderr"], None)
@@ -363,6 +365,7 @@ class LauncherStatusTests(unittest.IsolatedAsyncioTestCase):
             started_by_launcher=True,
             started_at=20.0,
             mode="normal",
+            cwd=str(ROOT),
         )
         launcher._subprocesses[key] = DummyWaitedConsoleSubprocess()
 
@@ -434,6 +437,7 @@ class LauncherStatusTests(unittest.IsolatedAsyncioTestCase):
             started_by_launcher=True,
             started_at=20.0,
             mode="normal",
+            cwd=str(ROOT),
         )
         runtime = {
             "codex": {
@@ -496,6 +500,7 @@ class LauncherStatusTests(unittest.IsolatedAsyncioTestCase):
             started_by_launcher=True,
             started_at=20.0,
             mode="normal",
+            cwd=str(ROOT),
         )
         create_proc = AsyncMock(return_value=DummyStartedConsoleSubprocess())
 
@@ -514,6 +519,8 @@ class LauncherStatusTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("--preferred-name", argv)
         self.assertEqual(argv[argv.index("--preferred-name") + 1], "codex")
         self.assertIn("--no-restart", argv)
+        self.assertEqual(argv[argv.index("--workdir") + 1], str(ROOT.resolve()))
+        self.assertEqual(create_proc.await_args.kwargs["cwd"], str(ROOT.resolve()))
 
     async def test_restart_agent_reuses_key_and_preferred_name(self):
         if not HAS_SERVER_PROBE:
@@ -530,6 +537,7 @@ class LauncherStatusTests(unittest.IsolatedAsyncioTestCase):
             started_by_launcher=True,
             started_at=20.0,
             mode="normal",
+            cwd=str(ROOT),
         )
         create_proc = AsyncMock(return_value=DummyStartedConsoleSubprocess())
 
@@ -544,6 +552,8 @@ class LauncherStatusTests(unittest.IsolatedAsyncioTestCase):
         argv = list(create_proc.await_args.args)
         self.assertIn("--preferred-name", argv)
         self.assertEqual(argv[argv.index("--preferred-name") + 1], "codex")
+        self.assertEqual(argv[argv.index("--workdir") + 1], str(ROOT.resolve()))
+        self.assertEqual(create_proc.await_args.kwargs["cwd"], str(ROOT.resolve()))
 
     async def test_status_marks_saved_live_server_as_launcher_managed(self):
         if not HAS_SERVER_PROBE:
@@ -784,6 +794,87 @@ class LauncherRuleTests(unittest.TestCase):
         self.assertFalse(process_actions(external_stopped)["can_start"])
         self.assertTrue(process_actions(stopped_template)["can_start"])
         self.assertFalse(process_actions(stopped_template)["can_stop"])
+
+
+class LauncherWorkdirTests(unittest.IsolatedAsyncioTestCase):
+    async def test_workdir_flag_precedes_agent_pass_through_args(self):
+        launcher = make_launcher()
+        process = AsyncMock(return_value=DummyStartedConsoleSubprocess())
+        with (
+            patch.object(launcher, "_is_server_running", AsyncMock(return_value=True)),
+            patch("launcher_supervisor.asyncio.create_subprocess_exec", process),
+        ):
+            result = await launcher.start_agent("codex", mode="yolo", cwd=str(ROOT))
+        self.assertEqual(result["status"], "starting")
+        argv = list(process.await_args.args)
+        self.assertLess(argv.index("--workdir"), argv.index("--"))
+        self.assertEqual(argv[argv.index("--workdir") + 1], str(ROOT.resolve()))
+
+    async def test_start_agent_uses_absolute_existing_directory(self):
+        launcher = make_launcher()
+        process = AsyncMock(return_value=DummyStartedConsoleSubprocess())
+        with (
+            patch.object(launcher, "_is_server_running", AsyncMock(return_value=True)),
+            patch("launcher_supervisor.asyncio.create_subprocess_exec", process),
+        ):
+            result = await launcher.start_agent("codex", cwd=".")
+        self.assertEqual(result["status"], "starting")
+        self.assertEqual(process.await_args.kwargs["cwd"], str(launcher.root.resolve()))
+
+    async def test_start_agent_rejects_missing_non_directory_and_file_workdirs(self):
+        launcher = make_launcher()
+        self.assertIn("choose a working directory", (await launcher.start_agent("codex"))["error"])
+        missing = await launcher.start_agent("codex", cwd=str(launcher.root / "does-not-exist"))
+        self.assertIn("does not exist", missing["error"])
+        with tempfile.NamedTemporaryFile() as file:
+            result = await launcher.start_agent("codex", cwd=file.name)
+        self.assertIn("not a directory", result["error"])
+
+    async def test_kimi_rejects_windows_drive_root(self):
+        launcher = make_launcher()
+        with patch("launcher_supervisor.platform.system", return_value="Windows"):
+            workdir, error = launcher._resolve_workdir("kimi", "C:\\")
+        self.assertIsNone(workdir)
+        self.assertIn("drive root", error or "")
+
+    async def test_preferences_use_configured_data_dir_when_config_is_loaded(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config = copy.deepcopy(TEST_CONFIG)
+            config["server"]["data_dir"] = "./configured-data"
+            preferences = root / "configured-data" / "launcher_preferences.json"
+            preferences.parent.mkdir()
+            preferences.write_text(
+                json.dumps({"version": 1, "last_workdirs": {"codex": str(root)}}),
+                encoding="utf-8",
+            )
+            with (
+                patch("launcher_supervisor.ROOT", root),
+                patch("launcher_supervisor.load_config", return_value=config),
+            ):
+                launcher = Launcher()
+        self.assertEqual(launcher._last_workdirs, {"codex": str(root)})
+
+    async def test_workdirs_persist_by_agent_type_and_recover_from_bad_file(self):
+        launcher = make_launcher()
+        launcher._remember_workdir("codex", ROOT.resolve())
+        launcher._remember_workdir("kimi", launcher.root.resolve())
+        reloaded = Launcher(config=launcher._config, registry_provider=None, role_setter=None)
+        self.assertEqual(reloaded._last_workdirs["codex"], str(ROOT.resolve()))
+        self.assertEqual(reloaded._last_workdirs["kimi"], str(launcher.root.resolve()))
+        reloaded._preferences_path().write_text("not json", encoding="utf-8")
+        recovered = Launcher(config=launcher._config, registry_provider=None, role_setter=None)
+        self.assertEqual(recovered._last_workdirs, {})
+
+    async def test_failed_subprocess_does_not_remember_workdir(self):
+        launcher = make_launcher()
+        with (
+            patch.object(launcher, "_is_server_running", AsyncMock(return_value=True)),
+            patch("launcher_supervisor.asyncio.create_subprocess_exec", AsyncMock(side_effect=OSError("nope"))),
+        ):
+            result = await launcher.start_agent("codex", cwd=str(ROOT))
+        self.assertIn("Failed to start", result["error"])
+        self.assertNotIn("codex", launcher._last_workdirs)
 
 
 if __name__ == "__main__":
