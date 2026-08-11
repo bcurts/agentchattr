@@ -175,6 +175,42 @@ def _resolve_mcp_inject(agent: str, agent_cfg: dict) -> dict:
     return {}
 
 
+_AGENT_OVERRIDE_PREFIX = "AGENTCHATTR_AGENT_"
+_AGENT_OVERRIDE_ALLOWED = {"cwd", "mcp_settings_path"}
+
+
+def _apply_agent_env_overrides(agent_cfg: dict, environ) -> dict:
+    """Overlay AGENTCHATTR_AGENT_<KEY> env vars onto one agent's config.
+
+    Lets a per-project launcher scope a wrapper to one repo without editing the
+    shared config.toml. Restricted to a whitelist so a committed project env
+    file cannot redirect security-sensitive keys such as `command` or
+    `mcp_inject`; empty values are ignored. Updates and returns `agent_cfg`.
+    """
+    for env_key, env_val in environ.items():
+        if not env_key.startswith(_AGENT_OVERRIDE_PREFIX) or not env_val:
+            continue
+        cfg_key = env_key[len(_AGENT_OVERRIDE_PREFIX):].lower()
+        if cfg_key in _AGENT_OVERRIDE_ALLOWED:
+            agent_cfg[cfg_key] = env_val
+    return agent_cfg
+
+
+def _build_tmux_session_name(assigned_name: str, repo_slug: str) -> str:
+    """tmux session name, repo-qualified when a repo slug is supplied.
+
+    Each repo's server issues its own slot counter starting at 1, so the first
+    wrapper for an agent in ANY repo asks for `agentchattr-<agent>`. Since
+    wrapper_unix kills a pre-existing session of that name before creating its
+    own, two repos evict each other. An opt-in slug keeps them distinct; unset,
+    empty or whitespace-only leaves the name exactly as it was.
+    """
+    slug = (repo_slug or "").strip()
+    if slug:
+        return f"agentchattr-{slug}-{assigned_name}"
+    return f"agentchattr-{assigned_name}"
+
+
 def _get_server_url(mcp_cfg: dict, transport: str) -> str:
     """Build the MCP server URL for the given transport."""
     if transport == "sse":
@@ -586,7 +622,8 @@ def main():
     args, extra = parser.parse_known_args()
 
     agent = args.agent
-    agent_cfg = config.get("agents", {}).get(agent, {})
+    agent_cfg = _apply_agent_env_overrides(
+        config.get("agents", {}).get(agent, {}), os.environ)
     cwd = agent_cfg.get("cwd", ".")
     command = agent_cfg.get("command", agent)
     data_dir = ROOT / config.get("server", {}).get("data_dir", "./data")
@@ -868,7 +905,8 @@ def main():
     else:
         from wrapper_unix import get_activity_checker, run_agent
 
-        unix_session_name = f"agentchattr-{assigned_name}"
+        unix_session_name = _build_tmux_session_name(
+            assigned_name, os.environ.get("AGENTCHATTR_REPO_SLUG", ""))
         _set_activity_checker(get_activity_checker(unix_session_name, trigger_flag=_trigger_flag))
 
     run_kwargs = dict(
