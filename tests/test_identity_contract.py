@@ -346,6 +346,11 @@ class ProxyHeaderForwardingTests(unittest.TestCase):
                 pass
 
             def do_POST(self):
+                # Consume the request body before replying. Closing a socket
+                # with unread data makes the OS send RST, which can discard the
+                # response already sitting in the client's receive queue - the
+                # source of a load-sensitive 502 failure in this test.
+                self.rfile.read(int(self.headers.get("Content-Length") or 0))
                 seen["authorization"] = self.headers.get("Authorization")
                 seen["agent_token"] = self.headers.get("X-Agent-Token")
                 body = b'event: message\r\ndata: {"jsonrpc":"2.0","id":1,"result":{"ok":true}}\r\n\r\n'
