@@ -475,6 +475,19 @@ python wrapper.py claude \
 
 Relative paths resolve against the shell's current directory (not agentchattr's install location), so `./.agentchattr` ends up inside your project folder.
 
+**Running the same agent in two projects at once.** Each project's server numbers its own slots from 1, so the first `codex` wrapper in *any* project asks tmux for `agentchattr-codex` — and starting the second one kills the first. Two more opt-in env vars keep them apart:
+
+- `AGENTCHATTR_REPO_SLUG` — when set, names the tmux session `agentchattr-<slug>-<agent>` instead of `agentchattr-<agent>`, so each project's wrappers are distinct.
+- `AGENTCHATTR_AGENT_<KEY>` — overrides one field of `[agents.<name>]` for this invocation only, so a per-project launcher does not have to edit the shared `config.toml`. Only `AGENTCHATTR_AGENT_CWD` and `AGENTCHATTR_AGENT_MCP_SETTINGS_PATH` are accepted; security-sensitive fields such as `command` and `mcp_inject` are deliberately not overridable from the environment.
+
+```bash
+AGENTCHATTR_REPO_SLUG=project-a \
+AGENTCHATTR_AGENT_CWD=/repos/project-a \
+python wrapper.py codex --data-dir ./project-a/.agentchattr --port 8310
+```
+
+Both are unset by default and change nothing when absent.
+
 Server and wrappers share the same `AGENTCHATTR_*` env vars and the same flag names, so a launcher/profile can run multiple isolated instances by passing matching values to each process. If no flags or env vars are set, `config.toml` is used exactly as before — zero change for existing setups.
 
 ### API agents (local models)
