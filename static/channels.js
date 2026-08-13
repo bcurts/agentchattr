@@ -318,6 +318,8 @@ function filterMessagesByChannel() {
         const ch = el.dataset.channel || 'general';
         el.style.display = ch === window.activeChannel ? '' : 'none';
     }
+    // Divider visibility changed without a scroll event — refresh the float.
+    if (typeof window.dayFloatRefresh === 'function') window.dayFloatRefresh();
 }
 
 // ---------------------------------------------------------------------------

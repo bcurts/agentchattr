@@ -636,6 +636,7 @@ function connectWebSocket() {
                 lastMessageDate = null;
                 lastMessageDates = {};
             }
+            dayFloatRefresh();
             requestAnimationFrame(() => {
                 const _clearDbgAfter = _clearDbgList ? _clearDbgList.children.length : -1;
                 console.log('CLEAR_DEBUG after clear (next frame), jobs-panel-children=' + _clearDbgAfter);
@@ -688,7 +689,10 @@ function formatDateDivider(dateStr) {
     if (date.toDateString() === today.toDateString()) return t('timeline.today');
     if (date.toDateString() === yesterday.toDateString()) return t('timeline.yesterday');
 
-    return date.toLocaleDateString('en-GB', {
+    // Follow the UI language instead of a hardcoded locale; setLanguage()
+    // reloads the page, so existing dividers re-render on language switch.
+    const locale = (typeof getLanguage === 'function' && getLanguage() === 'zh-CN') ? 'zh-CN' : 'en-GB';
+    return date.toLocaleDateString(locale, {
         weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
     });
 }
@@ -710,6 +714,87 @@ function maybeInsertDateDivider(container, msg) {
         container.appendChild(divider);
     }
 }
+
+// --- Floating day indicator ---
+
+let dayFloatDividers = null;   // live HTMLCollection — follows divider add/remove
+let dayFloatFadeTimer = null;
+let dayFloatRafPending = false;
+let dayFloatRefreshRaf = null;
+
+function dayFloatLabel() {
+    if (!dayFloatDividers) {
+        const container = document.getElementById('messages');
+        if (!container) return null;
+        dayFloatDividers = container.getElementsByClassName('date-divider');
+    }
+    const scroll = document.getElementById('timeline');
+    if (!scroll) return null;
+    const top = scroll.getBoundingClientRect().top;
+    let label = null;
+    for (const d of dayFloatDividers) {
+        if (d.style.display === 'none') continue;
+        if (d.getBoundingClientRect().top <= top) {
+            label = d.textContent;
+        } else {
+            break;
+        }
+    }
+    return label;
+}
+
+function dayFloatHide() {
+    const float = document.getElementById('day-float');
+    if (!float) return;
+    if (dayFloatFadeTimer) { clearTimeout(dayFloatFadeTimer); dayFloatFadeTimer = null; }
+    float.classList.remove('visible');
+}
+
+function dayFloatShow(label) {
+    const float = document.getElementById('day-float');
+    if (!float) return;
+    float.querySelector('span').textContent = label;
+    float.classList.add('visible');
+    if (dayFloatFadeTimer) clearTimeout(dayFloatFadeTimer);
+    dayFloatFadeTimer = setTimeout(() => {
+        dayFloatFadeTimer = null;
+        float.classList.remove('visible');
+    }, 1200);
+}
+
+function dayFloatIsScrolledUp() {
+    const scroll = document.getElementById('timeline');
+    if (!scroll) return false;
+    return scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight >= 60;
+}
+
+function dayFloatOnScroll() {
+    if (dayFloatRafPending) return;
+    dayFloatRafPending = true;
+    requestAnimationFrame(() => {
+        dayFloatRafPending = false;
+        const label = dayFloatLabel();
+        // Don't cover the newest messages while pinned to the bottom.
+        if (!label || !dayFloatIsScrolledUp()) { dayFloatHide(); return; }
+        dayFloatShow(label);
+    });
+}
+
+// Hide the stale pill immediately, then recompute on the next frame.
+// Idempotent: repeated calls cancel the pending recompute. Safe to call from
+// other files via window.dayFloatRefresh (channel switch, clear, resize).
+function dayFloatRefresh() {
+    dayFloatHide();
+    if (dayFloatRefreshRaf) cancelAnimationFrame(dayFloatRefreshRaf);
+    dayFloatRefreshRaf = requestAnimationFrame(() => {
+        dayFloatRefreshRaf = null;
+        const label = dayFloatLabel();
+        // Only re-show when the user is actually reading history; at the
+        // bottom the pill would just cover the newest messages.
+        if (label && dayFloatIsScrolledUp()) dayFloatShow(label);
+    });
+}
+window.dayFloatRefresh = dayFloatRefresh;
 
 // --- Messages ---
 
@@ -939,7 +1024,11 @@ function appendMessage(msg) {
                 ).join('') + '</div>';
             }
         }
-        el.innerHTML = `<div class="todo-strip"></div>${isSelf ? '' : avatarHtml}<div class="chat-bubble" style="--bubble-color: ${senderColor}">${replyHtml}<div class="bubble-header"><span class="msg-sender" data-sender="${escapeHtml(msg.sender)}" style="color: ${senderColor}">${escapeHtml(getDisplayName(msg.sender))}</span>${rolePillHtml}<span class="msg-time">${msg.time || ''}</span></div><div class="msg-text">${textHtml}</div>${choicesHtml}${attachmentsHtml}<button class="convert-job-pill" onclick="startJobFromMessage(${msg.id}); event.stopPropagation();" title="${t('timeline.convertJob')}">${t('timeline.convertJob')}</button><button class="bubble-copy" onclick="copyMessage(${msg.id}, event)" title="${t('timeline.copy')}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div><div class="msg-actions"><button class="reply-btn" onclick="startReply(${msg.id}, event)">${t('timeline.reply')}</button><button class="todo-hint" onclick="todoCycle(${msg.id}); event.stopPropagation();">${statusLabel}</button><button class="delete-btn" onclick="deleteClick(${msg.id}, event)" title="${t('common.delete')}">${t('timeline.deleteShort')}</button></div>`;
+        // Permanent message-id badge, shown just after the time as "16:18:56 | #292".
+        // Only render for messages that carry a valid numeric id — join/leave, system,
+        // and proposal cards never reach this branch, and unknown/0 ids are skipped.
+        const msgNumHtml = (typeof msg.id === 'number' && msg.id > 0) ? `<span class="msg-num">#${msg.id}</span>` : '';
+        el.innerHTML = `<div class="todo-strip"></div>${isSelf ? '' : avatarHtml}<div class="chat-bubble" style="--bubble-color: ${senderColor}">${replyHtml}<div class="bubble-header"><span class="msg-sender" data-sender="${escapeHtml(msg.sender)}" style="color: ${senderColor}">${escapeHtml(getDisplayName(msg.sender))}</span>${rolePillHtml}<span class="msg-time">${msg.time || ''}</span>${msgNumHtml}</div><div class="msg-text">${textHtml}</div>${choicesHtml}${attachmentsHtml}<button class="convert-job-pill" onclick="startJobFromMessage(${msg.id}); event.stopPropagation();" title="${t('timeline.convertJob')}">${t('timeline.convertJob')}</button><button class="bubble-copy" onclick="copyMessage(${msg.id}, event)" title="${t('timeline.copy')}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div><div class="msg-actions"><button class="reply-btn" onclick="startReply(${msg.id}, event)">${t('timeline.reply')}</button><button class="todo-hint" onclick="todoCycle(${msg.id}); event.stopPropagation();">${statusLabel}</button><button class="delete-btn" onclick="deleteClick(${msg.id}, event)" title="${t('common.delete')}">${t('timeline.deleteShort')}</button></div>`;
         if (todoStatus) el.classList.add('msg-todo', `msg-todo-${todoStatus}`);
         if (msg.metadata?.session_output) el.classList.add('session-output');
 
@@ -1855,17 +1944,26 @@ function updateStatus(data) {
         const pill = document.getElementById(`status-${name}`);
         if (!pill) continue;
 
-        pill.classList.remove('available', 'working', 'offline');
+        pill.classList.remove('available', 'working', 'offline', 'degraded');
         // Pending pills keep their pending animation (set in buildStatusPills)
         if (!pill.classList.contains('pending')) {
             if (info.busy && info.available) {
                 pill.classList.add('working');
             } else if (info.available) {
                 pill.classList.add('available');
+            } else if (info.presence_stale) {
+                // Process running / chat connection abnormal — NOT offline.
+                pill.classList.add('degraded');
             } else {
                 pill.classList.add('offline');
             }
         }
+
+        // Tooltip reflects the degraded state when the process is alive but
+        // the chat connection is abnormal.
+        pill.title = (info.presence_stale && !info.available)
+            ? `@${name} — ${t('status.degraded')}`
+            : `@${name}`;
 
         // Keep agent color in sync
         if (info.color) pill.style.setProperty('--agent-color', info.color);
@@ -2682,6 +2780,7 @@ function setupScroll() {
             unreadCount = 0;
         }
         updateScrollAnchor();
+        dayFloatOnScroll();
     });
 
     // Keep pinned to bottom when content changes (e.g. images load)
@@ -2694,6 +2793,7 @@ function setupScroll() {
 
     // Reposition scroll-anchor when window resizes or sidebars toggle
     window.addEventListener('resize', repositionScrollAnchor);
+    window.addEventListener('resize', dayFloatRefresh);
     const contentArea = document.querySelector('.content-area');
     if (contentArea) {
         new ResizeObserver(repositionScrollAnchor).observe(contentArea);

@@ -91,6 +91,7 @@ const mockApi = {
                 gemini: { base: 'gemini', label: 'Gemini', color: '#4285f4', command: 'gemini', cwd: '..', supports_yolo: true },
                 qwen:   { base: 'qwen',   label: 'Qwen',   color: '#8b5cf6', command: 'qwen',   cwd: '..', supports_yolo: true },
                 kilo:   { base: 'kilo',   label: 'Kilo',   color: '#f7f677', command: 'kilo',   cwd: '..', supports_yolo: false },
+                opencode: { base: 'opencode', label: 'OpenCode', color: '#f97316', command: 'opencode', cwd: '..', supports_yolo: true, mode_label: 'Auto', mode_desc: 'Auto 模式（工作目录内免确认，目录外直接拒绝）' },
             },
             processes: {
                 'agent:codex:1234': { key: 'agent:codex:1234', kind: 'agent', base: 'codex', assigned_name: 'codex', status: 'working', started_by_launcher: true, pid: 1234, role: 'Builder', mode: 'normal', start_time: Date.now() - 3600000 },
@@ -113,6 +114,7 @@ const mockApi = {
                 gemini: { base: 'gemini', label: 'Gemini', color: '#4285f4', command: 'gemini', cwd: '..', supports_yolo: true },
                 qwen:   { base: 'qwen',   label: 'Qwen',   color: '#8b5cf6', command: 'qwen',   cwd: '..', supports_yolo: true },
                 kilo:   { base: 'kilo',   label: 'Kilo',   color: '#f7f677', command: 'kilo',   cwd: '..', supports_yolo: false },
+                opencode: { base: 'opencode', label: 'OpenCode', color: '#f97316', command: 'opencode', cwd: '..', supports_yolo: true, mode_label: 'Auto', mode_desc: 'Auto 模式（工作目录内免确认，目录外直接拒绝）' },
             },
             processes: {
                 'agent:codex:1234': { key: 'agent:codex:1234', kind: 'agent', base: 'codex', assigned_name: 'codex', status: 'working', started_by_launcher: true, pid: 1234, role: 'Builder', mode: 'normal', start_time: Date.now() - 3600000 },
@@ -453,7 +455,9 @@ function renderAgentList(containerId) {
         card.dataset.type = proc.base;
         card.dataset.key = proc.key;
 
-        const modeTag = proc.mode === 'yolo' ? '<span style="color:var(--warning);font-size:10px;margin-left:4px;">[Yolo]</span>' : '';
+        const modeTag = proc.mode === 'yolo'
+            ? `<span style="color:var(--warning);font-size:10px;margin-left:4px;">[${tmpl && tmpl.mode_label ? tmpl.mode_label : 'Yolo'}]</span>`
+            : '';
 
         card.innerHTML = `
             <div class="agent-avatar ${proc.base}">${initials}</div>
@@ -642,13 +646,20 @@ function closeDrawer() {
     el('agent-drawer').classList.remove('active');
 }
 
+function currentDrawerTemplate() {
+    const base = el('drawer-agent-type').value;
+    return state.templates.find(t => t.base === base) || null;
+}
+
 function setDrawerMode(mode) {
     state.drawer.mode = mode;
     const btns = el('drawer-mode-control').querySelectorAll('.segment-btn');
     btns.forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+    const tmpl = currentDrawerTemplate();
+    const modeDesc = tmpl && tmpl.mode_desc ? tmpl.mode_desc : 'Yolo 模式：自动执行，适合可信本地任务';
     el('drawer-mode-hint').textContent = mode === 'normal'
         ? '普通模式：高风险操作需要确认'
-        : 'Yolo 模式：自动执行，适合可信本地任务';
+        : modeDesc;
 }
 
 function setDrawerAutoStart(val) {
@@ -671,14 +682,32 @@ function updateDrawerHint() {
     const hint = el('drawer-instance-hint');
     if (type === 'custom') {
         hint.textContent = '自定义代理的实例名和启动命令需手动配置';
+        syncDrawerModeButton();
         return;
     }
+    syncDrawerModeButton();
     const existing = state.processes.filter(p => p.base === type);
     if (existing.length === 0) {
         hint.textContent = `当前无该类型实例，启动后将分配为 ${type}`;
     } else {
         const names = existing.map(p => p.assigned_name || p.base).join('、');
         hint.textContent = `当前已有 ${names}，启动后将自动分配新名称`;
+    }
+}
+
+function syncDrawerModeButton() {
+    const tmpl = currentDrawerTemplate();
+    const yoloBtn = el('drawer-mode-yolo-btn');
+    if (!yoloBtn) return;
+    const modeLabel = tmpl && tmpl.mode_label ? tmpl.mode_label : 'Yolo';
+    yoloBtn.textContent = `${modeLabel} 模式`;
+    const supportsYolo = tmpl ? Boolean(tmpl.supports_yolo) : false;
+    yoloBtn.disabled = !supportsYolo;
+    yoloBtn.classList.toggle('disabled', !supportsYolo);
+    if (!supportsYolo && state.drawer.mode === 'yolo') {
+        setDrawerMode('normal');
+    } else {
+        setDrawerMode(state.drawer.mode);
     }
 }
 
@@ -696,7 +725,8 @@ async function saveAgent(autoStart) {
 
     const tmpl = state.templates.find(t => t.base === base);
     if (mode === 'yolo' && tmpl && !tmpl.supports_yolo) {
-        showToast(`${tmpl.label} 暂不支持 Yolo 模式`, 'error');
+        const modeLabel = tmpl.mode_label ? tmpl.mode_label : 'Yolo';
+        showToast(`${tmpl.label} 暂不支持 ${modeLabel} 模式`, 'error');
         return;
     }
 
@@ -890,7 +920,10 @@ function initEventListeners() {
 
     // Drawer mode toggle
     el('drawer-mode-control').querySelectorAll('.segment-btn').forEach(btn => {
-        btn.addEventListener('click', () => setDrawerMode(btn.dataset.mode));
+        btn.addEventListener('click', () => {
+            if (btn.disabled) return;
+            setDrawerMode(btn.dataset.mode);
+        });
     });
 
     // Drawer auto-start toggle

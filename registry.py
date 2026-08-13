@@ -7,6 +7,8 @@ Thread-safe: a single threading.Lock guards all mutations.
 """
 
 import colorsys
+import hashlib
+import hmac
 import json
 import re
 import secrets
@@ -39,20 +41,34 @@ class Instance:
     epoch: int = 1
     state: str = "pending"   # "pending" | "active"
     registered_at: float = field(default_factory=time.time)
+    lease_id: str = ""  # wrapper process lease (uuid4 hex) — stable across re-registers
+    pid: int = 0        # wrapper process PID — used for liveness checks
+    start_marker: str = ""  # process creation fingerprint — detects PID reuse
 
 
 class RuntimeRegistry:
     GRACE_PERIOD = 30  # seconds — name reserved after deregister
 
-    def __init__(self, data_dir: str = "./data"):
+    def __init__(self, data_dir: str = "./data", pid_alive_fn=None):
         self._lock = threading.Lock()
+        # Serializes the whole disk-persist sequence (snapshot + write +
+        # replace) for renames.json/leases.json. Lock order: acquire
+        # `_persist_lock` FIRST, then briefly `_lock` for the snapshot —
+        # never the other way around (i.e. never call _save_* while holding
+        # `_lock`, that would deadlock).
+        self._persist_lock = threading.Lock()
         self._bases: dict[str, dict] = {}          # base name → config template
         self._instances: dict[str, Instance] = {}   # canonical name → Instance
         self._reserved: dict[str, float] = {}       # name → deregister timestamp
         self._renames: dict[str, str] = {}           # old name → new name (for heartbeat redirect)
+        self._leases: dict[str, dict] = {}            # lease_id → {base, name, label, token_digest, pid, start_marker}
+        # Liveness check for persisted-lease processes (pid, start_marker).
+        # Injectable for tests; defaults to launcher_supervisor.pid_is_alive.
+        self._pid_alive_fn = pid_alive_fn or _default_pid_alive
         self._on_change_cbs: list = []
         self._data_dir = Path(data_dir)
         self._load_renames()
+        self._load_leases()
 
     # --- Setup ---
 
@@ -98,17 +114,226 @@ class RuntimeRegistry:
             except Exception:
                 self._renames = {}
 
+    # --- State persistence (renames.json / leases.json) ---
+    # `_persist_lock` serializes the WHOLE snapshot+write+replace sequence so
+    # that (a) the snapshot is taken AT PERSIST TIME — a stalled writer can
+    # never overwrite a newer file with an older snapshot (last writer always
+    # persists the freshest state), and (b) the shared .tmp file is safe
+    # because only one writer exists at a time.
+    # Lock order: `_persist_lock` → `_lock`. `_save_*` must NEVER be called
+    # while holding `_lock` — the persist path re-acquires `_lock` for the
+    # snapshot, and `_lock` is not reentrant.
+
+    def _persist_state(self, path: Path, state: dict):
+        """Snapshot `state` under the main lock and atomically write it.
+        Caller must NOT hold the main lock."""
+        with self._persist_lock:
+            with self._lock:
+                data = dict(state)
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(data), "utf-8")
+            tmp.replace(path)
+
     def _save_renames(self):
-        """Persist renames to disk. Must be called outside the lock."""
+        """Persist renames to disk. Must be called outside the main lock."""
         try:
             self._data_dir.mkdir(parents=True, exist_ok=True)
-            tmp = self._renames_path().with_suffix(".tmp")
-            with self._lock:
-                data = dict(self._renames)
-            tmp.write_text(json.dumps(data), "utf-8")
-            tmp.replace(self._renames_path())
+            self._persist_state(self._renames_path(), self._renames)
         except Exception:
             pass
+
+    # --- Lease persistence ---
+    # Leases let a wrapper process prove "I am the same process as before" via a
+    # stable random lease_id. Persisted to leases.json so a server restart can
+    # hand the ORIGINAL name + token back to the still-running wrapper (its CLI
+    # child's MCP config carries that token and cannot be updated mid-session).
+    # Only a sha256 DIGEST of the token is persisted — plaintext tokens live
+    # only in memory and in the child process env, never on disk or in logs.
+    # On recovery the wrapper must present the old token (resume_token); it is
+    # verified against the digest with a constant-time comparison.
+    # Loopback-only endpoints + unguessable lease_id keep this safe locally.
+
+    def _leases_path(self) -> Path:
+        return self._data_dir / "leases.json"
+
+    def _load_leases(self):
+        p = self._leases_path()
+        if p.exists():
+            try:
+                raw = json.loads(p.read_text("utf-8"))
+                self._leases = {}
+                if isinstance(raw, dict):
+                    for key, value in raw.items():
+                        lid = str(key).strip()
+                        if lid and isinstance(value, dict) and value.get("token_digest"):
+                            slot = value.get("slot")
+                            try:
+                                slot = int(slot) if slot else None
+                            except (TypeError, ValueError):
+                                slot = None
+                            self._leases[lid] = {
+                                "base": canonicalize_name(str(value.get("base", ""))),
+                                "name": canonicalize_name(str(value.get("name", ""))),
+                                "label": str(value.get("label", "")),
+                                "token_digest": str(value["token_digest"]),
+                                "pid": int(value.get("pid") or 0),
+                                "start_marker": str(value.get("start_marker", "")),
+                                # Legacy records without slot: tolerate, derive
+                                # from the name as best effort.
+                                "slot": slot,
+                            }
+            except Exception:
+                self._leases = {}
+
+    def _save_leases(self):
+        """Persist leases to disk. Must be called outside the main lock."""
+        try:
+            self._data_dir.mkdir(parents=True, exist_ok=True)
+            self._persist_state(self._leases_path(), self._leases)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _lease_record(inst: "Instance") -> dict:
+        # Digest only — never persist the plaintext token. Slot is explicit:
+        # it cannot be derived from a custom display name (e.g. "planner").
+        return {"base": inst.base, "name": inst.name, "label": inst.label,
+                "token_digest": _token_digest(inst.token),
+                "pid": inst.pid, "start_marker": inst.start_marker,
+                "slot": inst.slot}
+
+    def _sync_lease_locked(self, inst: "Instance"):
+        """Persist an instance's identity change into its lease record.
+        Caller must hold the lock. No-op for lease-less instances."""
+        if inst.lease_id and inst.lease_id in self._leases:
+            self._leases[inst.lease_id] = self._lease_record(inst)
+
+    def _recover_lease_locked(self, lease_id: str, base: str, pid: int = 0,
+                              start_marker: str = "", resume_token: str = "") -> dict | None:
+        """Resume an existing identity for a known wrapper lease.
+
+        A KNOWN lease_id (live in memory OR persisted) ALWAYS requires proof:
+        `resume_token` must match the stored token digest (constant-time
+        `hmac.compare_digest`). Missing/mismatched proof → explicit
+        {"error": "invalid_lease_proof"} — no new token is minted and the
+        lease is NOT modified. Only an UNKNOWN lease_id returns None, letting
+        the caller proceed to a fresh registration.
+
+        Live instance → reactivate in place (same name/token, no new slot, no
+        rename entries). Persisted lease (server restarted while the wrapper
+        kept running) → resurrect with the ORIGINAL name and the presented
+        token so the running child's MCP config stays valid.
+        Caller must hold the lock.
+        """
+        for inst in self._instances.values():
+            if inst.lease_id == lease_id:
+                if not resume_token or not hmac.compare_digest(
+                        _token_digest(resume_token), _token_digest(inst.token)):
+                    return {"error": "invalid_lease_proof"}
+                if pid:
+                    inst.pid = pid
+                if start_marker:
+                    inst.start_marker = start_marker
+                self._leases[lease_id] = self._lease_record(inst)
+                return _inst_dict(inst, include_token=True)
+        lease = self._leases.get(lease_id)
+        if not lease:
+            return None  # unknown lease → fresh registration
+        if lease.get("base") != base:
+            # A lease_id known ANYWHERE is a known lease regardless of the
+            # requested base — never overwrite it cross-base. Zero mutations.
+            return {"error": "invalid_lease_proof"}
+        if not resume_token or not hmac.compare_digest(
+                _token_digest(resume_token), lease.get("token_digest", "")):
+            return {"error": "invalid_lease_proof"}
+        name = lease.get("name", "")
+        if not name:
+            return {"error": "invalid_lease_proof"}
+        # Slot comes from the persisted record — it cannot be derived from a
+        # custom display name (e.g. "planner" is still codex slot 1).
+        slot = lease.get("slot") or self._parse_name(name)[1]
+        # Duplicate (base, slot) within a family is forbidden.
+        if any(i.base == base and i.slot == slot for i in self._instances.values()):
+            return {"error": "invalid_lease_proof"}
+        # Multi-instance naming invariant: a recovering slot-1 instance whose
+        # recorded name is the bare base name comes back NUMBERED ("codex-1")
+        # when the family already has other instances — never "codex + codex-2".
+        renamed_on_recovery = None
+        if slot == 1 and name == base and any(i.base == base for i in self._instances.values()):
+            numbered = f"{base}-1"
+            if numbered in self._instances:
+                return {"error": "invalid_lease_proof"}
+            self._set_rename_locked(name, numbered)
+            renamed_on_recovery = {"old": name, "new": numbered}
+            name = numbered
+        if name in self._instances:
+            # Name taken by another instance — cannot safely resume. Refuse
+            # rather than minting a divergent identity for a proven lease.
+            return {"error": "invalid_lease_proof"}
+        self._reserved.pop(name, None)
+        base_cfg = self._bases[base]
+        default_label = (base_cfg.get("label", base.capitalize()) if slot == 1
+                         else f"{base_cfg.get('label', base.capitalize())} {slot}")
+        inst = Instance(name=name, base=base, slot=slot,
+                        label=lease.get("label") or default_label,
+                        color=_derive_color(base_cfg.get("color", "#888"), slot),
+                        state="active", lease_id=lease_id, pid=pid,
+                        start_marker=start_marker or lease.get("start_marker", ""))
+        inst.token = resume_token
+        self._instances[name] = inst
+        self._leases[lease_id] = self._lease_record(inst)
+        result = _inst_dict(inst, include_token=True)
+        if renamed_on_recovery:
+            result["_renamed_slot1"] = renamed_on_recovery
+        return result
+
+    def _lease_held_slots_locked(self, base: str) -> tuple[set[str], set[int], bool]:
+        """Names and slots held by persisted leases of `base` whose wrapper
+        process is STILL ALIVE (pid + start-marker check). After a server
+        restart these stay reserved so an unknown lease cannot steal the
+        identity before the rightful wrapper re-registers. Leases whose
+        process is confirmed dead are atomically removed here, freeing the
+        name/slot. Returns (held_names, held_slots, cleaned_any).
+        Caller must hold the lock.
+        """
+        held_names: set[str] = set()
+        held_slots: set[int] = set()
+        cleaned = False
+        live_names = {i.name for i in self._instances.values()}
+        for lid, lease in list(self._leases.items()):
+            if lease.get("base") != base:
+                continue
+            lname = lease.get("name", "")
+            if not lname or lname in live_names:
+                continue
+            if self._pid_alive_fn(lease.get("pid") or 0,
+                                  lease.get("start_marker", "") or ""):
+                held_names.add(lname)
+                # Slot is authoritative; legacy records without a slot fall
+                # back to name parsing (best effort).
+                held_slots.add(lease.get("slot") or self._parse_name(lname)[1])
+            else:
+                del self._leases[lid]  # stale lease — process confirmed dead
+                cleaned = True
+        return held_names, held_slots, cleaned
+
+    def _set_rename_locked(self, old: str, new: str):
+        """Record a rename edge old -> new while holding the invariants:
+        `_renames` stays ACYCLIC, and the active canonical name (`new`) is
+        never a KEY pointing at an old name. Caller must hold the lock.
+
+        - any stale edge keyed by `new` is dropped (breaks A->B->A cycles and
+          removes redirects AWAY from a name that is active again — e.g. the
+          obsolete base -> base-1 edge after a single-instance rename-back)
+        - chains that pointed at `old` collapse straight to `new`.
+        """
+        if not old or not new or old == new:
+            return
+        self._renames.pop(new, None)
+        self._renames[old] = new
+        for key, value in list(self._renames.items()):
+            if value == old and key != old:
+                self._renames[key] = new
 
     def _clean_renames_locked(self) -> bool:
         """Normalize persisted rename chains. Caller must hold the lock."""
@@ -122,12 +347,42 @@ class RuntimeRegistry:
                 cleaned[src] = dst
         self._renames = cleaned
 
+        # Canonical-name evidence for breaking 2-cycles: lease records are
+        # loaded in __init__ BEFORE seed() runs this cleanup, and live
+        # instances (if any) count too. An ACTIVE canonical name must never
+        # redirect to an old name.
+        canonical = {str(v.get("name", "")) for v in self._leases.values()}
+        canonical |= {i.name for i in self._instances.values()}
+        canonical.discard("")
+
         # Break two-way loops caused by display-name case drift, preferring
         # base-family -> custom-id mappings such as codex -> planner.
         for src, dst in list(self._renames.items()):
             if self._renames.get(dst) != src:
                 continue
-            if src in self._bases and dst not in self._bases:
+            src_base, _ = self._parse_name(src)
+            dst_base, _ = self._parse_name(dst)
+            src_live = src in canonical
+            dst_live = dst in canonical
+            if src_live and dst_live:
+                # Both names active — neither may redirect to the other.
+                self._renames.pop(src, None)
+                self._renames.pop(dst, None)
+            elif src_live:
+                # src is the live canonical name — keep dst -> src.
+                self._renames.pop(src, None)
+            elif dst_live:
+                # dst is the live canonical name — keep src -> dst.
+                self._renames.pop(dst, None)
+            elif src in self._bases and dst_base == src and dst != src:
+                # Legacy numbered rename-back pair (base <-> base-N): after
+                # recovery the live canonical name is the BASE, so keep the
+                # backward-compat edge base-N -> base and drop base -> base-N
+                # (an active name must never redirect elsewhere).
+                self._renames.pop(src, None)
+            elif dst in self._bases and src_base == dst and src != dst:
+                self._renames.pop(dst, None)
+            elif src in self._bases and dst not in self._bases:
                 self._renames.pop(dst, None)
             elif dst in self._bases and src not in self._bases:
                 self._renames.pop(src, None)
@@ -160,86 +415,140 @@ class RuntimeRegistry:
         label: str | None = None,
         preferred_name: str | None = None,
         replace_existing: bool = False,
+        lease_id: str = "",
+        pid: int = 0,
+        start_marker: str = "",
+        resume_token: str = "",
     ) -> dict | None:
         """Register a new instance of `base`. Returns slot info or None if unknown base.
 
         When a 2nd instance registers, slot 1 is renamed from 'base' to 'base-1'
         to prevent identity ambiguity. The rename info is returned as '_renamed_slot1'.
+
+        If `lease_id` matches a live instance or a persisted lease (server
+        restart while the wrapper kept running), the ORIGINAL name + token are
+        returned instead of minting a new identity. Persisted-lease recovery
+        additionally requires `resume_token` to match the stored token digest.
         """
         base = canonicalize_name(base)
         preferred = canonicalize_name(preferred_name or "")
+        lease_id = (lease_id or "").strip()
         with self._lock:
             if base not in self._bases:
                 return None
 
             self._expire_reserved()
-            preferred_slot: int | None = None
-            if preferred:
-                preferred_base, parsed_slot = self._parse_name(preferred)
-                if preferred_base != base or parsed_slot < 1:
-                    return {"error": "preferred_name_mismatch"}
-                if preferred in self._instances:
-                    if not replace_existing:
-                        return {"error": "preferred_name_in_use"}
-                    del self._instances[preferred]
-                self._reserved.pop(preferred, None)
-                preferred_slot = parsed_slot
 
-            # Find next free slot
-            taken = {i.slot for i in self._instances.values() if i.base == base}
-            reserved = set()
-            for rn in self._reserved:
-                rb, rs = self._parse_name(rn)
-                if rb == base:
-                    reserved.add(rs)
-
-            if preferred_slot is not None and preferred_slot not in taken:
-                slot = preferred_slot
+            if lease_id:
+                recovered = self._recover_lease_locked(
+                    lease_id, base, pid, start_marker, resume_token)
             else:
-                slot = 1
-                while slot in taken or slot in reserved:
-                    slot += 1
+                recovered = None
 
-            # When a 2nd instance registers, rename slot-1 from "base" to "base-1"
-            # so that no instance shares a name with the base family.  This prevents
-            # a second instance from sending messages as "base" (identity theft).
-            renamed_slot1 = None
-            if slot >= 2 and base in self._instances:
-                slot1 = self._instances[base]
-                if slot1.base == base and slot1.slot == 1:
-                    new_s1_name = f"{base}-1"
-                    del self._instances[base]
-                    slot1.name = new_s1_name
-                    base_cfg = self._bases[base]
-                    slot1.label = f"{base_cfg.get('label', base.capitalize())} 1"
-                    # Color stays the same (slot 1 = base color)
-                    self._instances[new_s1_name] = slot1
-                    self._renames[base] = new_s1_name
-                    renamed_slot1 = {"old": base, "new": new_s1_name}
+            if recovered is None:
+                # Restart-race protection: names AND slots held by persisted
+                # leases whose wrapper process is still alive stay reserved;
+                # leases whose process is confirmed dead are atomically
+                # cleaned here (persisted below even for lease-less callers).
+                lease_held, lease_held_slots, leases_cleaned = \
+                    self._lease_held_slots_locked(base)
 
-            name = base if slot == 1 else f"{base}-{slot}"
-            base_cfg = self._bases[base]
-            color = _derive_color(base_cfg.get("color", "#888"), slot)
+                fresh_error = None
+                preferred_slot = None
+                if preferred:
+                    preferred_base, parsed_slot = self._parse_name(preferred)
+                    if preferred_base != base or parsed_slot < 1:
+                        fresh_error = {"error": "preferred_name_mismatch"}
+                    elif preferred in lease_held or parsed_slot in lease_held_slots:
+                        fresh_error = {"error": "name_reserved_by_lease", "name": preferred}
+                    elif preferred in self._instances and not replace_existing:
+                        fresh_error = {"error": "preferred_name_in_use"}
+                    else:
+                        if preferred in self._instances:
+                            old_lease = self._instances[preferred].lease_id
+                            del self._instances[preferred]
+                            if old_lease:
+                                self._leases.pop(old_lease, None)
+                        self._reserved.pop(preferred, None)
+                        preferred_slot = parsed_slot
 
-            if label:
-                lbl = label
-            elif slot == 1:
-                lbl = base_cfg.get("label", base.capitalize())
+                if fresh_error is None:
+                    # Find next free slot
+                    taken = {i.slot for i in self._instances.values() if i.base == base}
+                    reserved = set()
+                    for rn in self._reserved:
+                        rb, rs = self._parse_name(rn)
+                        if rb == base:
+                            reserved.add(rs)
+                    # Slots held by live persisted leases are not available.
+                    reserved |= lease_held_slots
+
+                    if (preferred_slot is not None and preferred_slot not in taken
+                            and preferred_slot not in reserved):
+                        slot = preferred_slot
+                    else:
+                        slot = 1
+                        while slot in taken or slot in reserved:
+                            slot += 1
+
+                    # When a 2nd instance registers, rename slot-1 from "base" to "base-1"
+                    # so that no instance shares a name with the base family.  This prevents
+                    # a second instance from sending messages as "base" (identity theft).
+                    renamed_slot1 = None
+                    if slot >= 2 and base in self._instances:
+                        slot1 = self._instances[base]
+                        if slot1.base == base and slot1.slot == 1:
+                            new_s1_name = f"{base}-1"
+                            del self._instances[base]
+                            slot1.name = new_s1_name
+                            base_cfg = self._bases[base]
+                            slot1.label = f"{base_cfg.get('label', base.capitalize())} 1"
+                            # Color stays the same (slot 1 = base color)
+                            self._instances[new_s1_name] = slot1
+                            self._set_rename_locked(base, new_s1_name)
+                            # Keep the renamed instance's lease in sync NOW —
+                            # it must not wait for the next heartbeat.
+                            self._sync_lease_locked(slot1)
+                            renamed_slot1 = {"old": base, "new": new_s1_name}
+
+                    name = base if slot == 1 else f"{base}-{slot}"
+                    if name in lease_held:
+                        fresh_error = {"error": "name_reserved_by_lease", "name": name}
+                    else:
+                        base_cfg = self._bases[base]
+                        color = _derive_color(base_cfg.get("color", "#888"), slot)
+
+                        if label:
+                            lbl = label
+                        elif slot == 1:
+                            lbl = base_cfg.get("label", base.capitalize())
+                        else:
+                            lbl = f"{base_cfg.get('label', base.capitalize())} {slot}"
+
+                        # Fresh registrations are immediately authoritative. Identity
+                        # recovery/reclaim still uses chat_claim, but normal startup should
+                        # not block on a manual confirmation step.
+                        state = "active"
+                        inst = Instance(name=name, base=base, slot=slot, label=lbl,
+                                        color=color, state=state, lease_id=lease_id,
+                                        pid=pid, start_marker=start_marker)
+                        self._instances[name] = inst
+                        if lease_id:
+                            self._leases[lease_id] = self._lease_record(inst)
+                        result = _inst_dict(inst, include_token=True)
+                        if renamed_slot1:
+                            result["_renamed_slot1"] = renamed_slot1
+
+                if fresh_error is not None:
+                    result = fresh_error
             else:
-                lbl = f"{base_cfg.get('label', base.capitalize())} {slot}"
-
-            # Fresh registrations are immediately authoritative. Identity
-            # recovery/reclaim still uses chat_claim, but normal startup should
-            # not block on a manual confirmation step.
-            state = "active"
-            inst = Instance(name=name, base=base, slot=slot, label=lbl, color=color, state=state)
-            self._instances[name] = inst
-            result = _inst_dict(inst, include_token=True)
-            if renamed_slot1:
-                result["_renamed_slot1"] = renamed_slot1
+                result = recovered
 
         self._notify()
         self._save_renames()
+        # Always persist: dead-lease cleanup must reach disk even when the
+        # triggering registration carried no lease_id or ended in an error.
+        self._save_leases()
         return result
 
     def deregister(self, name: str) -> dict | None:
@@ -256,8 +565,15 @@ class RuntimeRegistry:
             if name not in self._instances:
                 return None
             base = self._instances[name].base
+            dropped_lease = self._instances[name].lease_id
             del self._instances[name]
             self._reserved[name] = time.time()
+            # Explicit deregister releases the lease — a later register with the
+            # same lease_id starts fresh (new token), it does not resurrect.
+            if dropped_lease:
+                self._leases.pop(dropped_lease, None)
+            for lid in [k for k, v in self._leases.items() if v.get("name") == name]:
+                del self._leases[lid]
 
             # If family drops to 1 instance with a numbered name, rename back to base
             renamed_back = None
@@ -274,11 +590,14 @@ class RuntimeRegistry:
                     remaining.label = base_cfg.get("label", base.capitalize())
                     remaining.color = _derive_color(base_cfg.get("color", "#888"), 1)
                     self._instances[base] = remaining
-                    self._renames[old_name] = base
+                    self._set_rename_locked(old_name, base)
+                    if remaining.lease_id and remaining.lease_id in self._leases:
+                        self._leases[remaining.lease_id] = self._lease_record(remaining)
                     renamed_back = {"old": old_name, "new": base}
 
         self._notify()
         self._save_renames()
+        self._save_leases()
         result = {"ok": True}
         if renamed_back:
             result["_renamed_back"] = renamed_back
@@ -355,7 +674,7 @@ class RuntimeRegistry:
                     inst.label = target_label or target_id
 
                 self._instances[target_id] = inst
-                self._renames[old_name] = target_id
+                self._set_rename_locked(old_name, target_id)
                 result = _inst_dict(inst)
             else:
                 if target_label:
@@ -363,9 +682,13 @@ class RuntimeRegistry:
                 if inst.state != "pending" or target_name is not None:
                     inst.state = "active"
                 result = _inst_dict(inst)
+            # Identity/label changes must reach the lease record NOW —
+            # not on the next heartbeat.
+            self._sync_lease_locked(inst)
 
         self._notify()
         self._save_renames()
+        self._save_leases()
         return result
 
         error = None
@@ -527,11 +850,16 @@ class RuntimeRegistry:
                     inst.color = _derive_color(base_cfg.get("color", "#888"), t_slot)
 
                 self._instances[new_name] = inst
-                self._renames[old_name] = new_name
+                self._set_rename_locked(old_name, new_name)
                 result = _inst_dict(inst)
+
+            # Identity/label changes must reach the lease record NOW —
+            # not on the next heartbeat.
+            self._sync_lease_locked(inst)
 
         self._notify()
         self._save_renames()
+        self._save_leases()
         return result
 
     def set_label(self, name: str, label: str) -> bool:
@@ -545,9 +873,13 @@ class RuntimeRegistry:
             if not inst:
                 return False
             inst.label = label
+            # Label changes must reach the lease record NOW (no-op for
+            # lease-less instances) — not on the next heartbeat.
+            self._sync_lease_locked(inst)
 
         self._notify()
         self._save_renames()
+        self._save_leases()
         return True
 
     # --- Queries ---
@@ -758,6 +1090,31 @@ class RuntimeRegistry:
                 pass
         return name, 1
 
+    def update_lease(self, name: str, lease_id: str, pid: int = 0,
+                     start_marker: str = "") -> bool:
+        """Bind a wrapper lease to a registered instance (from heartbeat traffic).
+
+        Refuses to rebind a lease that differs from the one already recorded.
+        """
+        name = canonicalize_name(self.resolve_name(name))
+        lease_id = (lease_id or "").strip()
+        if not lease_id:
+            return False
+        with self._lock:
+            inst = self._instances.get(name)
+            if not inst:
+                return False
+            if inst.lease_id and inst.lease_id != lease_id:
+                return False
+            inst.lease_id = lease_id
+            if pid:
+                inst.pid = pid
+            if start_marker:
+                inst.start_marker = start_marker
+            self._leases[lease_id] = self._lease_record(inst)
+        self._save_leases()
+        return True
+
     def clean_renames_for(self, name: str):
         """Remove all rename chain entries pointing to or from `name`."""
         name = canonicalize_name(name)
@@ -779,6 +1136,17 @@ class RuntimeRegistry:
 
 # --- Module-level helpers ---
 
+def _default_pid_alive(pid: int, start_marker: str = "") -> bool:
+    """Default process liveness check (lazy import to keep registry light)."""
+    from launcher_supervisor import pid_is_alive
+    return pid_is_alive(pid, start_marker)
+
+
+def _token_digest(token: str) -> str:
+    """sha256 hex digest of a bearer token — the only form persisted to disk."""
+    return hashlib.sha256((token or "").encode()).hexdigest()
+
+
 def _inst_dict(inst: Instance, include_token: bool = False) -> dict:
     d = {
         "identity_id": inst.identity_id,
@@ -786,6 +1154,9 @@ def _inst_dict(inst: Instance, include_token: bool = False) -> dict:
         "label": inst.label, "color": inst.color, "state": inst.state,
         "epoch": inst.epoch,
         "registered_at": inst.registered_at,
+        "lease_id": inst.lease_id,
+        "pid": inst.pid,
+        "start_marker": inst.start_marker,
     }
     if include_token:
         d["token"] = inst.token

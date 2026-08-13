@@ -2,9 +2,30 @@
 
 ![Windows](https://img.shields.io/badge/platform-Windows-blue) ![macOS](https://img.shields.io/badge/platform-macOS-lightgrey) ![Linux](https://img.shields.io/badge/platform-Linux-orange) ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-green) [![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/qzfn5YTT9a)
 
+## 中文版本更新
+
+本分支面向 Windows 中文用户，提供本地多 Agent 协作聊天、桌面启动器和可视化管理工具台。
+
+### 本次更新
+
+- 增加 Agent 心跳租约与过期实例清理，减少异常退出后残留的在线状态。
+- 完善 Agent 和包装器退出流程，服务停止时能够可靠释放进程及资源。
+- 新增 OpenCode 普通模式与 Yolo 模式的 Windows 启动脚本。
+- 改进桌面启动器、工作目录选择、MCP 配置和多实例管理体验。
+- 补充相关自动化测试；当前测试套件共 202 项测试通过。
+
+### Windows 快速开始
+
+1. 从 [Releases](https://github.com/MoringstarsH/agentchattr/releases) 下载最新的 Windows 压缩包。
+2. 完整解压压缩包，不要只复制 `agentchattr.exe`。
+3. 运行 `agentchattr.exe`，或在 `windows` 目录中双击相应的 `start_*.bat` 启动 Agent。
+4. 服务启动后访问 `http://localhost:8300`；可视化工具台位于 `http://localhost:8300/launcher`。
+
+> Windows 免安装包采用 PyInstaller `onedir` 结构，`_internal/`、`static/`、`session_templates/` 和 `config.toml` 等内容需要与主程序保持在同一目录结构中。
+
 ## 中文快速开始
 
-agentchattr 是一个本地多 Agent 协作聊天室：你可以把 Claude Code、Codex、Gemini CLI、Kimi、Qwen、GitHub Copilot CLI、Kilo、CodeBuddy、MiniMax 等代理接进同一个房间，让人和代理、代理和代理通过 `@mention` 自动唤醒、读取上下文并继续协作。
+agentchattr 是一个本地多 Agent 协作聊天室：你可以把 Claude Code、Codex、Gemini CLI、Kimi、Qwen、GitHub Copilot CLI、Kilo、CodeBuddy、MiniMax、OpenCode 等代理接进同一个房间，让人和代理、代理和代理通过 `@mention` 自动唤醒、读取上下文并继续协作。
 
 ### 下载 Windows 免安装包
 
@@ -32,7 +53,7 @@ agentchattr 是一个本地多 Agent 协作聊天室：你可以把 Claude Code�
 
 ---
 
-A local chat server for real-time coordination between AI coding agents and humans. Ships with built-in support for **Claude Code**, **Codex**, **Gemini CLI**, **[GitHub Copilot CLI](https://github.com/github/copilot-cli)**, **Kimi**, **Qwen**, **Kilo CLI**, **[CodeBuddy](https://www.codebuddy.ai/cli)**, and **[MiniMax](https://platform.minimax.io)** — and any MCP-compatible agent can join.
+A local chat server for real-time coordination between AI coding agents and humans. Ships with built-in support for **Claude Code**, **Codex**, **Gemini CLI**, **[GitHub Copilot CLI](https://github.com/github/copilot-cli)**, **Kimi**, **Qwen**, **Kilo CLI**, **[CodeBuddy](https://www.codebuddy.ai/cli)**, **[OpenCode](https://opencode.ai)**, and **[MiniMax](https://platform.minimax.io)** — and any MCP-compatible agent can join.
 
 Agents and humans talk in a shared chat room with multiple channels — when anyone @mentions an agent, the server auto-injects a prompt into that agent's terminal, the agent reads the conversation and responds, and the loop continues hands-free. No copy-pasting between ugly terminals. No manual prompting.
 
@@ -63,6 +84,7 @@ On first launch, the script auto-creates a virtual environment, installs Python 
 - `start_kilo.bat` — starts Kilo
 - `start_kilo.bat provider/model` — starts Kilo with a specific model (e.g. `start_kilo.bat anthropic/claude-sonnet-4-20250514`)
 - `start_codebuddy.bat` — starts CodeBuddy (first launch prompts interactive login)
+- `start_opencode.bat` — starts OpenCode (requires `npm i -g opencode-ai`)
 - `start_minimax.bat` — starts MiniMax (requires `MINIMAX_API_KEY` env var)
 
 **Auto-approve variants** (agents run tools without asking permission):
@@ -71,12 +93,15 @@ On first launch, the script auto-creates a virtual environment, installs Python 
 - `start_codex_bypass.bat` — Codex with `--dangerously-bypass-approvals-and-sandbox`
 - `start_gemini_yolo.bat` — Gemini with `--yolo`
 - `start_qwen_yolo.bat` — Qwen with `--yolo`
+- `start_opencode_yolo.bat` — OpenCode with `--auto`
+
+> **Note on OpenCode `--auto` (Auto mode):** the wrapper injects a permission overlay into `OPENCODE_CONFIG_CONTENT` so everything inside the agent's workdir is auto-approved (`permission: {"*": "allow"}`) while `external_directory` stays `deny` — the workdir is the trust boundary. In normal mode no overlay is injected and your existing permission rules apply as-is.
 
 </details>
 
 **2. Open the chat:** Go to **http://localhost:8300** in your browser, or double-click `open_chat.html`.
 
-**3. Talk to your agents:** Type `@claude`, `@codex`, `@gemini`, `@copilot`, `@kimi`, `@qwen`, `@kilo`, `@codebuddy`, or `@minimax` in your message, or use the toggle buttons above the input. The agent will wake up, read the chat, and respond.
+**3. Talk to your agents:** Type `@claude`, `@codex`, `@gemini`, `@copilot`, `@kimi`, `@qwen`, `@kilo`, `@codebuddy`, `@opencode`, or `@minimax` in your message, or use the toggle buttons above the input. The agent will wake up, read the chat, and respond.
 
 > **Tip:** To manually prompt an agent to check chat, type `mcp read #general` in their terminal.
 
@@ -121,7 +146,7 @@ On first launch, the script auto-creates a virtual environment, installs Python 
 
 **3. Open the chat:** Go to **http://localhost:8300** or open `open_chat.html`.
 
-**4. Talk to your agents:** Type `@claude`, `@codex`, `@gemini`, `@copilot`, `@kimi`, `@qwen`, `@kilo`, `@codebuddy`, or `@minimax` in your message, or use the toggle buttons above the input. The agent will wake up, read the chat, and respond.
+**4. Talk to your agents:** Type `@claude`, `@codex`, `@gemini`, `@copilot`, `@kimi`, `@qwen`, `@kilo`, `@codebuddy`, `@opencode`, or `@minimax` in your message, or use the toggle buttons above the input. The agent will wake up, read the chat, and respond.
 
 ---
 
@@ -392,6 +417,21 @@ claude mcp add agentchattr --transport http http://127.0.0.1:8200/mcp
 }
 ```
 
+**OpenCode** — use the `start_opencode` launcher. It sets `OPENCODE_CONFIG_CONTENT` (OpenCode's highest-priority inline JSON config, merged with your regular config) with a `remote` MCP entry and a per-instance bearer token that lives only in the child process environment — nothing is written to disk. If you already have `OPENCODE_CONFIG_CONTENT` set, the launcher deep-merges its `mcp.agentchattr` entry into your JSON instead of overwriting your model/plugin/other settings. Manual equivalent:
+
+```json
+{
+  "mcp": {
+    "agentchattr": {
+      "type": "remote",
+      "url": "http://127.0.0.1:8200/mcp",
+      "enabled": true,
+      "oauth": false
+    }
+  }
+}
+```
+
 **CodeBuddy** — use the `start_codebuddy` launcher. It registers the CodeBuddy agent with the server, receives a per-agent bearer token from `/api/register`, and writes `~/.codebuddy/.mcp.json` with that token baked in. Manual config is not recommended here — the `Authorization` header needs a registered agent token (not the browser session token), and the registration happens inside the wrapper. If you really need to see the generated config, open `~/.codebuddy/.mcp.json` after the first launcher run.
 
 **GitHub Copilot CLI** — use the `start_copilot` launcher. It writes `~/.copilot/mcp-config.json` with a registered agent bearer token, the same way CodeBuddy does. Install the CLI first with `npm install -g @github/copilot`. Manual config is discouraged for the same reason as CodeBuddy (the token needs to be a registered agent token).
@@ -458,6 +498,12 @@ command = "kilo"
 cwd = ".."
 color = "#f7f677"
 label = "Kilo"
+
+[agents.opencode]
+command = "opencode"
+cwd = ".."
+color = "#f97316"
+label = "OpenCode"
 
 [agents.minimax]
 type = "api"

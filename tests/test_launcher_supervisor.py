@@ -877,5 +877,66 @@ class LauncherWorkdirTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("codex", launcher._last_workdirs)
 
 
+class OpenCodeTemplateTests(unittest.IsolatedAsyncioTestCase):
+    def _make_launcher(self):
+        config = copy.deepcopy(TEST_CONFIG)
+        config["agents"]["opencode"] = {
+            "label": "OpenCode",
+            "command": "opencode",
+            "cwd": "..",
+            "color": "#f97316",
+        }
+        config["server"]["data_dir"] = tempfile.mkdtemp(prefix="agentchattr-launcher-test-")
+        return Launcher(config=config, registry_provider=None, role_setter=None)
+
+    async def test_opencode_template_supports_yolo_with_auto_flag(self):
+        launcher = self._make_launcher()
+        template = launcher._templates["opencode"]
+        self.assertTrue(template.supports_yolo)
+        self.assertEqual(template.yolo_args, ["--auto"])
+        self.assertEqual(template.mode_label, "Auto")
+        self.assertEqual(template.mode_desc, "Auto 模式（工作目录内免确认，目录外直接拒绝）")
+
+    async def test_status_serializes_mode_label_and_desc(self):
+        launcher = self._make_launcher()
+        status = await launcher.get_status()
+        template = status["templates"]["opencode"]
+        self.assertEqual(template["mode_label"], "Auto")
+        self.assertEqual(template["mode_desc"], "Auto 模式（工作目录内免确认，目录外直接拒绝）")
+
+    async def test_status_serializes_mode_label_and_desc_plain(self):
+        launcher = self._make_launcher()
+        status = await launcher.get_status()
+        template = status["templates"]["codex"]
+        self.assertEqual(template["mode_label"], "")
+        self.assertEqual(template["mode_desc"], "")
+
+    async def test_yolo_argv_contains_auto_exactly_once(self):
+        launcher = self._make_launcher()
+        process = AsyncMock(return_value=DummyStartedConsoleSubprocess())
+        with (
+            patch.object(launcher, "_is_server_running", AsyncMock(return_value=True)),
+            patch("launcher_supervisor.asyncio.create_subprocess_exec", process),
+        ):
+            result = await launcher.start_agent("opencode", mode="yolo", cwd=str(ROOT))
+        self.assertEqual(result["status"], "starting")
+        argv = list(process.await_args.args)
+        self.assertEqual(argv.count("--auto"), 1)
+
+    def test_windows_path_augmentation_includes_opencode_bin(self):
+        launcher = self._make_launcher()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            opencode_bin = Path(temp_dir) / "OpenCode" / "bin"
+            opencode_bin.mkdir(parents=True)
+            env = {
+                "PATH": "",
+                "LOCALAPPDATA": temp_dir,
+                "APPDATA": "",
+                "USERPROFILE": "",
+            }
+            launcher._augment_windows_cli_path(env)
+            self.assertIn(str(opencode_bin), env["PATH"])
+
+
 if __name__ == "__main__":
     unittest.main()

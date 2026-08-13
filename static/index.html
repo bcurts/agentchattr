@@ -7,7 +7,7 @@
     <script>
         document.documentElement.dataset.theme = localStorage.getItem('agentchattr-theme') === 'dark' ? 'dark' : 'light';
     </script>
-    <link rel="stylesheet" href="/static/style.css?v=251">
+    <link rel="stylesheet" href="/static/style.css?v=252">
     <link rel="stylesheet" href="/static/sessions.css?v=224">
     <link rel="stylesheet" href="/static/jobs.css?v=225">
     <link rel="icon" href="/static/favicon.ico">
@@ -190,6 +190,7 @@
                 <div class="channel-sidebar-grip" id="channel-sidebar-grip"></div>
             </aside>
             <main id="timeline">
+                <div id="day-float" aria-hidden="true"><span></span></div>
                 <div id="loading-indicator">
                     <div class="loading-spinner"></div>
                     <span data-i18n="timeline.loading">Loading messages...</span>
@@ -363,8 +364,8 @@
     <script src="/static/i18n.js?v=2"></script>
     <script src="/static/sessions.js?v=223"></script>
     <script src="/static/jobs.js?v=225"></script>
-    <script src="/static/channels.js?v=224"></script>
+    <script src="/static/channels.js?v=225"></script>
     <script src="/static/rules-panel.js?v=223"></script>
-    <script src="/static/chat.js?v=267"></script>
+    <script src="/static/chat.js?v=268"></script>
 </body>
 </html>

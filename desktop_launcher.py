@@ -633,7 +633,6 @@ class AddAgentDialog(QDialog):
         self.mode = QComboBox()
         self.mode.addItem("普通模式", "normal")
         self.mode.addItem("Yolo 模式", "yolo")
-
         self.role = QComboBox()
         self.role.addItem("无", None)
         self.role.addItem("Planner - 规划者", "planner")
@@ -682,24 +681,44 @@ class AddAgentDialog(QDialog):
         layout.setContentsMargins(22, 20, 22, 20)
         title = label("新增代理", heading=True)
         hint = label("实例名称由 wrapper.py / registry 自动分配", muted=True)
+        self.workdir_hint = label("工作目录是 Agent 的项目上下文，不限制其访问目录外的文件。", muted=True)
         layout.addWidget(title)
         layout.addWidget(hint)
-        layout.addWidget(label("工作目录是 Agent 的项目上下文，不限制其访问目录外的文件。", muted=True))
+        layout.addWidget(self.workdir_hint)
         layout.addSpacing(10)
         layout.addLayout(form)
         layout.addSpacing(8)
         layout.addWidget(buttons)
         self.base.currentIndexChanged.connect(self._sync_mode)
         self.base.currentIndexChanged.connect(self._sync_workdir)
+        self.mode.currentIndexChanged.connect(self._sync_mode)
         self._sync_mode()
         self._sync_workdir()
+
+    def _mode_label_for(self, base: str) -> str:
+        template = self.templates.get(base, {})
+        return template.get("mode_label") or "Yolo"
+
+    def _mode_desc_for(self, base: str) -> str:
+        template = self.templates.get(base, {})
+        return template.get("mode_desc") or ""
 
     def _sync_mode(self, *_args: object) -> None:
         base = self.base.currentData()
         supports_yolo = bool(self.templates.get(base, {}).get("supports_yolo"))
+        mode_label = self._mode_label_for(base)
+        mode_desc = self._mode_desc_for(base)
+        self.mode.setItemText(1, f"{mode_label} 模式")
         self.mode.model().item(1).setEnabled(supports_yolo)
         if not supports_yolo and self.mode.currentData() == "yolo":
             self.mode.setCurrentIndex(0)
+        if self.mode.currentData() == "yolo":
+            if mode_desc:
+                self.workdir_hint.setText(mode_desc)
+            else:
+                self.workdir_hint.setText("Yolo 模式：自动执行，适合可信本地任务")
+        else:
+            self.workdir_hint.setText("工作目录是 Agent 的项目上下文，不限制其访问目录外的文件。")
 
     def _sync_workdir(self, *_args: object) -> None:
         template = self.templates.get(self.base.currentData(), {})
@@ -1319,7 +1338,8 @@ class DesktopLauncher(QMainWindow):
         top.addWidget(base_label)
         top.addWidget(state)
         if mode == "yolo":
-            top.addWidget(make_pill("Yolo", "working"))
+            mode_label = tmpl.get("mode_label") or "Yolo"
+            top.addWidget(make_pill(mode_label, "working"))
         top.addStretch(1)
         body.addLayout(top)
 
@@ -1424,7 +1444,14 @@ class DesktopLauncher(QMainWindow):
             title.setStyleSheet("font-weight:800;color:#0c111d;")
             command = template.get("command") or base
             cwd = template.get("cwd") or "--"
-            yolo = "支持 YOLO" if template.get("supports_yolo") else "普通模式"
+            if template.get("supports_yolo"):
+                mode_label = template.get("mode_label") or "Yolo"
+                mode_desc = template.get("mode_desc") or ""
+                yolo = f"支持 {mode_label} 模式"
+                if mode_desc:
+                    yolo += f" · {mode_desc}"
+            else:
+                yolo = "普通模式"
             detail = label(f"命令: {command} · 工作目录: {cwd} · {yolo}", muted=True)
             detail.setWordWrap(True)
             row_layout.addWidget(title)

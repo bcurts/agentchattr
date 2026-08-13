@@ -29,12 +29,113 @@ from typing import Any, Callable, Optional
 from config_loader import ROOT, load_config
 
 
+def _windows_process_info(pid: int) -> tuple[bool, int | None]:
+    """Return (still_running, creation_time_100ns) for an exact PID.
+
+    Uses OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION) + GetProcessTimes +
+    GetExitCodeProcess. (False, None) when the process cannot be opened
+    (dead or access denied). No tasklist parsing — locale/encoding safe.
+    """
+    import ctypes
+
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    STILL_ACTIVE = 259
+
+    class _FILETIME(ctypes.Structure):
+        _fields_ = [("dwLowDateTime", ctypes.c_uint32),
+                    ("dwHighDateTime", ctypes.c_uint32)]
+
+    handle = ctypes.windll.kernel32.OpenProcess(
+        PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid))
+    if not handle:
+        return False, None
+    try:
+        create, exit_, kern, user = _FILETIME(), _FILETIME(), _FILETIME(), _FILETIME()
+        creation = None
+        if ctypes.windll.kernel32.GetProcessTimes(
+                handle, ctypes.byref(create), ctypes.byref(exit_),
+                ctypes.byref(kern), ctypes.byref(user)):
+            creation = (create.dwHighDateTime << 32) | create.dwLowDateTime
+        code = ctypes.c_uint32(0)
+        running = bool(
+            ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+        ) and code.value == STILL_ACTIVE
+        return running, creation
+    finally:
+        ctypes.windll.kernel32.CloseHandle(handle)
+
+
+def _posix_process_start_marker(pid: int) -> str:
+    """/proc/<pid>/stat starttime (field 22) — '' when unavailable."""
+    try:
+        stat = Path(f"/proc/{int(pid)}/stat").read_text()
+        # comm (field 2) may contain spaces/parens — parse after the last ')'
+        rest = stat[stat.rindex(")") + 2:]
+        return rest.split()[19]  # field 22 overall
+    except Exception:
+        return ""
+
+
+def process_start_marker(pid: int | None) -> str:
+    """Stable-per-process creation fingerprint, '' if unavailable.
+
+    Sent by the wrapper at register/heartbeat and stored in the lease so the
+    server can detect PID reuse: same PID but a different start marker means
+    the original wrapper is dead.
+    """
+    if not pid:
+        return ""
+    if platform.system().lower() == "windows":
+        _, creation = _windows_process_info(int(pid))
+        return str(creation) if creation is not None else ""
+    return _posix_process_start_marker(int(pid))
+
+
+def pid_is_alive(pid: int | None, start_marker: str = "") -> bool:
+    """Best-effort process liveness check (dependency-free, exact PID).
+
+    Windows: OpenProcess + GetExitCodeProcess. POSIX: os.kill(pid, 0).
+    When `start_marker` is given, the process creation fingerprint must also
+    match — a different process now holding the PID (PID reuse) is dead.
+    """
+    if not pid:
+        return False
+    if platform.system().lower() == "windows":
+        running, creation = _windows_process_info(int(pid))
+        if not running:
+            return False
+        if start_marker:
+            return creation is not None and str(creation) == start_marker
+        return True
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    except Exception:
+        return False
+    if start_marker:
+        marker = _posix_process_start_marker(int(pid))
+        return bool(marker) and marker == start_marker
+    return True
+
+
+
 _YOLO_ARG_MAP: dict[str, list[str]] = {
     "kimi": ["--yolo"],
     "codex": ["--", "--dangerously-bypass-approvals-and-sandbox"],
     "claude": ["--dangerously-skip-permissions"],
     "gemini": ["--", "--yolo"],
     "qwen": ["--yolo"],
+    "opencode": ["--auto"],
+}
+
+# Agent-specific display labels for the "yolo" launch mode. Used when the
+# agent config doesn't provide mode_label/mode_desc itself.
+_MODE_LABEL_MAP: dict[str, str] = {
+    "opencode": "Auto",
+}
+_MODE_DESC_MAP: dict[str, str] = {
+    "opencode": "Auto 模式（工作目录内免确认，目录外直接拒绝）",
 }
 
 _SESSION_TOKEN_RE = re.compile(r"Session token:\s*([0-9a-fA-F]{32,})")
@@ -63,6 +164,11 @@ class AgentTemplate:
     normal_args: list[str] = field(default_factory=list)
     yolo_args: list[str] = field(default_factory=list)
     supports_yolo: bool = False
+    # Agent-specific display name + description for the "yolo" launch mode.
+    # Lets the UI show e.g. OpenCode's "Auto 模式（工作目录内免确认）" instead of
+    # a generic "Yolo" label, without the frontend hardcoding per-agent strings.
+    mode_label: str = ""
+    mode_desc: str = ""
 
 
 @dataclass
@@ -162,6 +268,8 @@ class Launcher:
                 normal_args=[],
                 yolo_args=yolo_args,
                 supports_yolo=bool(yolo_args),
+                mode_label=cfg.get("mode_label", _MODE_LABEL_MAP.get(base, "")),
+                mode_desc=cfg.get("mode_desc", _MODE_DESC_MAP.get(base, "")),
             )
 
     def set_session_token(self, token: str) -> None:
@@ -305,6 +413,7 @@ class Launcher:
         userprofile = Path(env.get("USERPROFILE", ""))
 
         if local_appdata:
+            candidates.append(local_appdata / "OpenCode" / "bin")
             codex_bin = local_appdata / "OpenAI" / "Codex" / "bin"
             candidates.append(codex_bin)
             try:
@@ -474,28 +583,7 @@ class Launcher:
         return (await self._probe_server()).running
 
     def _pid_is_alive(self, pid: int | None) -> bool:
-        if not pid:
-            return False
-        if pid == os.getpid():
-            return True
-        if platform.system().lower() == "windows":
-            try:
-                result = subprocess.run(
-                    ["tasklist", "/FI", f"PID eq {pid}"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-            except Exception:
-                return False
-            return result.returncode == 0 and str(pid) in result.stdout
-        try:
-            os.kill(pid, 0)
-            return True
-        except OSError:
-            return False
-        except Exception:
-            return False
+        return pid_is_alive(pid)
 
     def _saved_server_is_manageable(self) -> bool:
         state = self._load_server_state()
@@ -1160,6 +1248,8 @@ class Launcher:
                     "remembered_cwd": self._last_workdirs.get(t.base),
                     "color": t.color,
                     "supports_yolo": t.supports_yolo,
+                    "mode_label": t.mode_label,
+                    "mode_desc": t.mode_desc,
                 }
                 for t in self._templates.values()
             },

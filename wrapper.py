@@ -24,6 +24,9 @@ import shutil
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
+import uuid
 from pathlib import Path
 
 if getattr(sys, "frozen", False):
@@ -170,9 +173,47 @@ _BUILTIN_DEFAULTS: dict[str, dict] = {
         "mcp_env_var": "KILO_CONFIG_CONTENT",
         "mcp_transport": "http",
     },
+    "opencode": {
+        "mcp_inject": "env_content",
+        "mcp_env_var": "OPENCODE_CONFIG_CONTENT",
+        "mcp_oauth": False,
+        "mcp_merge_env_content": True,
+        "mcp_transport": "http",
+        # Auto (yolo) mode: replace the child's `permission` subtree with this
+        # overlay so everything inside the workdir is auto-approved while
+        # external-directory access is denied. Applied ONLY when launched with
+        # --auto (see _build_provider_launch). Normal mode leaves permissions
+        # untouched.
+        "mcp_auto_flag": "--auto",
+        "mcp_auto_permission": {"*": "allow", "external_directory": "deny"},
+    },
 }
 
 _VALID_INJECT_MODES = {"settings_file", "env", "flag", "proxy_flag", "env_content"}
+
+
+def _deep_merge(base: dict, overlay: dict) -> dict:
+    """Merge overlay into base recursively; overlay wins on conflicts."""
+    merged = dict(base)
+    for key, value in overlay.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _normalize_passthrough_args(args: list[str]) -> list[str]:
+    """Remove the wrapper's ``--`` separator before launching the provider.
+
+    ``argparse.parse_known_args`` sometimes leaves the separator in ``extra``
+    when wrapper-owned options precede it.  Forwarding that separator would
+    make provider flags after it positional input instead of CLI options.
+    """
+    normalized = list(args)
+    if normalized[:1] == ["--"]:
+        return normalized[1:]
+    return normalized
 
 
 def _resolve_mcp_inject(agent: str, agent_cfg: dict) -> dict:
@@ -302,6 +343,8 @@ def _apply_mcp_inject(
         if not env_var:
             raise ValueError("mcp_inject = 'env_content' requires mcp_env_var")
         entry: dict = {"type": "remote", "url": server_url, "enabled": True}
+        if "mcp_oauth" in inject_cfg:
+            entry["oauth"] = inject_cfg["mcp_oauth"]
         if token:
             entry["headers"] = {"Authorization": f"Bearer {token}"}
         payload = {"mcp": {SERVER_NAME: entry}}
@@ -377,6 +420,42 @@ def _build_provider_launch(
         token=token, mcp_cfg=mcp_cfg, project_dir=project_dir,
     )
 
+    # env_content providers read inline JSON config from an env var.
+    # Providers that opt in via mcp_merge_env_content (e.g. OpenCode)
+    # deep-merge our agentchattr entry into the user's existing JSON
+    # instead of overwriting their model/plugin/other settings.
+    # Providers without the flag (e.g. Kilo) keep the original
+    # overwrite semantics.
+    env_var = inject_cfg.get("mcp_env_var", "")
+    if (inject_cfg.get("mcp_inject") == "env_content"
+            and inject_cfg.get("mcp_merge_env_content")
+            and env_var and env_var in inject_env and env.get(env_var)):
+        try:
+            existing = json.loads(env[env_var])
+            overlay = json.loads(inject_env[env_var])
+            if isinstance(existing, dict) and isinstance(overlay, dict):
+                inject_env[env_var] = json.dumps(_deep_merge(existing, overlay))
+        except Exception:
+            pass  # unparseable existing value — keep our injected config
+
+    # OpenCode Auto (yolo) mode: when the auto flag is present in the launch
+    # args, REPLACE the child's `permission` subtree with the configured
+    # overlay (instead of deep-merging — user deny rules must not survive).
+    # Everything else in the config content (provider/model/plugin/MCP etc.)
+    # is preserved. Normal mode never applies this overlay.
+    auto_flag = inject_cfg.get("mcp_auto_flag", "")
+    auto_permission = inject_cfg.get("mcp_auto_permission")
+    if (auto_flag and auto_permission and auto_flag in extra_args
+            and inject_cfg.get("mcp_inject") == "env_content"
+            and env_var and env_var in inject_env):
+        try:
+            data = json.loads(inject_env[env_var])
+            if isinstance(data, dict):
+                data["permission"] = dict(auto_permission)
+                inject_env[env_var] = json.dumps(data)
+        except Exception:
+            pass  # malformed config content — leave as-is
+
     launch_args = [*mcp_args, *extra_args]
     launch_env = dict(env)
 
@@ -388,11 +467,17 @@ def _register_instance(
     base: str,
     label: str | None = None,
     preferred_name: str | None = None,
+    lease_id: str | None = None,
+    pid: int | None = None,
+    start_marker: str | None = None,
+    resume_token: str | None = None,
 ) -> dict:
     import urllib.request
 
     reg_body = json.dumps(
-        {"base": base, "label": label, "preferred_name": preferred_name}
+        {"base": base, "label": label, "preferred_name": preferred_name,
+         "lease_id": lease_id or "", "pid": pid or 0,
+         "start_marker": start_marker or "", "resume_token": resume_token or ""}
     ).encode()
     reg_req = urllib.request.Request(
         f"http://127.0.0.1:{server_port}/api/register",
@@ -409,6 +494,217 @@ def _auth_headers(token: str, *, include_json: bool = False) -> dict[str, str]:
     if include_json:
         headers["Content-Type"] = "application/json"
     return headers
+
+
+# ---------------------------------------------------------------------------
+# Heartbeat sender (shared by the periodic heartbeat and the activity monitor)
+# ---------------------------------------------------------------------------
+
+class HeartbeatSender:
+    """Single HTTP heartbeat path for both wrapper heartbeat threads.
+
+    Carries the process lease (lease_id + wrapper PID + start marker) on every
+    beat so the server can verify liveness before ever deregistering, and can
+    resume the original name/token after a server restart.
+
+    Rate-limited logging: first failure logs immediately, repeats are
+    summarized at most every LOG_INTERVAL seconds, and recovery is logged once.
+    Tokens are NEVER logged. Thread-safe: the failure counter and rate-limit
+    state are shared by the heartbeat and activity threads under a lock.
+    """
+
+    LOG_INTERVAL = 30  # seconds between consecutive-failure summaries
+
+    def __init__(self, server_port: int, get_identity, get_token,
+                 lease_id: str, pid: int, start_marker: str = "",
+                 log_fn=None, now_fn=time.time):
+        self.server_port = server_port
+        self._get_identity = get_identity
+        self._get_token = get_token
+        self.lease_id = lease_id
+        self.pid = pid
+        self.start_marker = start_marker
+        self._log = log_fn or (lambda msg: print(f"  [heartbeat] {msg}", flush=True))
+        self._now = now_fn
+        self._state_lock = threading.Lock()
+        self.consecutive_failures = 0
+        self._last_failure_log = 0.0
+        # Terminal flag: set when the server rejects our lease proof
+        # (invalid_lease_proof). Retrying can never succeed — all heartbeat
+        # sends short-circuit locally and the heartbeat thread exits.
+        self.terminal = False
+
+    def send(self, active: bool | None = None) -> dict:
+        """One heartbeat attempt.
+
+        Returns {"ok": True, "name": <canonical name>} on success, or
+        {"ok": False, "status": <http code or None>, "error": <detail>}.
+        Never raises.
+        """
+        if self.terminal:
+            return {"ok": False, "status": None,
+                    "error": "terminal: lease proof rejected", "terminal": True}
+        name, _ = self._get_identity()
+        token = self._get_token()
+        body: dict = {"lease_id": self.lease_id, "pid": self.pid,
+                      "start_marker": self.start_marker}
+        if active is not None:
+            body["active"] = bool(active)
+        url = f"http://127.0.0.1:{self.server_port}/api/heartbeat/{name}"
+        try:
+            req = urllib.request.Request(
+                url,
+                method="POST",
+                data=json.dumps(body).encode(),
+                headers=_auth_headers(token, include_json=True),
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                resp_data = json.loads(resp.read())
+        except urllib.error.HTTPError as exc:
+            self._record_failure(f"HTTP {exc.code}")
+            return {"ok": False, "status": exc.code, "error": f"HTTP {exc.code}"}
+        except Exception as exc:
+            detail = f"{type(exc).__name__}: {exc}"
+            self._record_failure(detail)
+            return {"ok": False, "status": None, "error": detail}
+
+        self._record_success()
+        return {"ok": True, "name": resp_data.get("name", name)}
+
+    def _record_success(self):
+        with self._state_lock:
+            if self.consecutive_failures:
+                self._log(f"recovered after {self.consecutive_failures} consecutive "
+                          f"failure(s) — server reachable again")
+            self.consecutive_failures = 0
+
+    def _record_failure(self, detail: str):
+        with self._state_lock:
+            self.consecutive_failures += 1
+            now = self._now()
+            if self.consecutive_failures == 1:
+                self._log(f"heartbeat failed ({detail})")
+                self._last_failure_log = now
+            elif now - self._last_failure_log >= self.LOG_INTERVAL:
+                self._log(f"heartbeat still failing ({detail}) — "
+                          f"{self.consecutive_failures} consecutive failures")
+                self._last_failure_log = now
+
+
+def _activity_monitor_loop(get_checker, sender: HeartbeatSender, *,
+                           should_run=lambda: True, sleep_fn=time.sleep,
+                           log_fn=None):
+    """Activity monitor body: report busy/idle state via the shared sender.
+
+    Exception-isolated: a failing activity checker is logged (rate-limited)
+    and the loop CONTINUES — one bad console read must never kill the monitor.
+    `should_run`/`sleep_fn` exist for tests; production uses the defaults.
+    """
+    log = log_fn or (lambda msg: print(f"  [activity] {msg}", flush=True))
+    last_active = None
+    last_report_time = 0.0
+    checker_failures = 0
+    last_checker_log = 0.0
+    REPORT_INTERVAL = 3  # re-send state every 3s while active (keeps server lease fresh)
+    IDLE_REPORT_INTERVAL = 8  # keep-alive while idle
+    while should_run():
+        sleep_fn(1)
+        checker = get_checker()
+        if not checker:
+            continue
+        try:
+            active = checker()
+        except Exception as exc:
+            checker_failures += 1
+            now = time.time()
+            if checker_failures == 1 or now - last_checker_log >= HeartbeatSender.LOG_INTERVAL:
+                suffix = (f" — {checker_failures} consecutive failures"
+                          if checker_failures > 1 else "")
+                log(f"activity checker failed ({type(exc).__name__}: {exc}){suffix}")
+                last_checker_log = now
+            continue
+        if checker_failures:
+            log(f"activity checker recovered after {checker_failures} failure(s)")
+            checker_failures = 0
+        now = time.time()
+        # Send on state change, periodically while active (refresh lease),
+        # or periodically while idle (keep presence alive)
+        should_send = (
+            active != last_active
+            or (active and now - last_report_time >= REPORT_INTERVAL)
+            or (not active and now - last_report_time >= IDLE_REPORT_INTERVAL)
+        )
+        if should_send:
+            result = sender.send(active=active)
+            if result["ok"]:
+                last_active = active
+            # Count the attempt even on failure so a dead server is not
+            # hammered every second; HeartbeatSender already logged it.
+            last_report_time = now
+
+
+def _heartbeat_loop(sender: HeartbeatSender, shutdown: threading.Event, *,
+                    get_identity, set_identity, recover,
+                    interval: float = 5.0):
+    """Periodic heartbeat body (module-level for testability).
+
+    Shutdown-aware: the inter-beat sleep is `shutdown.wait(interval)` so the
+    thread exits promptly; no send or 409 recovery is INITIATED once shutdown
+    is signaled; and a response/409 that arrives after shutdown began is not
+    acted on. Together with the finally-block join this guarantees the
+    deregister is the wrapper's LAST registry HTTP mutation.
+    """
+    while not shutdown.is_set():
+        if sender.terminal:
+            # Lease proof rejected — terminal for this process. Stop
+            # hammering; the CLI session keeps running until restarted.
+            return
+        result = sender.send()
+        if shutdown.is_set():
+            # Shutdown began while the beat was in flight — do not act on
+            # the response (identity update or 409 recovery).
+            return
+        if result["ok"]:
+            server_name = result.get("name")
+            current_name, _ = get_identity()
+            if server_name and server_name != current_name:
+                set_identity(server_name)
+        elif result.get("status") == 409:
+            recover()
+        shutdown.wait(interval)
+
+
+def _shutdown_and_deregister(shutdown: threading.Event,
+                             sender: HeartbeatSender,
+                             threads: list,
+                             deregister_fn,
+                             *,
+                             join_timeout: float = 7.0,
+                             log_fn=None) -> bool:
+    """Quiesce heartbeat/activity threads, then deregister LAST.
+
+    Signals shutdown FIRST (no new sends/recoveries may start — sender is
+    marked terminal so send() short-circuits locally), then joins the given
+    threads. An in-flight heartbeat/register can take up to the 5s HTTP
+    timeout, so `join_timeout` defaults above that. If any thread fails to
+    exit, quiescence cannot be confirmed and the deregister is SKIPPED —
+    racing it could resurrect a ghost identity; the server's crash timeout
+    reaps the identity once the process is gone. Returns True iff the
+    deregister was sent.
+    """
+    log = log_fn or (lambda msg: print(f"  [shutdown] {msg}", flush=True))
+    shutdown.set()
+    sender.terminal = True  # further send() calls short-circuit locally
+    for t in threads:
+        t.join(timeout=join_timeout)
+    stuck = [t for t in threads if t.is_alive()]
+    if stuck:
+        log("heartbeat/activity threads did not quiesce in time — skipping "
+            "deregister to avoid a post-shutdown ghost registration; the "
+            "server will reap this identity via the crash timeout.")
+        return False
+    deregister_fn()
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -623,6 +919,7 @@ def main():
     parser.add_argument("--mcp-sse-port",  default=None, help="Override mcp.sse_port (int)")
     parser.add_argument("--upload-dir",    default=None, help="Override images.upload_dir (path)")
     args, extra = parser.parse_known_args()
+    extra = _normalize_passthrough_args(extra)
 
     agent = args.agent
     agent_cfg = config.get("agents", {}).get(agent, {})
@@ -633,8 +930,23 @@ def main():
     server_port = config.get("server", {}).get("port", 8300)
     mcp_cfg = config.get("mcp", {})
 
+    # Process lease: one stable lease_id + our own PID + creation fingerprint
+    # for this wrapper's lifetime. Sent on register and every heartbeat so the
+    # server can resume our original name/token (the running child's MCP env
+    # carries that token) and can check PID + fingerprint liveness before ever
+    # timing us out (the fingerprint defeats PID reuse).
+    lease_id = uuid.uuid4().hex
+    wrapper_pid = os.getpid()
     try:
-        registration = _register_instance(server_port, agent, args.label, args.preferred_name)
+        from launcher_supervisor import process_start_marker
+        wrapper_start_marker = process_start_marker(wrapper_pid)
+    except Exception:
+        wrapper_start_marker = ""
+
+    try:
+        registration = _register_instance(server_port, agent, args.label, args.preferred_name,
+                                          lease_id=lease_id, pid=wrapper_pid,
+                                          start_marker=wrapper_start_marker)
     except Exception as exc:
         print(f"  Registration failed ({exc}).")
         print("  Wrapper cannot continue without a registered identity.")
@@ -778,45 +1090,94 @@ def main():
     print(f"  @{assigned_name} mentions auto-inject MCP reads")
     print(f"  Starting {command} in {project_dir}...\n")
 
-    def _heartbeat():
-        while True:
-            current_name, _ = get_identity()
-            current_token = get_token()
-            url = f"http://127.0.0.1:{server_port}/api/heartbeat/{current_name}"
-            try:
-                req = urllib.request.Request(
-                    url,
-                    method="POST",
-                    data=b"",
-                    headers=_auth_headers(current_token),
-                )
-                with urllib.request.urlopen(req, timeout=5) as resp:
-                    resp_data = json.loads(resp.read())
-                server_name = resp_data.get("name", current_name)
-                if server_name != current_name:
-                    set_runtime_identity(server_name)
-            except urllib.error.HTTPError as exc:
-                if exc.code == 409:
-                    try:
-                        replacement = _register_instance(
-                            server_port,
-                            agent,
-                            args.label,
-                            args.preferred_name,
-                        )
-                        set_runtime_identity(replacement["name"], replacement["token"])
-                        _notify_recovery(data_dir, replacement["name"])
-                    except Exception:
-                        pass
-                time.sleep(5)
-                continue
-            except Exception:
-                time.sleep(5)
-                continue
+    # Shared heartbeat sender: one HTTP path + one failure counter/logger for
+    # both the periodic heartbeat and the activity monitor.
+    # Shutdown signal shared by the periodic heartbeat and the activity
+    # monitor. Set FIRST in the finally block; both threads sleep via
+    # `shutdown_event.wait(...)` (wakeable) and never initiate a send or a
+    # 409 recovery once it is set. The finally block then joins both threads
+    # so the deregister is guaranteed to be the LAST registry HTTP mutation.
+    shutdown_event = threading.Event()
 
-            time.sleep(5)
+    heartbeat = HeartbeatSender(
+        server_port=server_port,
+        get_identity=get_identity,
+        get_token=get_token,
+        lease_id=lease_id,
+        pid=wrapper_pid,
+        start_marker=wrapper_start_marker,
+    )
 
-    threading.Thread(target=_heartbeat, daemon=True).start()
+    def _recover_registration():
+        """Re-register after a heartbeat 409 (e.g. server restart).
+
+        The server recognizes our lease_id and — after verifying resume_token
+        against the stored digest — returns the ORIGINAL name + token, so the
+        already-running child's MCP config stays valid and no identity drift
+        occurs. If the lease is NOT recognized (data dir wiped, digest
+        mismatch), the token changes and the running child can no longer
+        authenticate — warn loudly and rewrite the MCP config for the next
+        launch.
+        """
+        if shutdown_event.is_set():
+            # Shutdown began before this recovery started — a re-register now
+            # would race the final deregister and resurrect a ghost identity.
+            return
+        old_name, _ = get_identity()
+        old_token = get_token()
+        try:
+            replacement = _register_instance(
+                server_port,
+                agent,
+                args.label,
+                args.preferred_name,
+                lease_id=lease_id,
+                pid=wrapper_pid,
+                start_marker=wrapper_start_marker,
+                resume_token=old_token,
+            )
+        except urllib.error.HTTPError as exc:
+            err_body = {}
+            if exc.code == 409:
+                try:
+                    err_body = json.loads(exc.read())
+                except Exception:
+                    pass
+            if err_body.get("error") == "invalid_lease_proof":
+                # TERMINAL: the server holds a lease/session for us whose token
+                # no longer matches ours. Retrying can never succeed — stop
+                # all heartbeat/registration traffic. The CLI keeps running so
+                # the user's session is not interrupted; chat connectivity
+                # requires a wrapper restart.
+                print("  [heartbeat] Session lease proof rejected by the server "
+                      "(lease/token mismatch — server data may have been reset).")
+                print("  [heartbeat] RESTART REQUIRED: restart this wrapper to register a "
+                      "fresh session. Heartbeats stopped; the agent CLI keeps running.")
+                heartbeat.terminal = True
+                return
+            print(f"  [heartbeat] re-registration failed (HTTP {exc.code}) — will retry")
+            return
+        except Exception as exc:
+            print(f"  [heartbeat] re-registration failed ({type(exc).__name__}: {exc}) — will retry")
+            return
+        set_runtime_identity(replacement["name"], replacement["token"])
+        new_name, _ = get_identity()
+        new_token = get_token()
+        if new_token != old_token or new_name != old_name:
+            print(f"  [heartbeat] WARNING: session was NOT resumable — identity/token changed "
+                  f"while the agent process is running ({old_name} -> {new_name}).")
+            print(f"  [heartbeat] The running agent's MCP config still uses the old session. "
+                  f"Restart this wrapper to restore chat connectivity.")
+        _notify_recovery(data_dir, new_name)
+
+    _heartbeat_thread = threading.Thread(
+        target=_heartbeat_loop,
+        args=(heartbeat, shutdown_event),
+        kwargs={"get_identity": get_identity,
+                "set_identity": set_runtime_identity,
+                "recover": _recover_registration},
+        daemon=True)
+    _heartbeat_thread.start()
 
     _watcher_inject_fn = None
     _watcher_thread = None
@@ -863,43 +1224,16 @@ def main():
         _activity_checker = checker
 
     def _activity_monitor():
-        last_active = None
-        last_report_time = 0
-        REPORT_INTERVAL = 3  # re-send state every 3s while active (keeps server lease fresh)
-        while True:
-            time.sleep(1)
-            if not _activity_checker:
-                continue
-            try:
-                active = _activity_checker()
-                now = time.time()
-                # Send on state change, periodically while active (refresh lease),
-                # or periodically while idle (keep presence alive)
-                IDLE_REPORT_INTERVAL = 8  # keep-alive while idle
-                should_send = (
-                    active != last_active
-                    or (active and now - last_report_time >= REPORT_INTERVAL)
-                    or (not active and now - last_report_time >= IDLE_REPORT_INTERVAL)
-                )
-                if should_send:
-                    current_name, _ = get_identity()
-                    current_token = get_token()
-                    url = f"http://127.0.0.1:{server_port}/api/heartbeat/{current_name}"
-                    body = json.dumps({"active": active}).encode()
-                    req = urllib.request.Request(
-                        url,
-                        method="POST",
-                        data=body,
-                        headers=_auth_headers(current_token, include_json=True),
-                    )
-                    resp = urllib.request.urlopen(req, timeout=5)
-                    resp_code = resp.getcode()
-                    last_active = active
-                    last_report_time = now
-            except Exception:
-                pass
+        # Module-level loop is exception-isolated and unit-testable; the
+        # closure over `_activity_checker` picks up the checker once set.
+        # Shutdown-aware: wakeable sleep, no sends once shutdown is signaled.
+        _activity_monitor_loop(
+            lambda: _activity_checker, heartbeat,
+            should_run=lambda: not shutdown_event.is_set(),
+            sleep_fn=shutdown_event.wait)
 
-    threading.Thread(target=_activity_monitor, daemon=True).start()
+    _activity_thread = threading.Thread(target=_activity_monitor, daemon=True)
+    _activity_thread.start()
 
     _agent_pid = [None]
 
@@ -936,19 +1270,30 @@ def main():
     try:
         run_agent(**run_kwargs)
     finally:
-        try:
-            current_name, _ = get_identity()
-            current_token = get_token()
-            dereg_req = urllib.request.Request(
-                f"http://127.0.0.1:{server_port}/api/deregister/{current_name}",
-                method="POST",
-                data=b"",
-                headers=_auth_headers(current_token),
-            )
-            urllib.request.urlopen(dereg_req, timeout=5)
-            print(f"  Deregistered {current_name}")
-        except Exception:
-            pass
+        # Shutdown ordering invariant: once shutdown begins, no new
+        # heartbeat/register may be initiated; after all in-flight heartbeats
+        # and 409 recoveries complete, the deregister must be the wrapper's
+        # LAST registry HTTP mutation (a post-deregister 409 re-register
+        # would resurrect a ghost identity for a dead process).
+        def _final_deregister():
+            try:
+                current_name, _ = get_identity()
+                current_token = get_token()
+                dereg_req = urllib.request.Request(
+                    f"http://127.0.0.1:{server_port}/api/deregister/{current_name}",
+                    method="POST",
+                    data=b"",
+                    headers=_auth_headers(current_token),
+                )
+                urllib.request.urlopen(dereg_req, timeout=5)
+                print(f"  Deregistered {current_name}")
+            except Exception:
+                pass
+
+        _shutdown_and_deregister(
+            shutdown_event, heartbeat,
+            [_heartbeat_thread, _activity_thread],
+            _final_deregister)
 
         if proxy is not None:
             proxy.stop()

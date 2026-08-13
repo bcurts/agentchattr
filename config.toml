@@ -68,6 +68,18 @@ mcp_transport = "http"
 mcp_http_key = "url"
 enter_backend = "wm_setfocus"
 
+[agents.opencode]
+command = "opencode"
+cwd = ".."
+color = "#f97316"
+label = "OpenCode"
+# OpenCode's second launch mode is called "Auto" (not "Yolo"):
+# --auto auto-approves everything inside the workdir while keeping
+# external_directory denied. The launcher shows this label + description
+# in the mode picker.
+mode_label = "Auto"
+mode_desc = "Auto 模式（工作目录内免确认，目录外直接拒绝）"
+
 [agents.minimax]
 type = "api"
 base_url = "https://api.minimax.io/v1"

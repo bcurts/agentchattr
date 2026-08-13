@@ -246,6 +246,244 @@ def _install_security_middleware(token: str, cfg: dict):
     app.add_middleware(SecurityMiddleware)
 
 
+# --- Crash-timeout process liveness ---
+# Presence expiry (10s) only means the chat connection is unhealthy — it never
+# implies the wrapper process exited. Before the crash timeout deregisters a
+# silent instance, the recorded wrapper PID is checked: alive → keep the
+# registration and mark the instance degraded; dead/unknown → deregister.
+
+# Names whose wrapper process is alive but whose heartbeats are stale.
+# Surfaced in the status payload as `presence_stale` so the UI can distinguish
+# "process running / chat connection abnormal" from a real disconnect.
+_degraded_instances: set[str] = set()
+
+
+def _crash_timeout_action(
+    name: str,
+    *,
+    last_seen: float,
+    now: float,
+    inst: dict | None,
+    pid_alive_fn,
+    crash_timeout: float = 90,
+) -> str:
+    """Decide how to handle a registered instance at the crash-timeout check.
+
+    Returns "ok" (presence fresh / never seen), "retain" (silent but wrapper
+    process alive — do NOT deregister or post a timeout leave message), or
+    "deregister" (wrapper confirmed dead or PID unknown).
+    """
+    if last_seen <= 0 or now - last_seen <= crash_timeout:
+        return "ok"
+    pid = (inst or {}).get("pid") or 0
+    start_marker = (inst or {}).get("start_marker") or ""
+    # PID + creation fingerprint: a different process holding the PID
+    # (PID reuse) fails the check and is treated as dead.
+    if pid and pid_alive_fn(pid, start_marker):
+        return "retain"
+    return "deregister"
+
+
+def _offline_action_for(inst: dict | None) -> str:
+    """How to handle a registered instance whose presence just expired.
+
+    Wrapper-registered instances carry a lease pid, so their process liveness
+    is verifiable: presence expiry only means "chat connection abnormal" and
+    they get process-verified semantics — "degrade" (presence_stale, NO leave
+    message; the crash-timeout path confirms death before deregistering and
+    posting the single leave message). Pure MCP clients have no wrapper
+    lease/pid, so death cannot be confirmed — they keep the OLD presence-based
+    leave behavior, otherwise they would never show as left.
+    """
+    if inst and inst.get("pid"):
+        return "degrade"
+    return "leave"
+
+
+def _presence_sweep(names, *, now: float, currently_online: set, presence: dict,
+                    registry, pid_alive_fn, degraded: set,
+                    crash_timeout: float = 90) -> list[tuple[str, str]]:
+    """One converged presence/crash sweep over registered names.
+
+    Single source of truth for the degraded state machine — emits an event
+    ONLY on an actual transition, so callers log/broadcast exactly once:
+      ("degraded", name)   — presence stale, wrapper process tracked (alive)
+      ("recovered", name)  — presence fresh again after being degraded
+      ("deregister", name) — crash timeout exceeded AND wrapper process
+                             confirmed dead (PID + start-marker check failed)
+                             or untracked
+    While an instance stays stale (10s–90s window), sweeps emit NOTHING.
+    """
+    events: list[tuple[str, str]] = []
+    for name in names:
+        last_seen = presence.get(name, 0)
+        if name in currently_online:
+            # Heartbeat recovery clears the degraded mark exactly once.
+            if name in degraded:
+                degraded.discard(name)
+                events.append(("recovered", name))
+            continue
+        inst = registry.get_instance(name)
+        action = _crash_timeout_action(
+            name, last_seen=last_seen, now=now, inst=inst,
+            pid_alive_fn=pid_alive_fn, crash_timeout=crash_timeout,
+        )
+        if action == "deregister":
+            degraded.discard(name)
+            events.append(("deregister", name))
+        elif _offline_action_for(inst) == "degrade":
+            # Presence stale but wrapper process tracked: mark degraded on the
+            # first transition only — steady-state ticks emit nothing.
+            if name not in degraded:
+                degraded.add(name)
+                events.append(("degraded", name))
+        # Pure MCP clients (no lease/pid): leave messages remain the job of
+        # the debounced offline pass in _background_checks.
+    return events
+
+
+def _annotate_degraded(status: dict) -> dict:
+    """Add `presence_stale` flags to a status payload for degraded instances."""
+    for name, info in status.items():
+        info["presence_stale"] = name in _degraded_instances
+    return status
+
+
+def _presence_iteration(*, now: float, registry, store, mcp_bridge, pid_alive_fn,
+                        degraded: set, known_online: set, known_active: set,
+                        posted_leave: set, last_channel: str | None = None,
+                        crash_timeout: float = 90) -> dict:
+    """One presence/activity sweep iteration (the _background_checks body).
+
+    Aggregates ALL state changes in the iteration and reports ONCE whether a
+    status broadcast is needed — the caller broadcasts at most once per sweep.
+    Returns {"broadcast_status": bool, "rename_events": [(old, new), ...]}.
+    """
+    if last_channel is None:
+        last_channel = _last_active_channel
+    rename_events: list[tuple[str, str]] = []
+
+    with mcp_bridge._presence_lock:
+        currently_online = {
+            name for name, ts in mcp_bridge._presence.items()
+            if now - ts < mcp_bridge.PRESENCE_TIMEOUT
+        }
+        currently_active = set()
+        for name, active in mcp_bridge._activity.items():
+            if active:
+                if now - mcp_bridge._activity_ts.get(name, 0) < mcp_bridge.ACTIVITY_TIMEOUT:
+                    currently_active.add(name)
+                else:
+                    mcp_bridge._activity[name] = False  # auto-expire
+        presence_snapshot = dict(mcp_bridge._presence)
+
+    # Converged presence/crash sweep (single source of truth): presence expiry
+    # (10s) on a wrapper-registered instance marks presence_stale exactly ONCE
+    # (process running / chat abnormal, NO leave message); the crash timeout
+    # (90s) deregisters and posts the single leave message only after PID +
+    # start-marker confirm the wrapper process is gone; heartbeat recovery
+    # clears the mark exactly once. Steady-state ticks emit nothing.
+    sweep_events = _presence_sweep(
+        set(registry.get_all_names()),
+        now=now,
+        currently_online=currently_online,
+        presence=presence_snapshot,
+        registry=registry,
+        pid_alive_fn=pid_alive_fn,
+        degraded=degraded,
+        crash_timeout=crash_timeout,
+    )
+    for kind, name in sweep_events:
+        if kind == "degraded":
+            log.info(
+                f"{name}: presence expired but wrapper process is tracked "
+                "— marked presence_stale (process running / chat abnormal)"
+            )
+        elif kind == "recovered":
+            log.info(f"{name}: heartbeat recovered — presence_stale cleared")
+        elif kind == "deregister":
+            log.info(f"Crash timeout: deregistering {name} "
+                     f"(no heartbeat for {crash_timeout}s, wrapper process gone)")
+            result = registry.deregister(name)
+            if result:
+                mcp_bridge.purge_identity(name)
+                registry.clean_renames_for(name)
+                renamed = result.get("_renamed_back")
+                if renamed:
+                    mcp_bridge.migrate_identity(renamed["old"], renamed["new"])
+                    store.rename_sender(renamed["old"], renamed["new"])
+                    rename_events.append((renamed["old"], renamed["new"]))
+                store.add(name, f"{name} disconnected (timeout)",
+                          msg_type="leave", channel=last_channel)
+                posted_leave.add(name)
+
+    # Re-fetch registered names (may have changed from crash timeout above)
+    registered = set(registry.get_all_names())
+
+    # Detect registered instances going offline.
+    # Wrapper-registered instances (lease pid recorded) were already handled
+    # by the sweep above (presence_stale, NO leave message). Only pure MCP
+    # clients (no lease/pid) get presence-based leave messages here —
+    # otherwise they'd never show as left.
+    timed_out = registered - currently_online
+    for name in timed_out:
+        inst = registry.get_instance(name)
+        if not inst:
+            continue
+        # Skip names that were just renamed (not actually offline)
+        with mcp_bridge._presence_lock:
+            was_renamed = name in mcp_bridge._renamed_from
+            if was_renamed:
+                mcp_bridge._renamed_from.discard(name)
+        if was_renamed:
+            continue
+        if _offline_action_for(inst) == "degrade":
+            continue  # wrapper instance — sweep already handled it
+        # Post leave message ONCE per offline transition (debounced)
+        if name not in posted_leave:
+            posted_leave.add(name)
+            store.add(name, f"{name} disconnected", msg_type="leave", channel=last_channel)
+
+    # Clear leave debounce for agents that came back online
+    posted_leave -= currently_online
+
+    # Detect other agents (non-registered) going offline
+    went_offline = (known_online - currently_online) - timed_out
+    for name in went_offline:
+        # Skip leave messages for names that were just renamed
+        with mcp_bridge._presence_lock:
+            was_renamed = name in mcp_bridge._renamed_from
+            if was_renamed:
+                mcp_bridge._renamed_from.discard(name)
+        if was_renamed:
+            continue
+        if not registry.is_registered(name) and name not in posted_leave:
+            posted_leave.add(name)
+            store.add(name, f"{name} disconnected", msg_type="leave", channel=last_channel)
+
+    online_changed = known_online != currently_online
+
+    # Clear stale activity for agents that went offline
+    with mcp_bridge._presence_lock:
+        stale_active = [n for n in mcp_bridge._activity
+                        if mcp_bridge._activity.get(n) and n not in currently_online]
+        for n in stale_active:
+            mcp_bridge._activity[n] = False
+        if stale_active:
+            currently_active -= set(stale_active)
+
+    activity_changed = currently_active != known_active
+    known_active.clear()
+    known_active.update(currently_active)
+    known_online.clear()
+    known_online.update(currently_online)
+
+    return {
+        "broadcast_status": bool(sweep_events) or online_changed or activity_changed,
+        "rename_events": rename_events,
+    }
+
+
 def configure(cfg: dict, session_token: str = "", launcher_token: str = ""):
     global store, rules, summaries, jobs, schedules, router, agents, registry, session_store, session_engine, config, launcher_shutdown_token
     config = cfg
@@ -359,108 +597,35 @@ def configure(cfg: dict, session_token: str = "", launcher_token: str = ""):
 
             # Presence expiry — post leave messages (but do NOT deregister).
             # Deregistration only happens via /api/deregister (wrapper shutdown)
-            # OR the 60s crash timeout below.
+            # OR the 90s crash timeout after process-death confirmation.
             # Short timeout (10s) prevents slot theft when MCP tool calls are intermittent.
+            # All state changes are aggregated in _presence_iteration and
+            # broadcast_status() is called at most ONCE per sweep.
             try:
-                now = _time.time()
-                with mcp_bridge._presence_lock:
-                    currently_online = {
-                        name for name, ts in mcp_bridge._presence.items()
-                        if now - ts < mcp_bridge.PRESENCE_TIMEOUT
-                    }
-                    currently_active = set()
-                    for name, active in mcp_bridge._activity.items():
-                        if active:
-                            if now - mcp_bridge._activity_ts.get(name, 0) < mcp_bridge.ACTIVITY_TIMEOUT:
-                                currently_active.add(name)
-                            else:
-                                mcp_bridge._activity[name] = False  # auto-expire
-
-                # Crash timeout: if a wrapper hasn't heartbeated for 60s,
-                # it's dead — deregister it to free the slot.
-                _CRASH_TIMEOUT = 90
-                registered = set(registry.get_all_names())
-                for name in registered:
-                    with mcp_bridge._presence_lock:
-                        last_seen = mcp_bridge._presence.get(name, 0)
-                    if last_seen > 0 and now - last_seen > _CRASH_TIMEOUT:
-                        log.info(f"Crash timeout: deregistering {name} (no heartbeat for {_CRASH_TIMEOUT}s)")
-                        result = registry.deregister(name)
-                        if result:
-                            mcp_bridge.purge_identity(name)
-                            registry.clean_renames_for(name)
-                            renamed = result.get("_renamed_back")
-                            if renamed:
-                                mcp_bridge.migrate_identity(renamed["old"], renamed["new"])
-                                store.rename_sender(renamed["old"], renamed["new"])
-                                if _event_loop:
-                                    rename_event = json.dumps({
-                                        "type": "agent_renamed",
-                                        "old_name": renamed["old"],
-                                        "new_name": renamed["new"],
-                                    })
-                                    asyncio.run_coroutine_threadsafe(_broadcast(rename_event), _event_loop)
-                            store.add(name, f"{name} disconnected (timeout)", msg_type="leave", channel=_last_active_channel)
-                            _posted_leave.add(name)
-
-                # Re-fetch registered names (may have changed from crash timeout above)
-                registered = set(registry.get_all_names())
-
-                # Detect registered instances going offline (leave message only)
-                timed_out = registered - currently_online
-                for name in timed_out:
-                    inst = registry.get_instance(name)
-                    if not inst:
-                        continue
-                    # Skip names that were just renamed (not actually offline)
-                    with mcp_bridge._presence_lock:
-                        was_renamed = name in mcp_bridge._renamed_from
-                        if was_renamed:
-                            mcp_bridge._renamed_from.discard(name)
-                    if was_renamed:
-                        continue
-                    # Post leave message ONCE per offline transition (debounced)
-                    if name not in _posted_leave:
-                        _posted_leave.add(name)
-                        store.add(name, f"{name} disconnected", msg_type="leave", channel=_last_active_channel)
-
-                # Clear leave debounce for agents that came back online
-                _posted_leave -= currently_online
-
-                # Detect other agents (non-registered) going offline
-                went_offline = (_known_online - currently_online) - timed_out
-                for name in went_offline:
-                    # Skip leave messages for names that were just renamed
-                    with mcp_bridge._presence_lock:
-                        was_renamed = name in mcp_bridge._renamed_from
-                        if was_renamed:
-                            mcp_bridge._renamed_from.discard(name)
-                    if was_renamed:
-                        continue
-                    if not registry.is_registered(name) and name not in _posted_leave:
-                        _posted_leave.add(name)
-                        store.add(name, f"{name} disconnected", msg_type="leave", channel=_last_active_channel)
-
-                if _known_online != currently_online and _event_loop:
-                    asyncio.run_coroutine_threadsafe(broadcast_status(), _event_loop)
-
-                # Clear stale activity for agents that went offline
-                with mcp_bridge._presence_lock:
-                    stale_active = [n for n in mcp_bridge._activity
-                                    if mcp_bridge._activity.get(n) and n not in currently_online]
-                    for n in stale_active:
-                        mcp_bridge._activity[n] = False
-                    if stale_active:
-                        currently_active -= set(stale_active)
-
-                # Broadcast status on any change (online set or activity set)
-                if currently_active != _known_active or _known_online != currently_online:
-                    _known_active.clear()
-                    _known_active.update(currently_active)
-                    if _event_loop:
+                from launcher_supervisor import pid_is_alive
+                iteration = _presence_iteration(
+                    now=_time.time(),
+                    registry=registry,
+                    store=store,
+                    mcp_bridge=mcp_bridge,
+                    pid_alive_fn=pid_is_alive,
+                    degraded=_degraded_instances,
+                    known_online=_known_online,
+                    known_active=_known_active,
+                    posted_leave=_posted_leave,
+                    last_channel=_last_active_channel,
+                    crash_timeout=90,
+                )
+                if _event_loop:
+                    for old_name, new_name in iteration["rename_events"]:
+                        rename_event = json.dumps({
+                            "type": "agent_renamed",
+                            "old_name": old_name,
+                            "new_name": new_name,
+                        })
+                        asyncio.run_coroutine_threadsafe(_broadcast(rename_event), _event_loop)
+                    if iteration["broadcast_status"]:
                         asyncio.run_coroutine_threadsafe(broadcast_status(), _event_loop)
-                _known_online.clear()
-                _known_online.update(currently_online)
             except Exception:
                 pass
 
@@ -887,7 +1052,7 @@ async def broadcast(msg: dict):
 
 
 async def broadcast_status():
-    status = agents.get_status()
+    status = _annotate_degraded(agents.get_status())
     status["paused"] = any(router.is_paused(ch) for ch in room_settings.get("channels", ["general"]))
     data = json.dumps({"type": "status", "data": status})
     dead = set()
@@ -1585,7 +1750,7 @@ async def api_send(request: Request):
 
 @app.get("/api/status")
 async def get_status():
-    status = agents.get_status()
+    status = _annotate_degraded(agents.get_status())
     if registry:
         for name, info in registry.get_all().items():
             agent_status = status.setdefault(name, {})
@@ -2230,7 +2395,12 @@ async def get_rules_freshness():
 
 @app.post("/api/register")
 async def register_agent(request: Request):
-    """Wrapper calls this to register a new agent instance."""
+    """Wrapper calls this to register a new agent instance.
+
+    A wrapper presenting a `lease_id` that matches a live instance or a
+    persisted lease resumes its ORIGINAL name + token (the running CLI child's
+    MCP config carries that token and cannot be updated mid-session).
+    """
     try:
         body = await request.json()
     except Exception:
@@ -2238,6 +2408,13 @@ async def register_agent(request: Request):
     base = body.get("base", "")
     label = body.get("label")
     preferred_name = body.get("preferred_name")
+    lease_id = (body.get("lease_id") or "").strip()
+    start_marker = str(body.get("start_marker") or "")
+    resume_token = str(body.get("resume_token") or "")
+    try:
+        pid = int(body.get("pid") or 0)
+    except (TypeError, ValueError):
+        pid = 0
     if not base:
         return JSONResponse({"error": "base is required"}, status_code=400)
     import mcp_bridge
@@ -2246,20 +2423,28 @@ async def register_agent(request: Request):
     if preferred_name:
         existing = registry.get_instance(preferred_name)
         if existing:
-            if mcp_bridge.is_online(existing["name"]):
+            same_lease = bool(lease_id) and existing.get("lease_id") == lease_id
+            if mcp_bridge.is_online(existing["name"]) and not same_lease:
                 return JSONResponse(
                     {"error": "preferred_name_in_use", "name": existing["name"]},
                     status_code=409,
                 )
-            mcp_bridge.purge_identity(existing["name"])
-            registry.clean_renames_for(existing["name"])
-            replace_existing = True
+            if not same_lease:
+                mcp_bridge.purge_identity(existing["name"])
+                registry.clean_renames_for(existing["name"])
+                replace_existing = True
+            # same_lease: fall through — registry.register() resumes the
+            # existing identity in place (same name, same token).
 
     result = registry.register(
         base,
         label,
         preferred_name=preferred_name,
         replace_existing=replace_existing,
+        lease_id=lease_id,
+        pid=pid,
+        start_marker=start_marker,
+        resume_token=resume_token,
     )
     if result is None:
         return JSONResponse({"error": f"unknown base: {base}"}, status_code=400)
@@ -2392,7 +2577,7 @@ async def heartbeat(agent_name: str, request: Request):
         resolved_name = registry.resolve_name(agent_name)
         current_name = resolved_name if registry.is_registered(resolved_name) else canonicalize_name(agent_name)
     mcp_bridge._touch_presence(current_name)
-    # Optional activity report from wrapper's terminal monitor
+    # Optional activity report + process-lease info from the wrapper
     _activity_changed = False
     try:
         body = await request.json()
@@ -2401,6 +2586,16 @@ async def heartbeat(agent_name: str, request: Request):
             was_active = mcp_bridge._activity.get(current_name, False)
             mcp_bridge.set_active(current_name, active_val)
             _activity_changed = was_active != active_val
+        # Bind/refresh the wrapper's process lease so the crash-timeout can
+        # check PID + start-marker liveness and a later re-register can resume
+        # this identity.
+        if auth_inst and body.get("lease_id"):
+            try:
+                lease_pid = int(body.get("pid") or 0)
+            except (TypeError, ValueError):
+                lease_pid = 0
+            registry.update_lease(auth_inst["name"], body["lease_id"], lease_pid,
+                                  str(body.get("start_marker") or ""))
     except Exception:
         pass  # No body = plain heartbeat
     # Immediately broadcast on activity state change (don't wait for background checker)
