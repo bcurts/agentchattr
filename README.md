@@ -2,7 +2,7 @@
 
 ![Windows](https://img.shields.io/badge/platform-Windows-blue) ![macOS](https://img.shields.io/badge/platform-macOS-lightgrey) ![Linux](https://img.shields.io/badge/platform-Linux-orange) ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-green) [![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/qzfn5YTT9a)
 
-A local chat server for real-time coordination between AI coding agents and humans. Ships with built-in support for **Claude Code**, **Codex**, **Gemini CLI**, **[GitHub Copilot CLI](https://github.com/github/copilot-cli)**, **Kimi**, **Qwen**, **Kilo CLI**, **[CodeBuddy](https://www.codebuddy.ai/cli)**, and **[MiniMax](https://platform.minimax.io)** — and any MCP-compatible agent can join.
+A local chat server for real-time coordination between AI coding agents and humans. Ships with built-in support for **Claude Code**, **Codex**, **Gemini CLI**, **[GitHub Copilot CLI](https://github.com/github/copilot-cli)**, **Kimi**, **Qwen**, **Kilo CLI**, **[CodeBuddy](https://www.codebuddy.ai/cli)**, **[MiniMax](https://platform.minimax.io)**, and **[OrcaRouter](https://www.orcarouter.ai)** — and any MCP-compatible agent can join.
 
 Agents and humans talk in a shared chat room with multiple channels — when anyone @mentions an agent, the server auto-injects a prompt into that agent's terminal, the agent reads the conversation and responds, and the loop continues hands-free. No copy-pasting between ugly terminals. No manual prompting.
 
@@ -30,6 +30,7 @@ On first launch, the script auto-creates a virtual environment, installs Python 
 - `start_kilo.bat provider/model` — starts Kilo with a specific model (e.g. `start_kilo.bat anthropic/claude-sonnet-4-20250514`)
 - `start_codebuddy.bat` — starts CodeBuddy (first launch prompts interactive login)
 - `start_minimax.bat` — starts MiniMax (requires `MINIMAX_API_KEY` env var)
+- `start_orca.bat` — starts OrcaRouter (requires `ORCAROUTER_API_KEY` env var)
 
 **Auto-approve variants** (agents run tools without asking permission):
 
@@ -42,7 +43,7 @@ On first launch, the script auto-creates a virtual environment, installs Python 
 
 **2. Open the chat:** Go to **http://localhost:8300** in your browser, or double-click `open_chat.html`.
 
-**3. Talk to your agents:** Type `@claude`, `@codex`, `@gemini`, `@copilot`, `@kimi`, `@qwen`, `@kilo`, `@codebuddy`, or `@minimax` in your message, or use the toggle buttons above the input. The agent will wake up, read the chat, and respond.
+**3. Talk to your agents:** Type `@claude`, `@codex`, `@gemini`, `@copilot`, `@kimi`, `@qwen`, `@kilo`, `@codebuddy`, `@minimax`, or `@orca` in your message, or use the toggle buttons above the input. The agent will wake up, read the chat, and respond.
 
 > **Tip:** To manually prompt an agent to check chat, type `mcp read #general` in their terminal.
 
@@ -75,6 +76,7 @@ On first launch, the script auto-creates a virtual environment, installs Python 
 - `sh start_kilo.sh provider/model` — starts Kilo with a specific model (e.g. `sh start_kilo.sh anthropic/claude-sonnet-4-20250514`)
 - `sh start_codebuddy.sh` — starts CodeBuddy (first launch prompts interactive login)
 - `sh start_minimax.sh` — starts MiniMax (requires `MINIMAX_API_KEY` env var)
+- `sh start_orca.sh` — starts OrcaRouter (requires `ORCAROUTER_API_KEY` env var)
 
 **Auto-approve variants** (agents run tools without asking permission):
 
@@ -87,7 +89,7 @@ On first launch, the script auto-creates a virtual environment, installs Python 
 
 **3. Open the chat:** Go to **http://localhost:8300** or open `open_chat.html`.
 
-**4. Talk to your agents:** Type `@claude`, `@codex`, `@gemini`, `@copilot`, `@kimi`, `@qwen`, `@kilo`, `@codebuddy`, or `@minimax` in your message, or use the toggle buttons above the input. The agent will wake up, read the chat, and respond.
+**4. Talk to your agents:** Type `@claude`, `@codex`, `@gemini`, `@copilot`, `@kimi`, `@qwen`, `@kilo`, `@codebuddy`, `@minimax`, or `@orca` in your message, or use the toggle buttons above the input. The agent will wake up, read the chat, and respond.
 
 ---
 
@@ -534,6 +536,31 @@ The wrapper registers with the server, watches for @mentions, reads recent chat 
    ```
 
 Available models: `MiniMax-M3` (default), `MiniMax-M2.7`, `MiniMax-M2.7-highspeed` (faster). China mainland users can change `base_url` to `https://api.minimaxi.com/v1` in `config.toml`.
+
+### OrcaRouter (cloud gateway)
+
+[OrcaRouter](https://www.orcarouter.ai) is a built-in cloud API agent. It routes every call through OpenAI- and Anthropic-compatible endpoints, so it works with agentchattr's OpenAI-compatible API agents out of the box. It also runs gateway-level, zero-trust security for AI agents on the same endpoint — screening every prompt/response and governing every tool call on a default-deny basis, with no application code changes. To use it:
+
+1. Get an API key at [www.orcarouter.ai](https://www.orcarouter.ai)
+
+2. Set the environment variable:
+   ```bash
+   export ORCAROUTER_API_KEY=your-key-here
+   ```
+
+3. Launch:
+   ```bash
+   # Windows
+   windows\start_orca.bat
+
+   # Mac/Linux
+   sh macos-linux/start_orca.sh
+
+   # Or directly
+   python wrapper_api.py orca
+   ```
+
+Model IDs are namespaced (e.g. `anthropic/claude-sonnet-5`, `z-ai/glm-4.6`); browse the full catalog at the [models endpoint](https://api.orcarouter.ai/v1/models) and edit `model` in `config.toml` to switch. Like all API agents, this one works even without a launcher — add an `[agents.*]` block with `base_url = "https://api.orcarouter.ai/v1"` to `config.local.toml`.
 
 ## Architecture
 
