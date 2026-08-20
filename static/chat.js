@@ -1804,7 +1804,14 @@ let pendingChannelSwitch = null;
 function applySettings(data) {
     if (data.title) {
         document.getElementById('room-title').textContent = data.title;
-        document.title = data.title;
+        // Tab title carries both names, so several servers are distinguishable
+        document.title = data.subtitle ? data.title + ' - ' + data.subtitle : data.title;
+    }
+    if (data.subtitle !== undefined) {
+        const subEl = document.getElementById('room-subtitle');
+        if (subEl) subEl.textContent = data.subtitle;
+        const subInput = document.getElementById('setting-subtitle');
+        if (subInput) subInput.value = data.subtitle;
     }
     if (data.username) {
         username = data.username;
@@ -1929,6 +1936,7 @@ function clearChat() {
 
 function saveSettings() {
     const newUsername = document.getElementById('setting-username').value.trim();
+    const newSubtitle = document.getElementById('setting-subtitle').value.trim();
     const newFont = document.getElementById('setting-font').value;
     const newHops = document.getElementById('setting-hops').value;
     const histVal = document.getElementById('setting-history').value;
@@ -1941,6 +1949,7 @@ function saveSettings() {
             type: 'update_settings',
             data: {
                 username: newUsername || 'user',
+                subtitle: newSubtitle,
                 font: newFont,
                 max_agent_hops: parseInt(newHops) || 4,
                 history_limit: newHistory,
@@ -1953,7 +1962,7 @@ function saveSettings() {
 
 function setupSettingsKeys() {
     // Auto-save on blur/Enter for text/number fields
-    for (const id of ['setting-username', 'setting-hops']) {
+    for (const id of ['setting-username', 'setting-subtitle', 'setting-hops']) {
         const el = document.getElementById(id);
         el.addEventListener('blur', () => saveSettings());
         el.addEventListener('keydown', (e) => {

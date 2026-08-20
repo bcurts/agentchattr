@@ -217,7 +217,8 @@ header h1 {
 
 .subtitle {
     font-size: 12px;
-    color: var(--text-dim);
+    font-weight: 500;
+    color: var(--text);
 }
 
 .header-right {
