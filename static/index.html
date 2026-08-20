@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>agentchattr</title>
-    <link rel="stylesheet" href="/static/style.css?v=251">
+    <link rel="stylesheet" href="/static/style.css?v=252">
     <link rel="stylesheet" href="/static/sessions.css?v=223">
     <link rel="stylesheet" href="/static/jobs.css?v=223">
     <link rel="icon" href="/static/favicon.ico">
@@ -290,14 +290,39 @@
                     <div class="sched-pop-body">
                         <div class="sched-pop-row">
                             <label class="sched-pop-label">When</label>
-                            <select id="sched-date" class="sched-pop-select"></select>
+                            <select id="sched-date" class="sched-pop-select" onchange="updateSchedulePopoverState()"></select>
                         </div>
                         <div class="sched-pop-row sched-time-row">
                             <label class="sched-pop-label">At</label>
-                            <select id="sched-hour" class="sched-pop-select sched-pop-select-sm"></select>
+                            <select id="sched-hour" class="sched-pop-select sched-pop-select-sm" onchange="updateSchedulePopoverState()"></select>
                             <span class="sched-time-colon">:</span>
-                            <select id="sched-minute" class="sched-pop-select sched-pop-select-sm"></select>
-                            <select id="sched-ampm" class="sched-pop-select sched-pop-select-sm"></select>
+                            <select id="sched-minute" class="sched-pop-select sched-pop-select-sm" onchange="updateSchedulePopoverState()"></select>
+                            <select id="sched-ampm" class="sched-pop-select sched-pop-select-sm" onchange="updateSchedulePopoverState()"></select>
+                        </div>
+                        <div class="sched-pop-row">
+                            <label class="sched-pop-check">
+                                <input type="checkbox" id="sched-relative" onchange="toggleRelativeFields()">
+                                <span>In a while from now</span>
+                            </label>
+                        </div>
+                        <div class="sched-pop-row sched-relative-fields hidden" id="sched-relative-fields">
+                            <label class="sched-pop-label">In</label>
+                            <div class="sched-num-wrap">
+                                <input type="number" id="sched-rel-h" class="sched-pop-num" value="0" min="0" max="72" onchange="updateSchedulePopoverState()">
+                                <div class="sched-num-btns">
+                                    <button type="button" onclick="stepNumInput('sched-rel-h',1)" tabindex="-1">&#9650;</button>
+                                    <button type="button" onclick="stepNumInput('sched-rel-h',-1)" tabindex="-1">&#9660;</button>
+                                </div>
+                            </div>
+                            <span class="sched-time-colon">h</span>
+                            <div class="sched-num-wrap">
+                                <input type="number" id="sched-rel-m" class="sched-pop-num" value="30" min="0" max="59" onchange="updateSchedulePopoverState()">
+                                <div class="sched-num-btns">
+                                    <button type="button" onclick="stepNumInput('sched-rel-m',1)" tabindex="-1">&#9650;</button>
+                                    <button type="button" onclick="stepNumInput('sched-rel-m',-1)" tabindex="-1">&#9660;</button>
+                                </div>
+                            </div>
+                            <span class="sched-time-colon">m</span>
                         </div>
                         <div class="sched-pop-row">
                             <label class="sched-pop-check">
@@ -345,6 +370,6 @@
     <script src="/static/jobs.js?v=224"></script>
     <script src="/static/channels.js?v=225"></script>
     <script src="/static/rules-panel.js?v=223"></script>
-    <script src="/static/chat.js?v=268"></script>
+    <script src="/static/chat.js?v=269"></script>
 </body>
 </html>

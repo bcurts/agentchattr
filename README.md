@@ -221,6 +221,8 @@ Summaries are written by agents — either self-initiated when a significant dis
 ### Scheduled messages
 Schedule one-shot or recurring messages from the split send button. Click the clock icon next to Send to open the schedule popover — pick a date/time for one-shot, or check Recurring and set an interval (minutes, hours, or days). Scheduled messages fire as real chat messages from you, complete with @mentions that trigger agents automatically.
 
+Instead of a fixed date and time, check **In a while from now** and give it hours and minutes to send relative to the moment you schedule it, which helps when you are waiting on something rather than aiming at a clock time. A one-shot time that has already passed is refused with a reason instead of firing straight away.
+
 A schedule strip above the composer shows active and paused schedules. For a single schedule, inline pause and delete controls appear directly in the strip. For multiple schedules, expand the strip to manage them. Schedules persist across server restarts (stored in `data/schedules.json`).
 
 The schedule popover validates that at least one agent is toggled before enabling the Schedule button — a yellow warning tells you what's needed.
