@@ -49,6 +49,9 @@ session_token: str = ""
 # Room settings (persisted to data/settings.json)
 room_settings: dict = {
     "title": "agentchattr",
+    # Shown beside the title, so several servers can be told apart without
+    # renaming the product itself. "" hides it.
+    "subtitle": "",
     "username": "user",
     "font": "sans",
     "channels": ["general"],
@@ -124,6 +127,30 @@ def _settings_path() -> Path:
     return Path(data_dir) / "settings.json"
 
 
+ROOM_SUBTITLE_MAX = 40
+
+
+def normalize_room_subtitle(value):
+    """Clean a room subtitle, or return None if it is not usable.
+
+    Collapses any internal whitespace so a pasted newline cannot break the
+    header across two lines, and caps the length so a long name cannot crowd
+    out the rest of the header.
+    """
+    if not isinstance(value, str):
+        return None
+    return " ".join(value.split())[:ROOM_SUBTITLE_MAX]
+
+
+def apply_room_subtitle(new: dict):
+    """Apply a subtitle from a settings payload, if present and usable."""
+    if "subtitle" not in new:
+        return
+    cleaned = normalize_room_subtitle(new["subtitle"])
+    if cleaned is not None:
+        room_settings["subtitle"] = cleaned
+
+
 def _load_settings():
     global room_settings
     p = _settings_path()
@@ -133,6 +160,9 @@ def _load_settings():
             room_settings.update(saved)
         except Exception:
             pass
+    # settings.json is hand-editable, so the file bypasses every check the
+    # live update path applies. Re-normalise on load rather than trust it.
+    room_settings["subtitle"] = normalize_room_subtitle(room_settings.get("subtitle")) or ""
     # Ensure "general" always exists and is first
     if "channels" not in room_settings or not room_settings["channels"]:
         room_settings["channels"] = ["general"]
@@ -1265,6 +1295,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 new = event.get("data", {})
                 if "title" in new and isinstance(new["title"], str):
                     room_settings["title"] = new["title"].strip() or "agentchattr"
+                apply_room_subtitle(new)
                 if "username" in new and isinstance(new["username"], str):
                     room_settings["username"] = new["username"].strip() or "user"
                 if "font" in new and new["font"] in ("mono", "serif", "sans"):

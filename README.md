@@ -477,6 +477,8 @@ Relative paths resolve against the shell's current directory (not agentchattr's 
 
 Server and wrappers share the same `AGENTCHATTR_*` env vars and the same flag names, so a launcher/profile can run multiple isolated instances by passing matching values to each process. If no flags or env vars are set, `config.toml` is used exactly as before — zero change for existing setups.
 
+With several instances open at once, set **Settings → This server** to give each one a short name. It appears beside the title in the header and in the browser tab title, so you can tell which project a tab belongs to. It is empty by default, which looks exactly as it does now.
+
 ### API agents (local models)
 
 Connect any local model with an OpenAI-compatible API (Ollama, llama-server, LM Studio, vLLM, etc.) to the chat room. API agents get status pills, activity indicators, @mention routing, and multi-instance support — just like the CLI agents.
