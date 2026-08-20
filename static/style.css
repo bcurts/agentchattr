@@ -3600,6 +3600,7 @@ footer {
 }
 
 .sched-recurring-fields.hidden { display: none; }
+.sched-relative-fields.hidden { display: none; }
 
 .sched-pop-error {
     font-size: 11px;

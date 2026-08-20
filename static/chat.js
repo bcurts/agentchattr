@@ -2349,6 +2349,9 @@ function setupInput() {
         updateSlashMenu(input.value);
         updateMentionMenu();
         updateSendButton();
+        // Targets come from the composer, so the schedule popover's state goes
+        // stale as soon as this changes. It no-ops while the popover is closed.
+        updateSchedulePopoverState();
     }
     input.addEventListener('input', onInputChange);
     // Voice typing doesn't always fire 'input' — catch with additional events
@@ -3429,7 +3432,22 @@ function formatScheduleTime(ts) {
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+function formatOneShotWhen(ts) {
+    if (!ts) return 'once';
+    const d = new Date(ts * 1000);
+    const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    if (d.toDateString() === today.toDateString()) return 'once at ' + time;
+    if (d.toDateString() === tomorrow.toDateString()) return 'once tomorrow at ' + time;
+    const day = d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+    return 'once on ' + day + ' at ' + time;
+}
+
 function formatScheduleInterval(s) {
+    // A one-shot has no recurrence; its next_run is the whole story.
+    if (s.one_shot) return formatOneShotWhen(s.next_run);
     if (s.daily_at) return 'daily at ' + s.daily_at;
     const sec = s.interval_seconds || 0;
     if (sec < 3600) return 'every ' + Math.round(sec / 60) + 'm';
@@ -3488,6 +3506,13 @@ function toggleSchedulePopover(e) {
     pop.classList.toggle('hidden');
     if (opening) {
         populateScheduleDropdowns();
+        // Always reopen on the absolute path. Leaving "in a while" checked
+        // from a previous send would carry its past-time guard off with it.
+        const rel = document.getElementById('sched-relative');
+        if (rel && rel.checked) {
+            rel.checked = false;
+            toggleRelativeFields();
+        }
         updateSchedulePopoverState();
     }
 }
@@ -3500,9 +3525,11 @@ function closeSchedulePopover() {
 function stepNumInput(id, delta) {
     const el = document.getElementById(id);
     if (!el) return;
-    const min = parseInt(el.min) || 1;
-    const max = parseInt(el.max) || 99;
-    const val = Math.max(min, Math.min(max, (parseInt(el.value) || min) + delta));
+    // Number.isFinite, not `||`: a legitimate min/value of 0 is falsy.
+    const min = Number.isFinite(parseInt(el.min)) ? parseInt(el.min) : 1;
+    const max = Number.isFinite(parseInt(el.max)) ? parseInt(el.max) : 99;
+    const current = Number.isFinite(parseInt(el.value)) ? parseInt(el.value) : min;
+    const val = Math.max(min, Math.min(max, current + delta));
     el.value = val;
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
@@ -3512,15 +3539,67 @@ function stepSchedNum(delta) {
     stepNumInput('sched-interval-val', delta);
 }
 
+let _scheduleSubmitInFlight = false;
+
+function isSchedulePopoverRecurring() {
+    return !!document.getElementById('sched-recurring')?.checked;
+}
+
+function isSchedulePopoverRelative() {
+    return !!document.getElementById('sched-relative')?.checked;
+}
+
+function readClampedNum(id) {
+    // There is no <form> here, so browsers do not enforce min/max on typed
+    // input. Clamp on read, or "999" in the hours box means a 999h delay.
+    const el = document.getElementById(id);
+    if (!el) return 0;
+    const min = Number.isFinite(parseInt(el.min)) ? parseInt(el.min) : 0;
+    const max = Number.isFinite(parseInt(el.max)) ? parseInt(el.max) : 99;
+    const val = Number.isFinite(parseInt(el.value)) ? parseInt(el.value) : min;
+    const clamped = Math.max(min, Math.min(max, val));
+    // Write back, or the box keeps showing "999" while 72 is what gets sent.
+    if (String(clamped) !== el.value) el.value = String(clamped);
+    return clamped;
+}
+
+function getScheduleRelativeSeconds() {
+    return readClampedNum('sched-rel-h') * 3600 + readClampedNum('sched-rel-m') * 60;
+}
+
 function toggleRecurringFields() {
-    const checked = document.getElementById('sched-recurring')?.checked;
+    const checked = isSchedulePopoverRecurring();
+    // Recurring and "in a while" are mutually exclusive ways to say when.
+    if (checked) {
+        const rel = document.getElementById('sched-relative');
+        if (rel) rel.checked = false;
+    }
     const fields = document.getElementById('sched-recurring-fields');
     if (fields) fields.classList.toggle('hidden', !checked);
-    // Dim both "When" and "At" rows when recurring is active
+    document.getElementById('sched-relative-fields')?.classList.add('hidden');
+    updateScheduleWhenRows();
+}
+
+function toggleRelativeFields() {
+    const checked = isSchedulePopoverRelative();
+    if (checked) {
+        const rec = document.getElementById('sched-recurring');
+        if (rec) rec.checked = false;
+    }
+    const fields = document.getElementById('sched-relative-fields');
+    if (fields) fields.classList.toggle('hidden', !checked);
+    document.getElementById('sched-recurring-fields')?.classList.add('hidden');
+    updateScheduleWhenRows();
+}
+
+function updateScheduleWhenRows() {
+    // Dim "When" and "At" whenever the send time comes from somewhere else
+    const dimmed = isSchedulePopoverRecurring() || isSchedulePopoverRelative();
     const whenRow = document.getElementById('sched-date')?.closest('.sched-pop-row');
     const atRow = document.getElementById('sched-hour')?.closest('.sched-pop-row');
-    if (whenRow) whenRow.classList.toggle('sched-dimmed', !!checked);
-    if (atRow) atRow.classList.toggle('sched-dimmed', !!checked);
+    if (whenRow) whenRow.classList.toggle('sched-dimmed', dimmed);
+    if (atRow) atRow.classList.toggle('sched-dimmed', dimmed);
+    updateSchedulePopoverState();
 }
 
 function populateScheduleDropdowns() {
@@ -3538,7 +3617,13 @@ function populateScheduleDropdowns() {
         const d = new Date(now);
         d.setDate(d.getDate() + i);
         const opt = document.createElement('option');
-        opt.value = d.toISOString().slice(0, 10);
+        // Local calendar date, not toISOString(): the option is labelled from
+        // the local day, and both the past-time guard and the server read this
+        // value as local wall-clock. A UTC date disagrees with the label for
+        // part of every day in any non-UTC timezone.
+        opt.value = d.getFullYear() + '-' +
+            String(d.getMonth() + 1).padStart(2, '0') + '-' +
+            String(d.getDate()).padStart(2, '0');
         opt.textContent = i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : days[d.getDay()];
         dateEl.appendChild(opt);
     }
@@ -3590,6 +3675,14 @@ function getScheduleTime24() {
     return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
 }
 
+function getScheduleSendAtMs() {
+    // Absolute date+time the popover currently describes, in epoch ms.
+    const dateVal = document.getElementById('sched-date')?.value;
+    if (!dateVal) return null;
+    const parsed = new Date(dateVal + 'T' + getScheduleTime24() + ':00');
+    return isNaN(parsed.getTime()) ? null : parsed.getTime();
+}
+
 function updateSchedulePopoverState() {
     const pop = document.getElementById('schedule-popover');
     if (!pop || pop.classList.contains('hidden')) return;
@@ -3600,12 +3693,28 @@ function updateSchedulePopoverState() {
     const mentionMatches = text.match(/@(\w[\w-]*)/g) || [];
     const targets = new Set(mentionMatches.map(m => m.slice(1)));
     for (const name of activeMentions) targets.add(name);
+
+    let problem = '';
     if (targets.size === 0) {
-        if (errEl) { errEl.textContent = 'Toggle an agent to set a target'; errEl.classList.remove('hidden'); }
+        problem = 'Toggle an agent to set a target';
+    } else if (isSchedulePopoverRelative()) {
+        if (getScheduleRelativeSeconds() <= 0) {
+            problem = 'Set how long from now';
+        }
+    } else if (!isSchedulePopoverRecurring()) {
+        const sendAt = getScheduleSendAtMs();
+        if (sendAt !== null && sendAt <= Date.now()) {
+            problem = 'That time has already passed';
+        }
+    }
+
+    if (problem) {
+        if (errEl) { errEl.textContent = problem; errEl.classList.remove('hidden'); }
         if (submitBtn) { submitBtn.disabled = true; }
     } else {
         if (errEl) { errEl.classList.add('hidden'); errEl.textContent = ''; }
-        if (submitBtn) { submitBtn.disabled = false; }
+        // Stay disabled while a submit is in flight, whatever else changed.
+        if (submitBtn) { submitBtn.disabled = _scheduleSubmitInFlight; }
     }
 }
 
@@ -3621,31 +3730,65 @@ async function submitSchedulePopover() {
 
     const errEl = document.getElementById('sched-pop-error');
 
-    if (targets.size === 0) return; // button should be disabled anyway
+    if (targets.size === 0) {
+        // Not a silent return: the button is only disabled if the state check
+        // has run since the composer last changed, so this is reachable and
+        // used to look like the click did nothing at all.
+        if (errEl) {
+            errEl.textContent = 'Toggle an agent to set a target';
+            errEl.classList.remove('hidden');
+        }
+        return;
+    }
     if (!prompt) {
         if (errEl) { errEl.textContent = 'Type a message first'; errEl.classList.remove('hidden'); }
         return;
     }
 
-    const recurring = document.getElementById('sched-recurring')?.checked;
+    const recurring = isSchedulePopoverRecurring();
+    const relative = isSchedulePopoverRelative();
     const dateVal = document.getElementById('sched-date')?.value;
     const timeVal = getScheduleTime24();
     const intervalVal = parseInt(document.getElementById('sched-interval-val')?.value) || 1;
     const intervalUnit = document.getElementById('sched-interval-unit')?.value || 'hours';
 
     // Build spec for the API
-    let spec, confirmText;
+    let spec, confirmText, sendAtEpoch = null;
     if (recurring) {
         const unitShort = intervalUnit === 'minutes' ? 'm' : intervalUnit === 'hours' ? 'h' : 'd';
         spec = `every ${intervalVal}${unitShort}`;
         confirmText = spec;
+    } else if (relative) {
+        const secs = getScheduleRelativeSeconds();
+        if (secs <= 0) {
+            if (errEl) { errEl.textContent = 'Set how long from now'; errEl.classList.remove('hidden'); }
+            return;
+        }
+        const h = Math.floor(secs / 3600);
+        const m = Math.round((secs % 3600) / 60);
+        spec = ('in ' + (h ? `${h}h ` : '') + (m ? `${m}m` : '')).trim();
+        confirmText = spec;
+        sendAtEpoch = Math.round(Date.now() / 1000 + secs);
     } else {
-        // One-shot: "daily at HH:MM" with one_shot flag
         spec = `daily at ${timeVal}`;
         confirmText = `${dateVal} at ${timeVal}`;
+        const sendAtMs = getScheduleSendAtMs();
+        if (sendAtMs === null || sendAtMs <= Date.now()) {
+            if (errEl) { errEl.textContent = 'That time has already passed'; errEl.classList.remove('hidden'); }
+            return;
+        }
+        // Post the resolved moment rather than a date string for the server to
+        // re-read in ITS timezone. Both one-shot paths now agree by
+        // construction, however far apart the browser and server clocks sit.
+        sendAtEpoch = Math.round(sendAtMs / 1000);
     }
 
-    closeSchedulePopover();
+    // The popover now stays open across the request, so nothing stops a second
+    // click landing a duplicate schedule while the first is still in flight.
+    if (_scheduleSubmitInFlight) return;
+    _scheduleSubmitInFlight = true;
+    const submitBtn = document.querySelector('.sched-pop-submit');
+    if (submitBtn) submitBtn.disabled = true;
 
     try {
         const body = {
@@ -3656,7 +3799,7 @@ async function submitSchedulePopover() {
             created_by: username,
         };
         if (!recurring) body.one_shot = true;
-        if (!recurring && dateVal) body.send_at_date = dateVal;
+        if (sendAtEpoch !== null) body.send_at = sendAtEpoch;
 
         const resp = await fetch('/api/schedules', {
             method: 'POST',
@@ -3667,17 +3810,29 @@ async function submitSchedulePopover() {
             body: JSON.stringify(body),
         });
         if (resp.ok) {
+            // Only now: a rejection must leave the popover open with the
+            // user's choices intact, rather than make them start over.
+            closeSchedulePopover();
             input.value = '';
             input.style.height = 'auto';
             updateSendButton();
             showScheduleConfirmation();
         } else {
             const err = await resp.json().catch(() => ({}));
-            showSlashHint(err.error || 'Failed to schedule');
+            if (errEl) {
+                errEl.textContent = err.error || 'Failed to schedule';
+                errEl.classList.remove('hidden');
+            }
         }
     } catch (e) {
         console.error('Failed to create schedule:', e);
-        showSlashHint('Failed to create schedule');
+        if (errEl) {
+            errEl.textContent = 'Failed to schedule';
+            errEl.classList.remove('hidden');
+        }
+    } finally {
+        _scheduleSubmitInFlight = false;
+        updateSchedulePopoverState();
     }
 }
 

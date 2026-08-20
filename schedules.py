@@ -1,6 +1,7 @@
 """Schedule store — recurring prompts fired without human intervention."""
 
 import json
+import math
 import re
 import time
 import threading
@@ -17,6 +18,10 @@ _DAILY_RE = re.compile(
     r"daily\s+at\s+(\d{1,2}):(\d{2})\b",
     re.IGNORECASE
 )
+
+# Upper bound for an explicit send time (2100-01-01). Anything beyond this is
+# a mistake or an attack: it never fires, so the row sticks in the list forever.
+MAX_SEND_AT = 4102444800.0
 
 
 def parse_schedule_spec(spec: str) -> tuple[int | None, str | None]:
@@ -155,8 +160,26 @@ class ScheduleStore:
         last_run = None
         if daily_at:
             interval_seconds = 86400
-        if send_at:
+        if send_at is not None:
+            try:
+                send_at = float(send_at)
+            except (TypeError, ValueError, OverflowError):
+                # OverflowError: JSON ints are arbitrary precision, so a
+                # 400-digit literal reaches float() and blows up there.
+                raise ValueError("That time is not a real moment")
+            # NaN loses every comparison, so an unchecked NaN would slip past
+            # the past-time guard below and then be written to the JSON store
+            # as a bare NaN, which no later read of that file can parse.
+            if not math.isfinite(send_at) or send_at > MAX_SEND_AT:
+                raise ValueError("That time is not a real moment")
+            if send_at <= now:
+                raise ValueError("That time has already passed - pick a later one")
             next_run = send_at
+            if one_shot:
+                # A one-shot is defined solely by next_run. Keeping daily_at
+                # would claim a daily recurrence the schedule does not have,
+                # and the schedules bar renders that field verbatim.
+                daily_at = None
         else:
             next_run = compute_next_run(
                 interval_seconds or 86400,

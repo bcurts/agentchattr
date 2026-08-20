@@ -1595,29 +1595,46 @@ async def create_schedule(request: Request):
     targets = body.get("targets", [])
     channel = body.get("channel", "general")
     spec = body.get("spec", "")
-    one_shot = body.get("one_shot", False)
+    one_shot = bool(body.get("one_shot", False))
     send_at_date = body.get("send_at_date", "")  # "YYYY-MM-DD" for one-shot
     created_by = body.get("created_by", "user")
     if not prompt or not targets or not spec:
         return JSONResponse({"error": "prompt, targets, and spec are required"}, status_code=400)
+    # A relative send ("in 2h 30m") is resolved by the client, which posts the
+    # resulting moment directly; there is no recurrence to parse out of it.
+    # A send_at names a single moment, so it only means anything for a one-shot.
+    # A recurring request ignores it, exactly as it did before the field
+    # existed; that keeps an unparseable spec falling through to the 400 below
+    # instead of being stored as an unasked-for daily repeat.
+    explicit_send_at = None
+    if one_shot and body.get("send_at") is not None:
+        try:
+            explicit_send_at = float(body["send_at"])
+        except (TypeError, ValueError, OverflowError):
+            return JSONResponse(
+                {"error": "send_at must be an epoch timestamp"}, status_code=400
+            )
     interval_sec, daily_at = parse_schedule_spec(spec)
-    if interval_sec is None:
+    if interval_sec is None and explicit_send_at is None:
         return JSONResponse({"error": f"Invalid schedule spec: {spec}"}, status_code=400)
     # For one-shot, compute exact send_at timestamp from date + daily_at time
-    send_at = None
-    if one_shot and daily_at and send_at_date:
+    send_at = explicit_send_at
+    if send_at is None and one_shot and daily_at and send_at_date:
         import datetime as _dt
         try:
             dt = _dt.datetime.strptime(f"{send_at_date} {daily_at}", "%Y-%m-%d %H:%M")
             send_at = dt.timestamp()
         except ValueError:
             pass
-    s = schedules.create(
-        prompt=prompt, targets=targets, channel=channel,
-        interval_seconds=interval_sec, daily_at=daily_at,
-        one_shot=one_shot, send_at=send_at,
-        created_by=created_by,
-    )
+    try:
+        s = schedules.create(
+            prompt=prompt, targets=targets, channel=channel,
+            interval_seconds=interval_sec, daily_at=daily_at,
+            one_shot=one_shot, send_at=send_at,
+            created_by=created_by,
+        )
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
     return JSONResponse(s)
 
 
