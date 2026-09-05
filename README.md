@@ -578,7 +578,7 @@ Available models: `MiniMax-M3` (default), `MiniMax-M2.7`, `MiniMax-M2.7-highspee
 | `mcp_proxy.py` | Per-instance MCP proxy — injects sender identity into all tool calls |
 | `wrapper.py` | Cross-platform dispatcher — registration, auto-trigger, heartbeat, activity monitor |
 | `wrapper_windows.py` | Windows: keystroke injection + screen buffer activity detection |
-| `wrapper_unix.py` | Mac/Linux: tmux keystroke injection + pane capture activity detection |
+| `wrapper_unix.py` | Mac/Linux: tmux bracketed-paste injection + pane capture activity detection |
 | `config.toml` | All configuration (agents, ports, routing) |
 | `windows/start_*_yolo/bypass.bat` | Auto-approve launchers (Windows) |
 | `macos-linux/start_*_yolo/bypass.sh` | Auto-approve launchers (Mac/Linux) |
@@ -597,7 +597,7 @@ Python package dependencies (`fastapi`, `uvicorn`, `mcp`) are listed in `require
 Auto-trigger works on all platforms:
 
 - **Windows** — `wrapper_windows.py` injects keystrokes into the agent's console via Win32 `WriteConsoleInput`. The agent runs as a direct subprocess.
-- **Mac/Linux** — `wrapper_unix.py` runs the agent inside a `tmux` session and injects keystrokes via `tmux send-keys`. Detach with `Ctrl+B, D` to leave the agent running in the background; reattach with `tmux attach -t agentchattr-claude`.
+- **Mac/Linux** — `wrapper_unix.py` runs the agent inside a `tmux` session and delivers each prompt as a single bracketed paste (`tmux paste-buffer -p`), so a CLI that supports bracketed paste reassembles a long prompt even when the pty splits it across reads. Detach with `Ctrl+B, D` to leave the agent running in the background; reattach with `tmux attach -t agentchattr-claude`.
 
 The chat server and web UI are fully cross-platform (Python + browser).
 
