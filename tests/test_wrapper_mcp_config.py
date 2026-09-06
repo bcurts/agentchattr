@@ -8,14 +8,22 @@ import json
 import os
 import sys
 import tempfile
+import threading
+import tomllib
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from wrapper import _write_json_mcp_settings  # noqa: E402
+from wrapper import (  # noqa: E402
+    GROK_MCP_TOKEN_ENV,
+    _build_provider_launch,
+    _write_grok_mcp_toml,
+    _write_json_mcp_settings,
+)
 
 
 class JsonMcpSettingsTests(unittest.TestCase):
@@ -105,6 +113,328 @@ class ExpanduserPathTests(unittest.TestCase):
         raw = ".qwen/settings.json"
         expanded = Path(raw).expanduser()
         self.assertFalse(expanded.is_absolute())
+
+
+class GrokTomlMcpSettingsTests(unittest.TestCase):
+    """Grok-native TOML writer: merge-only [mcp_servers.agentchattr], env-var auth."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.target = Path(self.tmp.name) / ".grok" / "config.toml"
+
+    def test_writes_url_enabled_and_bearer_env_var(self):
+        url = "http://127.0.0.1:8244/mcp"
+        path = _write_grok_mcp_toml(self.target, url)
+        text = path.read_text("utf-8")
+        payload = tomllib.loads(text)
+        server = payload["mcp_servers"]["agentchattr"]
+        self.assertEqual(server["url"], url)
+        self.assertTrue(server["enabled"])
+        self.assertEqual(server["bearer_token_env_var"], GROK_MCP_TOKEN_ENV)
+        self.assertNotIn("headers", server)
+        self.assertNotIn("Bearer ", text)
+
+    def test_merge_preserves_unrelated_mcp_servers(self):
+        self.target.parent.mkdir(parents=True)
+        self.target.write_text(
+            "# keep this comment and the other server\n"
+            "[mcp_servers.linear]\n"
+            'url = "https://mcp.linear.app/mcp"\n'
+            "enabled = true\n",
+            "utf-8",
+        )
+        _write_grok_mcp_toml(self.target, "http://127.0.0.1:8244/mcp")
+        text = self.target.read_text("utf-8")
+        self.assertIn("keep this comment", text)
+        payload = tomllib.loads(text)
+        self.assertEqual(
+            payload["mcp_servers"]["linear"]["url"],
+            "https://mcp.linear.app/mcp",
+        )
+        self.assertEqual(
+            payload["mcp_servers"]["agentchattr"]["url"],
+            "http://127.0.0.1:8244/mcp",
+        )
+
+    def test_rewrite_replaces_only_agentchattr_block(self):
+        _write_grok_mcp_toml(self.target, "http://127.0.0.1:1111/mcp")
+        _write_grok_mcp_toml(self.target, "http://127.0.0.1:2222/mcp")
+        payload = tomllib.loads(self.target.read_text("utf-8"))
+        server = payload["mcp_servers"]["agentchattr"]
+        self.assertEqual(server["url"], "http://127.0.0.1:2222/mcp")
+        self.assertEqual(server["bearer_token_env_var"], GROK_MCP_TOKEN_ENV)
+        self.assertEqual(list(payload["mcp_servers"]), ["agentchattr"])
+
+    def test_spaced_table_header_is_replaced_not_duplicated(self):
+        self.target.parent.mkdir(parents=True)
+        self.target.write_text(
+            "[ mcp_servers.agentchattr ]\n"
+            'url = "http://127.0.0.1:1111/mcp"\n'
+            "enabled = true\n",
+            "utf-8",
+        )
+        _write_grok_mcp_toml(self.target, "http://127.0.0.1:2222/mcp")
+        payload = tomllib.loads(self.target.read_text("utf-8"))
+        self.assertEqual(
+            payload["mcp_servers"]["agentchattr"]["url"],
+            "http://127.0.0.1:2222/mcp",
+        )
+        self.assertEqual(list(payload["mcp_servers"]), ["agentchattr"])
+
+    def test_invalid_existing_toml_is_not_overwritten(self):
+        self.target.parent.mkdir(parents=True)
+        garbage = "this is not toml [[[\n"
+        self.target.write_text(garbage, "utf-8")
+        with self.assertRaises(ValueError):
+            _write_grok_mcp_toml(self.target, "http://127.0.0.1:2222/mcp")
+        self.assertEqual(self.target.read_text("utf-8"), garbage)
+
+    def test_non_table_mcp_servers_is_not_overwritten(self):
+        self.target.parent.mkdir(parents=True)
+        original = 'mcp_servers = "keep-me"\n'
+        self.target.write_text(original, "utf-8")
+        with self.assertRaises(ValueError) as cm:
+            _write_grok_mcp_toml(self.target, "http://127.0.0.1:2222/mcp")
+        self.assertIn("mcp_servers", str(cm.exception))
+        self.assertEqual(self.target.read_text("utf-8"), original)
+
+    def test_concurrent_writes_do_not_share_temp_file(self):
+        self.target.parent.mkdir(parents=True)
+        errors: list[BaseException] = []
+        n = 8
+        # Hold every writer at its first os.replace so unique temps exist
+        # together. A shared config.toml.tmp then fails FileNotFoundError
+        # instead of depending on a natural race.
+        barrier = threading.Barrier(n)
+        first_temps: list[str] = []
+        lock = threading.Lock()
+        waited = threading.local()
+        real_replace = os.replace
+
+        def gated_replace(src, dst, *args, **kwargs):
+            if not getattr(waited, "done", False):
+                waited.done = True
+                with lock:
+                    first_temps.append(os.path.normpath(str(src)))
+                barrier.wait(timeout=5)
+            return real_replace(src, dst, *args, **kwargs)
+
+        def worker(i: int) -> None:
+            try:
+                _write_grok_mcp_toml(
+                    self.target, f"http://127.0.0.1:{8100 + i}/mcp"
+                )
+            except Exception as exc:
+                errors.append(exc)
+
+        with mock.patch("wrapper.os.replace", gated_replace):
+            threads = [
+                threading.Thread(target=worker, args=(i,)) for i in range(n)
+            ]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+        self.assertEqual(errors, [])
+        self.assertEqual(len(first_temps), n)
+        self.assertEqual(len(set(first_temps)), n, first_temps)
+        payload = tomllib.loads(self.target.read_text("utf-8"))
+        self.assertIn("agentchattr", payload["mcp_servers"])
+        self.assertTrue(payload["mcp_servers"]["agentchattr"]["enabled"])
+
+    def test_generic_settings_file_toml_is_not_grok_writer(self):
+        """A custom settings_file path ending in .toml must stay JSON, not Grok TOML."""
+        target = Path(self.tmp.name) / "custom.toml"
+        token = "secret-token-not-for-disk-shape"
+        _, _, _, settings_path = _build_provider_launch(
+            agent="customcli",
+            agent_cfg={
+                "mcp_inject": "settings_file",
+                "mcp_settings_path": str(target),
+                "mcp_transport": "http",
+                "mcp_http_key": "url",
+            },
+            instance_name="customcli-1",
+            data_dir=Path(self.tmp.name),
+            proxy_url=None,
+            extra_args=[],
+            env={},
+            token=token,
+            mcp_cfg={"http_port": 8244},
+        )
+        raw = settings_path.read_text("utf-8")
+        data = json.loads(raw)
+        self.assertIn("mcpServers", data)
+        self.assertNotIn("[mcp_servers.agentchattr]", raw)
+        self.assertNotIn("bearer_token_env_var", raw)
+
+    def test_settings_file_grok_format_uses_native_toml_writer(self):
+        """Explicit mcp_settings_format=grok_toml (settings_file entry) writes TOML."""
+        target = Path(self.tmp.name) / "proj" / ".grok" / "config.toml"
+        token = "tok-format-" + os.urandom(4).hex()
+        _, _, inject_env, settings_path = _build_provider_launch(
+            agent="customcli",
+            agent_cfg={
+                "mcp_inject": "settings_file",
+                "mcp_settings_path": str(target),
+                "mcp_settings_format": "grok_toml",
+            },
+            instance_name="customcli-1",
+            data_dir=Path(self.tmp.name),
+            proxy_url=None,
+            extra_args=[],
+            env={},
+            token=token,
+            mcp_cfg={"http_port": 8244},
+        )
+        text = settings_path.read_text("utf-8")
+        self.assertNotIn(token, text)
+        payload = tomllib.loads(text)
+        server = payload["mcp_servers"]["agentchattr"]
+        self.assertEqual(server["url"], "http://127.0.0.1:8244/mcp")
+        self.assertEqual(server["bearer_token_env_var"], GROK_MCP_TOKEN_ENV)
+        self.assertEqual(inject_env.get(GROK_MCP_TOKEN_ENV), token)
+
+    def test_quoted_table_header_is_replaced_not_duplicated(self):
+        self.target.parent.mkdir(parents=True)
+        self.target.write_text(
+            '[mcp_servers."agentchattr"]\n'
+            'url = "http://127.0.0.1:1111/mcp"\n'
+            "enabled = true\n",
+            "utf-8",
+        )
+        _write_grok_mcp_toml(self.target, "http://127.0.0.1:2222/mcp")
+        payload = tomllib.loads(self.target.read_text("utf-8"))
+        self.assertEqual(
+            payload["mcp_servers"]["agentchattr"]["url"],
+            "http://127.0.0.1:2222/mcp",
+        )
+        self.assertEqual(list(payload["mcp_servers"]), ["agentchattr"])
+
+    def test_inline_table_on_other_server_is_preserved(self):
+        self.target.parent.mkdir(parents=True)
+        self.target.write_text(
+            "[mcp_servers.other]\n"
+            'url = "http://127.0.0.1:9999/mcp"\n'
+            'headers = { Authorization = "Bearer keep-me" }\n'
+            "[mcp_servers.agentchattr]\n"
+            'url = "http://127.0.0.1:1111/mcp"\n'
+            'headers = { Authorization = "Bearer old-secret" }\n',
+            "utf-8",
+        )
+        _write_grok_mcp_toml(self.target, "http://127.0.0.1:2222/mcp")
+        payload = tomllib.loads(self.target.read_text("utf-8"))
+        other = payload["mcp_servers"]["other"]
+        self.assertEqual(other["headers"]["Authorization"], "Bearer keep-me")
+        server = payload["mcp_servers"]["agentchattr"]
+        self.assertEqual(server["url"], "http://127.0.0.1:2222/mcp")
+        self.assertNotIn("headers", server)
+        self.assertNotIn("old-secret", self.target.read_text("utf-8"))
+
+    def test_unknown_settings_format_is_rejected(self):
+        target = Path(self.tmp.name) / "settings.yaml"
+        with self.assertRaises(ValueError) as cm:
+            _build_provider_launch(
+                agent="customcli",
+                agent_cfg={
+                    "mcp_inject": "settings_file",
+                    "mcp_settings_path": str(target),
+                    "mcp_settings_format": "yaml",
+                },
+                instance_name="customcli-1",
+                data_dir=Path(self.tmp.name),
+                proxy_url=None,
+                extra_args=[],
+                env={},
+                token="tok",
+                mcp_cfg={"http_port": 8244},
+            )
+        self.assertIn("mcp_settings_format", str(cm.exception))
+        self.assertFalse(target.exists())
+
+    def test_blank_settings_format_is_not_json_default(self):
+        """Explicit empty/false format must not fall through to JSON."""
+        for i, bad in enumerate(("", False)):
+            with self.subTest(fmt=bad):
+                target = Path(self.tmp.name) / f"blank-format-{i}.json"
+                with self.assertRaises(ValueError) as cm:
+                    _build_provider_launch(
+                        agent="customcli",
+                        agent_cfg={
+                            "mcp_inject": "settings_file",
+                            "mcp_settings_path": str(target),
+                            "mcp_settings_format": bad,
+                        },
+                        instance_name="customcli-1",
+                        data_dir=Path(self.tmp.name),
+                        proxy_url=None,
+                        extra_args=[],
+                        env={},
+                        token="tok",
+                        mcp_cfg={"http_port": 8244},
+                    )
+                self.assertIn("mcp_settings_format", str(cm.exception))
+                self.assertFalse(target.exists())
+
+    def test_json_settings_file_keeps_url_key_and_env_path(self):
+        project = Path(self.tmp.name) / "proj"
+        project.mkdir()
+        token = "json-tok-" + os.urandom(4).hex()
+        _, _, inject_env, settings_path = _build_provider_launch(
+            agent="customcli",
+            agent_cfg={
+                "mcp_inject": "settings_file",
+                "mcp_settings_path": ".qwen/settings.json",
+                "mcp_env_var": "MYCLI_MCP_SETTINGS",
+                "mcp_transport": "http",
+                "mcp_http_key": "url",
+            },
+            instance_name="customcli-1",
+            data_dir=Path(self.tmp.name),
+            proxy_url=None,
+            extra_args=[],
+            env={},
+            token=token,
+            mcp_cfg={"http_port": 8244},
+            project_dir=project,
+        )
+        self.assertEqual(settings_path, project / ".qwen" / "settings.json")
+        self.assertEqual(inject_env["MYCLI_MCP_SETTINGS"], str(settings_path))
+        entry = json.loads(settings_path.read_text("utf-8"))["mcpServers"]["agentchattr"]
+        self.assertEqual(entry["url"], "http://127.0.0.1:8244/mcp")
+        self.assertNotIn("httpUrl", entry)
+        self.assertEqual(entry["headers"]["Authorization"], f"Bearer {token}")
+
+    def test_json_settings_file_expands_tilde_path(self):
+        home = Path(self.tmp.name) / "home"
+
+        def expanduser(p):
+            p = os.fspath(p)
+            if p.startswith("~"):
+                return str(home / p[1:].lstrip("/\\"))
+            return p
+
+        with mock.patch("os.path.expanduser", side_effect=expanduser):
+            _, _, inject_env, settings_path = _build_provider_launch(
+                agent="customcli",
+                agent_cfg={
+                    "mcp_inject": "settings_file",
+                    "mcp_settings_path": "~/.codebuddy/.mcp.json",
+                    "mcp_env_var": "CODEBUDDY_MCP",
+                    "mcp_http_key": "url",
+                },
+                instance_name="customcli-1",
+                data_dir=Path(self.tmp.name),
+                proxy_url=None,
+                extra_args=[],
+                env={},
+                token="tilde-tok",
+                mcp_cfg={"http_port": 8244},
+            )
+        self.assertEqual(settings_path, home / ".codebuddy" / ".mcp.json")
+        self.assertTrue(settings_path.exists())
+        self.assertEqual(inject_env["CODEBUDDY_MCP"], str(settings_path))
 
 
 if __name__ == "__main__":

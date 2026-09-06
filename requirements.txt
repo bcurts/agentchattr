@@ -1,3 +1,6 @@
 fastapi>=0.110
 uvicorn[standard]>=0.29
 mcp>=1.0
+# Round-trip merge of [mcp_servers.*] (comments, dotted/spaced/quoted tables).
+# mcp_settings_format=grok_toml lives in wrapper.py on every platform.
+tomlkit>=0.13

@@ -25,6 +25,18 @@ cwd = ".."
 color = "#4285f4"
 label = "Gemini"
 
+# Grok Build CLI — native MCP in project .grok/config.toml as
+# [mcp_servers.agentchattr] with url + bearer_token_env_var.
+# Grok skips Claude/Cursor .mcp.json once the import marker is set.
+# Launchers: start_grok.bat (Windows) / start_grok.sh (Mac/Linux). Official install:
+#   Windows:   irm https://x.ai/cli/install.ps1 | iex   → %USERPROFILE%\.grok\bin
+#   Mac/Linux: curl -fsSL https://x.ai/cli/install.sh | bash
+[agents.grok]
+command = "grok"
+cwd = ".."
+color = "#e5e5e5"
+label = "Grok"
+
 # Antigravity CLI (agy) — Google's agentic CLI, successor to the deprecated
 # Gemini CLI. It reads MCP servers from ~/.gemini/config/mcp_config.json (a
 # fixed path; no config-dir flag as of agy 1.1.7) and expects the HTTP URL under
@@ -107,11 +119,12 @@ upload_dir = "./uploads"
 max_size_mb = 10
 
 # --- MCP injection modes ---
-# By default, claude/codex/gemini/kimi use built-in MCP config injection.
+# By default, claude/codex/gemini/kimi/grok use built-in MCP config injection.
 # For other CLI agents, set mcp_inject to tell the wrapper how to inject auth:
 #
 # mcp_inject modes:
-#   "settings_file" — write a JSON settings file at mcp_settings_path (merges, not overwrites)
+#   "settings_file" — write a settings file at mcp_settings_path (merges, not overwrites)
+#                     mcp_settings_format = "json" (default) or "grok_toml"
 #   "env"           — write a settings file, expose path via mcp_env_var
 #   "flag"          — write a config file, pass via CLI flag (mcp_flag, default: --mcp-config)
 #   "proxy_flag"    — start a local proxy, pass URL via CLI flag template

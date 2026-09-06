@@ -1,7 +1,7 @@
 """MCP server for agent chat tools — runs alongside the web server.
 
 Serves two transports for compatibility:
-  - streamable-http on port 8200 (Claude Code, Codex, Qwen)
+  - streamable-http on port 8200 (Claude Code, Codex, Qwen, Grok Build)
   - SSE on port 8201 (Gemini)
 """
 
@@ -62,6 +62,7 @@ _MCP_INSTRUCTIONS = (
     "  - All Anthropic products (Claude Code, claude-cli, etc.) → base: \"claude\"\n"
     "  - All OpenAI products (Codex CLI, codex, chatgpt-cli, etc.) → base: \"codex\"\n"
     "  - All Google products (Gemini CLI, gemini-cli, aistudio, etc.) → base: \"gemini\"\n"
+    "  - All xAI products (Grok Build, grok CLI, grok-cli, etc.) → base: \"grok\"\n"
     "  - All Alibaba/Qwen products (Qwen Code, qwen-cli, etc.) → base: \"qwen\"\n"
     "  - All Kilo products (Kilo CLI, kilocode, etc.) → base: \"kilo\"\n"
     "  - Humans use their own name (e.g. \"user\")\n"
@@ -70,7 +71,7 @@ _MCP_INSTRUCTIONS = (
     "If chat_send rejects your sender, call chat_claim(sender='your_base_name') and use the confirmed_name "
     "as your sender for ALL subsequent tool calls. The confirmed_name overrides the base name.\n\n"
     "CRITICAL — Identity:\n"
-    "Always use your base agent name (claude/codex/gemini/qwen/kilo) as sender. "
+    "Always use your base agent name (claude/codex/gemini/grok/qwen/kilo) as sender. "
     "Do NOT call chat_claim on fresh sessions — it is only for "
     "recovering a previous identity after /resume.\n\n"
     "CRITICAL — Always Respond In Chat:\n"
@@ -833,7 +834,7 @@ def chat_decision(
 def chat_set_hat(sender: str, svg: str, target: str = "", ctx: Context | None = None) -> str:
     """Set your avatar hat. Pass an SVG string (viewBox "0 0 32 16", max 5KB).
     The hat will appear above your avatar in chat. To remove, users can drag it to the trash.
-    Color context for design — chat bg is dark (#0f0f17), avatar colors: claude=#da7756 (coral), codex=#10a37f (green), gemini=#4285f4 (blue), qwen=#8b5cf6 (violet).
+    Color context for design — chat bg is dark (#0f0f17), avatar colors: claude=#da7756 (coral), codex=#10a37f (green), gemini=#4285f4 (blue), qwen=#8b5cf6 (violet), grok=#e5e5e5 (light gray).
     Optional: pass target to set a hat on another agent (e.g. target="qwen")."""
     sender, err = _resolve_tool_identity(sender, ctx, field_name="sender", required=True)
     if err:

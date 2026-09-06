@@ -4,6 +4,7 @@ Usage:
     python wrapper.py claude
     python wrapper.py codex
     python wrapper.py gemini
+    python wrapper.py grok
     python wrapper.py kimi
     python wrapper.py qwen
 
@@ -22,9 +23,14 @@ import json
 import os
 import shutil
 import sys
+import tempfile
 import threading
 import time
+import tomllib
 from pathlib import Path
+
+import tomlkit
+from tomlkit.exceptions import TOMLKitError
 
 ROOT = Path(__file__).parent
 
@@ -79,6 +85,92 @@ def _write_json_mcp_settings(config_file: Path, url: str, transport: str = "http
     existing["security"] = security
 
     config_file.write_text(json.dumps(existing, indent=2) + "\n", "utf-8")
+    return config_file
+
+
+GROK_MCP_TOKEN_ENV = "AGENTCHATTR_MCP_TOKEN"
+
+
+def _write_grok_mcp_toml(config_file: Path, url: str) -> Path:
+    """Write/merge Grok-native [mcp_servers.agentchattr] into a TOML config.
+
+    Official Grok load path is project `.grok/config.toml`. Only the
+    agentchattr server block is replaced; unrelated [mcp_servers.*] tables
+    are preserved. Auth is Grok's bearer_token_env_var (no live token in
+    the file). The wrapper puts the instance token in inject_env.
+
+    Existing files are parsed with tomlkit so dotted/spaced/quoted table
+    headers round-trip as the same key. Unreadable or invalid TOML is not
+    treated as empty (that would wipe the file and append a duplicate).
+    A present mcp_servers that is not a table is refused, not replaced.
+    """
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    if config_file.exists():
+        existing = config_file.read_text("utf-8")
+        try:
+            doc = tomlkit.parse(existing)
+        except TOMLKitError as exc:
+            raise ValueError(
+                f"Refusing to overwrite invalid Grok config {config_file}: {exc}"
+            ) from exc
+    else:
+        doc = tomlkit.document()
+
+    servers = doc.get("mcp_servers")
+    if servers is None:
+        servers = tomlkit.table()
+        doc["mcp_servers"] = servers
+    elif not isinstance(servers, dict):
+        raise ValueError(
+            f"Refusing to overwrite mcp_servers in {config_file}: "
+            f"expected a table, got {type(servers).__name__}"
+        )
+
+    entry = tomlkit.table()
+    entry["url"] = url
+    entry["enabled"] = True
+    entry["bearer_token_env_var"] = GROK_MCP_TOKEN_ENV
+    servers[SERVER_NAME] = entry
+
+    dumped = tomlkit.dumps(doc)
+    if dumped and not dumped.endswith("\n"):
+        dumped += "\n"
+    try:
+        parsed = tomllib.loads(dumped)
+        got = parsed["mcp_servers"][SERVER_NAME]
+        if got.get("url") != url or got.get("bearer_token_env_var") != GROK_MCP_TOKEN_ENV:
+            raise ValueError("agentchattr block mismatch")
+        if not got.get("enabled"):
+            raise ValueError("agentchattr not enabled")
+    except Exception as exc:
+        raise ValueError(f"Grok TOML failed validation before write: {exc}") from exc
+
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{config_file.name}.",
+        suffix=".tmp",
+        dir=str(config_file.parent),
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(dumped)
+        deadline = time.monotonic() + 1.0
+        while True:
+            try:
+                os.replace(tmp_name, config_file)
+                break
+            except PermissionError:
+                # Windows can deny replace while another instance is reading
+                # the destination. Unique tmp files already avoid sharing
+                # config.toml.tmp; retry briefly instead of failing startup.
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.02)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
     return config_file
 
 
@@ -158,6 +250,14 @@ _BUILTIN_DEFAULTS: dict[str, dict] = {
         "mcp_env_var": "KILO_CONFIG_CONTENT",
         "mcp_transport": "http",
     },
+    "grok": {
+        # Same settings_file inject as Qwen/CodeBuddy/Copilot. Format is
+        # explicit — a .toml suffix alone does not select the Grok writer.
+        "mcp_inject": "settings_file",
+        "mcp_settings_path": ".grok/config.toml",
+        "mcp_settings_format": "grok_toml",
+        "mcp_transport": "http",
+    },
 }
 
 _VALID_INJECT_MODES = {"settings_file", "env", "flag", "proxy_flag", "env_content"}
@@ -213,8 +313,9 @@ def _apply_mcp_inject(
     http_key = inject_cfg.get("mcp_http_key", "httpUrl")
 
     if mode == "settings_file":
-        # Write a settings JSON file at a user-specified path (e.g. .qwen/settings.json,
-        # or ~/.codebuddy/.mcp.json for user-scope configs).
+        # Write a settings file at a user-specified path (e.g. .qwen/settings.json,
+        # or ~/.codebuddy/.mcp.json for user-scope configs). Format is explicit;
+        # the path suffix is not consulted.
         raw_path = inject_cfg.get("mcp_settings_path", "")
         if not raw_path:
             raise ValueError(f"mcp_inject = 'settings_file' requires mcp_settings_path")
@@ -224,9 +325,20 @@ def _apply_mcp_inject(
         if not target.is_absolute():
             base = Path(project_dir) if project_dir else Path.cwd()
             target = base / target
-        settings_path = _write_json_mcp_settings(target, server_url,
-                                                  transport=transport, token=token,
-                                                  http_key=http_key)
+        fmt = inject_cfg.get("mcp_settings_format", "json")
+        if fmt == "grok_toml":
+            settings_path = _write_grok_mcp_toml(target, server_url)
+            if token:
+                inject_env[GROK_MCP_TOKEN_ENV] = token
+        elif fmt == "json":
+            settings_path = _write_json_mcp_settings(target, server_url,
+                                                      transport=transport, token=token,
+                                                      http_key=http_key)
+        else:
+            raise ValueError(
+                f"unknown mcp_settings_format {fmt!r} "
+                f"(expected 'json' or 'grok_toml')"
+            )
         # Optionally set an env var pointing to the settings file
         env_var = inject_cfg.get("mcp_env_var")
         if env_var:
@@ -657,7 +769,9 @@ def main():
             return _identity["token"]
 
     # Rewrite MCP config when token/name changes (e.g. after 409 re-register).
-    # Most CLIs won't re-read mid-session, but the file is correct for next restart.
+    # Most CLIs won't re-read mid-session. Grok auth is an env var on the
+    # already-started process, so a rewritten file cannot refresh in-process
+    # credentials — restart Grok after a token rotation.
     def _rewrite_mcp_config(instance_name: str, new_token: str):
         if not inject_mode or needs_proxy:
             return  # proxy-based agents don't have config files to rewrite

@@ -4,6 +4,7 @@ import os
 import sys
 import tempfile
 import threading
+import tomllib
 import unittest
 from unittest import mock
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -17,6 +18,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import app
+import config_loader
 import mcp_bridge
 import mcp_proxy
 import wrapper
@@ -273,6 +275,93 @@ class WrapperLaunchTests(unittest.TestCase):
         self.assertIn('mcp_servers.agentchattr.url="http://127.0.0.1:7777/mcp"', args[1])
         self.assertEqual(args[2], "--no-alt-screen")
         self.assertIn("PATH", env)
+
+    def test_build_provider_launch_for_grok_writes_native_toml_mcp(self):
+        """Grok uses official [mcp_servers.agentchattr] TOML with env-var auth."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp) / "project"
+            grok_cfg = project_dir / ".grok" / "config.toml"
+            grok_cfg.parent.mkdir(parents=True)
+            grok_cfg.write_text(
+                '[mcp_servers.other]\n'
+                'url = "http://127.0.0.1:9999/mcp"\n'
+                "enabled = true\n",
+                "utf-8",
+            )
+            token = "grok_tok_" + os.urandom(8).hex()
+            port = 8233
+            args, env, inject_env, settings_path = wrapper._build_provider_launch(
+                agent="grok",
+                agent_cfg={},
+                instance_name="grok-2",
+                data_dir=Path(tmp),
+                proxy_url=None,
+                extra_args=["--debug"],
+                env={"PATH": os.environ.get("PATH", "")},
+                token=token,
+                mcp_cfg={"http_port": port},
+                project_dir=project_dir,
+            )
+
+            self.assertIsNotNone(settings_path)
+            self.assertTrue(settings_path.exists())
+            self.assertEqual(settings_path, grok_cfg)
+            text = settings_path.read_text("utf-8")
+            self.assertNotIn(token, text)
+            payload = tomllib.loads(text)
+            server = payload["mcp_servers"]["agentchattr"]
+            self.assertEqual(server["url"], f"http://127.0.0.1:{port}/mcp")
+            self.assertTrue(server["enabled"])
+            env_var = server.get("bearer_token_env_var")
+            self.assertEqual(env_var, wrapper.GROK_MCP_TOKEN_ENV)
+            self.assertNotIn("headers", server)
+            self.assertEqual(inject_env.get(env_var), token)
+            self.assertNotEqual(env.get(env_var), token)
+            self.assertEqual(
+                payload["mcp_servers"]["other"]["url"],
+                "http://127.0.0.1:9999/mcp",
+            )
+            self.assertEqual(args, ["--debug"])
+            self.assertEqual(env["PATH"], os.environ.get("PATH", ""))
+
+    def test_committed_config_registers_grok_cli(self):
+        config = config_loader.load_config(ROOT)
+        self.assertIn("grok", config["agents"])
+        grok = config["agents"]["grok"]
+        self.assertEqual(grok["command"], "grok")
+        self.assertNotIn("mcp_inject", grok)
+        self.assertNotIn("mcp_settings_path", grok)
+        self.assertNotIn("mcp_settings_format", grok)
+        self.assertNotIn("mcp_transport", grok)
+
+    def test_mcp_identity_maps_grok_build_to_base_grok(self):
+        text = mcp_bridge._MCP_INSTRUCTIONS
+        self.assertIn("Grok Build", text)
+        self.assertIn('base: "grok"', text)
+
+    def test_grok_launch_does_not_write_trust_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            (home / ".grok").mkdir(parents=True)
+            trust = home / ".grok" / "trusted_folders.toml"
+            original = "[folders.'C:\\\\already']\ntrusted = true\n"
+            trust.write_text(original, "utf-8")
+            project_dir = Path(tmp) / "project"
+            project_dir.mkdir()
+            with mock.patch.object(wrapper.Path, "home", return_value=home):
+                wrapper._build_provider_launch(
+                    agent="grok",
+                    agent_cfg={},
+                    instance_name="grok-2",
+                    data_dir=Path(tmp) / "data",
+                    proxy_url=None,
+                    extra_args=[],
+                    env={},
+                    token="tok_" + os.urandom(4).hex(),
+                    mcp_cfg={"http_port": 8233},
+                    project_dir=project_dir,
+                )
+            self.assertEqual(trust.read_text("utf-8"), original)
 
 
 class WrapperUnixLifecycleTests(unittest.TestCase):
