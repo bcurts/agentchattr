@@ -411,7 +411,7 @@ def configure(cfg: dict, session_token: str = ""):
                         store.add(name, f"{name} disconnected", msg_type="leave", channel=_agent_last_channel.get(name, _last_active_channel))
 
                 # Clear leave debounce for agents that came back online
-                _posted_leave -= currently_online
+                _posted_leave.difference_update(currently_online)
 
                 # Detect other agents (non-registered) going offline
                 went_offline = (_known_online - currently_online) - timed_out
