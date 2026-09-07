@@ -1,4 +1,4 @@
-"""Mac/Linux agent injection — uses tmux send-keys to type into the agent CLI.
+"""Mac/Linux agent injection — pastes the prompt into the agent CLI via tmux.
 
 Called by wrapper.py on Mac and Linux. Requires tmux to be installed.
   - Mac:   brew install tmux
@@ -6,16 +6,19 @@ Called by wrapper.py on Mac and Linux. Requires tmux to be installed.
 
 How it works:
   1. Creates a tmux session running the agent CLI
-  2. Queue watcher sends keystrokes via 'tmux send-keys'
+  2. Queue watcher delivers the prompt as one bracketed paste
+     ('tmux load-buffer' + 'tmux paste-buffer -p'), then presses Enter
   3. Wrapper attaches to the session so you see the full TUI
   4. Ctrl+B, D to detach (agent keeps running in background)
 """
 
+import os
 import shlex
 import shutil
 import subprocess
 import sys
 import time
+import uuid
 
 
 def _session_exists(session_name: str) -> bool:
@@ -39,20 +42,93 @@ def _check_tmux():
     sys.exit(1)
 
 
-def inject(text: str, *, tmux_session: str, delay: float = 0.3):
-    """Send text + Enter to a tmux session via send-keys."""
-    # Use -l to send text literally (avoids misinterpreting as key names),
-    # then send Enter as a separate key press
-    subprocess.run(
-        ["tmux", "send-keys", "-t", tmux_session, "-l", text],
+def _pane_id(tmux_session: str) -> str | None:
+    """Resolve the session's active pane once, so paste and Enter hit the same pane."""
+    result = subprocess.run(
+        ["tmux", "display-message", "-p", "-t", tmux_session, "#{pane_id}"],
         capture_output=True,
     )
+    if result.returncode != 0:
+        return None
+    pane = result.stdout.decode(errors="replace").strip()
+    return pane or None
+
+
+def _drop_buffer(name: str) -> None:
+    subprocess.run(["tmux", "delete-buffer", "-b", name], capture_output=True)
+
+
+def inject(text: str, *, tmux_session: str, delay: float = 0.3) -> bool:
+    """Deliver text to the agent CLI as ONE bracketed paste, then press Enter.
+
+    Why a paste and not send-keys: a pty's raw input queue is finite (1024
+    bytes on macOS), so a single long `send-keys -l` can reach the CLI as
+    several reads. Claude Code treats a large read as a paste and, when typed
+    text follows a paste before Enter, submits only the typed text: measured on
+    macOS, a 1204-byte prompt arrived as its last 182 characters. With
+    `paste-buffer -p`, tmux wraps the text in ESC[200~ / ESC[201~ when the CLI
+    has enabled bracketed paste mode, and those delimiters let the CLI
+    reassemble one paste across split reads. A CLI that never asked for
+    bracketed paste gets the plain bytes, exactly as before.
+
+    Returns True only when tmux accepted both the paste and Enter. On any
+    failure, a non-zero exit or an exception launching tmux, it prints a
+    diagnostic, cleans up its buffer on a best-effort basis, sends nothing
+    further, and returns False (the queue watcher swallows exceptions, so a
+    raise alone would be invisible).
+    """
+    buffer_name = f"agentchattr-inject-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+    try:
+        return _deliver(text, tmux_session, buffer_name, delay)
+    except Exception as exc:  # launching tmux itself failed, not a non-zero exit
+        print(f"  INJECT FAILED: {type(exc).__name__}: {exc}")
+        try:
+            _drop_buffer(buffer_name)
+        except Exception:
+            pass
+        return False
+
+
+def _deliver(text: str, tmux_session: str, buffer_name: str, delay: float) -> bool:
+    """The paste-then-Enter sequence; every tmux exit status is checked."""
+    pane = _pane_id(tmux_session)
+    if pane is None:
+        print(f"  INJECT FAILED: no pane for tmux session {tmux_session!r}")
+        return False
+
+    loaded = subprocess.run(
+        ["tmux", "load-buffer", "-b", buffer_name, "-"],
+        input=text.encode("utf-8"),
+        capture_output=True,
+    )
+    if loaded.returncode != 0:
+        print(f"  INJECT FAILED: load-buffer exit {loaded.returncode}: "
+              f"{loaded.stderr.decode(errors='replace').strip()}")
+        _drop_buffer(buffer_name)
+        return False
+
+    # -p: bracket the paste if the pane asked for it; -d: drop the buffer after.
+    pasted = subprocess.run(
+        ["tmux", "paste-buffer", "-p", "-d", "-b", buffer_name, "-t", pane],
+        capture_output=True,
+    )
+    if pasted.returncode != 0:
+        print(f"  INJECT FAILED: paste-buffer exit {pasted.returncode}: "
+              f"{pasted.stderr.decode(errors='replace').strip()}")
+        _drop_buffer(buffer_name)
+        return False
+
     # Scale delay with text length so longer prompts get more processing time
     time.sleep(max(delay, len(text) * 0.001))
-    subprocess.run(
-        ["tmux", "send-keys", "-t", tmux_session, "Enter"],
+    entered = subprocess.run(
+        ["tmux", "send-keys", "-t", pane, "Enter"],
         capture_output=True,
     )
+    if entered.returncode != 0:
+        print(f"  INJECT FAILED: Enter exit {entered.returncode}: "
+              f"{entered.stderr.decode(errors='replace').strip()}")
+        return False
+    return True
 
 
 def get_activity_checker(session_name, trigger_flag=None):

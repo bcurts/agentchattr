@@ -163,13 +163,32 @@ _BUILTIN_DEFAULTS: dict[str, dict] = {
 _VALID_INJECT_MODES = {"settings_file", "env", "flag", "proxy_flag", "env_content"}
 
 
+def _provider_from_command(command: object) -> str:
+    """Return a built-in provider for an exact configured executable name.
+
+    Named agent identities (for example ``claude2``) are independent of
+    the CLI they launch.  Resolve only exact known executable basenames; do
+    not guess from prefixes or arbitrary command text.
+    """
+    if not isinstance(command, str):
+        return ""
+    executable = command.strip().replace("\\", "/").rsplit("/", 1)[-1].lower()
+    for suffix in (".exe", ".cmd", ".bat"):
+        if executable.endswith(suffix):
+            executable = executable[:-len(suffix)]
+            break
+    return executable if executable in _BUILTIN_DEFAULTS else ""
+
+
 def _resolve_mcp_inject(agent: str, agent_cfg: dict) -> dict:
-    """Resolve MCP injection config: explicit agent_cfg > built-in defaults > None."""
-    inject_mode = agent_cfg.get("mcp_inject")
-    if inject_mode:
+    """Resolve MCP injection config: explicit config > provider defaults > none."""
+    if agent_cfg.get("mcp_inject"):
         return dict(agent_cfg)
-    if agent in _BUILTIN_DEFAULTS:
-        merged = dict(_BUILTIN_DEFAULTS[agent])
+    provider = agent
+    if provider not in _BUILTIN_DEFAULTS:
+        provider = _provider_from_command(agent_cfg.get("command", ""))
+    if provider:
+        merged = dict(_BUILTIN_DEFAULTS[provider])
         merged.update({k: v for k, v in agent_cfg.items() if k.startswith("mcp_")})
         return merged
     return {}
