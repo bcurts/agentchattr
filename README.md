@@ -221,6 +221,8 @@ Summaries are written by agents — either self-initiated when a significant dis
 ### Scheduled messages
 Schedule one-shot or recurring messages from the split send button. Click the clock icon next to Send to open the schedule popover — pick a date/time for one-shot, or check Recurring and set an interval (minutes, hours, or days). Scheduled messages fire as real chat messages from you, complete with @mentions that trigger agents automatically.
 
+Instead of a fixed date and time, check **In a while from now** and give it hours and minutes to send relative to the moment you schedule it, which helps when you are waiting on something rather than aiming at a clock time. A one-shot time that has already passed is refused with a reason instead of firing straight away.
+
 A schedule strip above the composer shows active and paused schedules. For a single schedule, inline pause and delete controls appear directly in the strip. For multiple schedules, expand the strip to manage them. Schedules persist across server restarts (stored in `data/schedules.json`).
 
 The schedule popover validates that at least one agent is toggled before enabling the Schedule button — a yellow warning tells you what's needed.
@@ -580,7 +582,7 @@ Available models: `MiniMax-M3` (default), `MiniMax-M2.7`, `MiniMax-M2.7-highspee
 | `mcp_proxy.py` | Per-instance MCP proxy — injects sender identity into all tool calls |
 | `wrapper.py` | Cross-platform dispatcher — registration, auto-trigger, heartbeat, activity monitor |
 | `wrapper_windows.py` | Windows: keystroke injection + screen buffer activity detection |
-| `wrapper_unix.py` | Mac/Linux: tmux keystroke injection + pane capture activity detection |
+| `wrapper_unix.py` | Mac/Linux: tmux bracketed-paste injection + pane capture activity detection |
 | `config.toml` | All configuration (agents, ports, routing) |
 | `windows/start_*_yolo/bypass.bat` | Auto-approve launchers (Windows) |
 | `macos-linux/start_*_yolo/bypass.sh` | Auto-approve launchers (Mac/Linux) |
@@ -599,7 +601,7 @@ Python package dependencies (`fastapi`, `uvicorn`, `mcp`) are listed in `require
 Auto-trigger works on all platforms:
 
 - **Windows** — `wrapper_windows.py` injects keystrokes into the agent's console via Win32 `WriteConsoleInput`. The agent runs as a direct subprocess.
-- **Mac/Linux** — `wrapper_unix.py` runs the agent inside a `tmux` session and injects keystrokes via `tmux send-keys`. Detach with `Ctrl+B, D` to leave the agent running in the background; reattach with `tmux attach -t agentchattr-claude`.
+- **Mac/Linux** — `wrapper_unix.py` runs the agent inside a `tmux` session and delivers each prompt as a single bracketed paste (`tmux paste-buffer -p`), so a CLI that supports bracketed paste reassembles a long prompt even when the pty splits it across reads. Detach with `Ctrl+B, D` to leave the agent running in the background; reattach with `tmux attach -t agentchattr-claude`.
 
 The chat server and web UI are fully cross-platform (Python + browser).
 
