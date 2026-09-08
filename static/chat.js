@@ -2271,6 +2271,7 @@ function updateSlashMenu(text) {
 function selectSlashCommand(cmd) {
     const input = document.getElementById('input');
     input.value = cmd;
+    restartVoiceAfterEdit();
     input.focus();
     document.getElementById('slash-menu').classList.add('hidden');
     slashMenuVisible = false;
@@ -2368,6 +2369,7 @@ function selectMention(name) {
     const after = text.slice(cursor);
     const mention = `@${name} `;
     input.value = before + mention + after;
+    restartVoiceAfterEdit();
     const newPos = mentionMenuStart + mention.length;
     input.setSelectionRange(newPos, newPos);
     input.focus();
@@ -2446,6 +2448,7 @@ function setupInput() {
 
     // Auto-resize + slash menu + mention menu + send button state
     function onInputChange() {
+        restartVoiceAfterEdit();
         input.style.height = 'auto';
         input.style.height = Math.min(input.scrollHeight, 120) + 'px';
         updateSlashMenu(input.value);
@@ -2535,6 +2538,7 @@ function sendMessage() {
     }
 
     input.value = '';
+    restartVoiceAfterEdit();
     input.style.height = 'auto';
     clearAttachments();
     cancelReply();
@@ -3144,6 +3148,9 @@ function buildMentionToggles() {
 
 let recognition = null;
 let isListening = false;
+let voiceText = '';
+let voiceRestartPending = false;
+let voiceRestartTimer = null;
 
 function focusComposerInput() {
     const input = document.getElementById('input');
@@ -3157,77 +3164,92 @@ function focusComposerInput() {
 }
 
 function toggleVoice() {
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-        alert('Speech recognition not supported — use Chrome or Edge.');
-        return;
-    }
-
     if (isListening) {
         stopVoice();
         return;
     }
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+        alert('Speech recognition not supported — use Chrome or Edge.');
+        return;
+    }
+    if (!focusComposerInput()) return;
 
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    recognition = new SpeechRecognition();
-    recognition.lang = 'en-GB';
-    recognition.continuous = true;
-    recognition.interimResults = true;
-
-    const input = focusComposerInput();
-    if (!input) return;
-    const baseText = input.value;
-    let finalTranscript = '';
+    // Reserve the recording immediately, including while start/permission is pending.
+    isListening = true;
     const micButton = document.getElementById('mic');
+    micButton.classList.add('recording');
+    micButton.setAttribute('aria-pressed', 'true');
+    startVoiceRecognition();
+}
 
-    recognition.onstart = () => {
-        isListening = true;
-        micButton.classList.add('recording');
-        micButton.setAttribute('aria-pressed', 'true');
-        focusComposerInput();
-    };
+function scheduleVoiceRestart() {
+    clearTimeout(voiceRestartTimer);
+    // Avoid restarting the microphone for every keystroke while the user edits.
+    voiceRestartTimer = setTimeout(startVoiceRecognition, 250);
+}
 
-    recognition.onresult = (e) => {
-        let interim = '';
-        finalTranscript = '';
-        for (let i = 0; i < e.results.length; i++) {
-            const t = e.results[i][0].transcript;
-            if (e.results[i].isFinal) {
-                finalTranscript += t;
-            } else {
-                interim += t;
-            }
-        }
-        input.value = baseText + (baseText ? ' ' : '') + finalTranscript + interim;
-        focusComposerInput();
-        input.style.height = 'auto';
-        input.style.height = Math.min(input.scrollHeight, 120) + 'px';
-    };
+function restartVoiceAfterEdit() {
+    const input = document.getElementById('input');
+    if (!isListening || !input || input.value === voiceText) return;
+    voiceText = input.value;
+    if (!recognition) {
+        scheduleVoiceRestart();
+    } else if (!voiceRestartPending) {
+        voiceRestartPending = true;
+        try { recognition.abort(); } catch (_) { stopVoice(); }
+    }
+}
 
-    recognition.onerror = (e) => {
-        console.error('Speech error:', e.error);
-        if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
-            alert('Microphone access was blocked. Allow microphone access in Chrome and try again.');
-            stopVoice();
-        } else if (e.error === 'no-speech' || e.error === 'aborted') {
-            // no-speech: Chrome fires after ~5s silence — keep listening
-            // aborted: fires during restart cycle — safe to ignore
-            console.log('Speech:', e.error, '— still listening...');
-        } else {
-            stopVoice();
-        }
-    };
-
-    recognition.onend = () => {
-        // If still supposed to be listening (e.g. after no-speech), restart
-        if (isListening) {
-            try { recognition.start(); } catch (_) { stopVoice(); }
-        } else {
-            stopVoice();
-        }
-    };
+function startVoiceRecognition() {
+    clearTimeout(voiceRestartTimer);
+    voiceRestartTimer = null;
+    if (!isListening || recognition) return;
+    const input = document.getElementById('input');
+    const baseText = input.value;
+    voiceText = baseText;
+    voiceRestartPending = false;
 
     try {
-        recognition.start();
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const current = new SpeechRecognition();
+        recognition = current;
+        current.lang = 'en-GB';
+        current.continuous = true;
+        current.interimResults = true;
+
+        current.onresult = (e) => {
+            if (!isListening || recognition !== current || voiceRestartPending) return;
+            // Also protect programmatic edits that did not dispatch an input event.
+            if (input.value !== voiceText) {
+                restartVoiceAfterEdit();
+                return;
+            }
+            const transcript = Array.from(e.results, result => result[0].transcript).join('');
+            const separator = baseText && transcript && !/\s$/.test(baseText) && !/^\s/.test(transcript) ? ' ' : '';
+            voiceText = baseText + separator + transcript;
+            input.value = voiceText;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        };
+
+        current.onerror = (e) => {
+            if (!isListening || recognition !== current) return;
+            if (e.error === 'no-speech' || e.error === 'aborted') return;
+            stopVoice();
+            if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+                alert('Microphone access was blocked. Allow microphone access in Chrome and try again.');
+            } else {
+                console.error('Speech error:', e.error);
+            }
+        };
+
+        current.onend = () => {
+            if (!isListening || recognition !== current) return;
+            recognition = null;
+            if (voiceRestartPending) scheduleVoiceRestart();
+            else startVoiceRecognition();
+        };
+
+        current.start();
     } catch (e) {
         console.error('Speech start failed:', e);
         stopVoice();
@@ -3236,14 +3258,19 @@ function toggleVoice() {
 
 function stopVoice() {
     isListening = false;
+    clearTimeout(voiceRestartTimer);
+    voiceRestartTimer = null;
+    voiceRestartPending = false;
+    const current = recognition;
+    recognition = null;
     const micButton = document.getElementById('mic');
     if (micButton) {
         micButton.classList.remove('recording');
         micButton.setAttribute('aria-pressed', 'false');
     }
-    if (recognition) {
-        try { recognition.stop(); } catch (_) {}
-        recognition = null;
+    // Invalidate this run before abort: its late events must not touch a new run.
+    if (current) {
+        try { current.abort(); } catch (_) {}
     }
     focusComposerInput();
 }
@@ -3921,6 +3948,7 @@ async function submitSchedulePopover() {
             // user's choices intact, rather than make them start over.
             closeSchedulePopover();
             input.value = '';
+            restartVoiceAfterEdit();
             input.style.height = 'auto';
             updateSendButton();
             showScheduleConfirmation();
