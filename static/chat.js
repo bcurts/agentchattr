@@ -366,9 +366,315 @@ function addCodeCopyButtons(container) {
     }
 }
 
+// Render saved history in small batches, without per-message layout reads.
+let historyLoading = true;
+let historyReceived = false;
+let pendingHistory = [];
+let pendingLiveEvents = [];
+let historyScheduled = false;
+let historyGeneration = 0;
+// A task queue yields between batches and also runs in background tabs,
+// where animation frames can be suspended.
+const historyTasks = new MessageChannel();
+historyTasks.port1.onmessage = (event) => {
+    if (event.data === historyGeneration) renderHistoryBatch();
+};
+
+function setHistoryIndicator(visible) {
+    const loader = document.getElementById('loading-indicator');
+    if (!loader) return;
+    const timeline = document.getElementById('timeline');
+    const top = timeline.scrollTop;
+    const height = loader.getBoundingClientRect().height;
+    loader.classList.toggle('hidden', !visible);
+    if (!autoScroll && top > height) {
+        timeline.scrollTo({ top: top + loader.getBoundingClientRect().height - height, behavior: 'instant' });
+    }
+}
+
+function scheduleHistoryRender() {
+    if (!historyScheduled) {
+        historyScheduled = true;
+        historyTasks.port2.postMessage(historyGeneration);
+    }
+}
+
+function renderHistoryBatch() {
+    historyScheduled = false;
+    const fragment = document.createDocumentFragment();
+    for (const msg of pendingHistory.splice(0, 100)) {
+        appendMessage(msg, { history: true, container: fragment });
+    }
+    const breadcrumbs = [...fragment.querySelectorAll('.job-breadcrumb')];
+    const container = document.getElementById('messages');
+    container.appendChild(fragment);
+    for (const el of breadcrumbs) window._collapseJobBreadcrumbs?.(container, el);
+    if (autoScroll) scrollToBottom(true);
+    if (pendingHistory.length) {
+        scheduleHistoryRender();
+    } else if (historyReceived) {
+        historyLoading = false;
+        soundEnabled = true;
+        setHistoryIndicator(false);
+        const events = pendingLiveEvents;
+        pendingLiveEvents = [];
+        for (const event of events) handleServerEvent(event);
+        if (autoScroll) scrollToBottom(true);
+    }
+}
+
 // --- WebSocket ---
 
+function handleServerEvent(event) {
+    if (historyLoading && ['message', 'edit', 'message_update', 'delete', 'clear', 'channel_renamed', 'agent_renamed'].includes(event.type)) {
+        pendingLiveEvents.push(event);
+        return;
+    }
+    if (event.type === 'history') {
+        pendingHistory.push(...event.messages);
+        scheduleHistoryRender();
+        return;
+    }
+    if (event.type === 'history_complete') {
+        historyReceived = true;
+        scheduleHistoryRender();
+        return;
+    }
+    // Emit through Hub for modules to subscribe (PR 1 seam)
+    Hub.emit(event.type, event);
+    if (event.type === 'message_update') {
+        // Re-render an updated message in-place (e.g. decision card resolved)
+        const updated = event.message;
+        if (updated && updated.id != null) {
+            const existing = document.querySelector(`.message[data-id="${updated.id}"]`);
+            if (existing && updated.type === 'decision') {
+                // Update just the choices area within the bubble
+                const choicesEl = existing.querySelector('.decision-choices');
+                const meta = updated.metadata || {};
+                if (choicesEl && meta.resolved) {
+                    choicesEl.innerHTML = `<div class="decision-resolved">You chose: <strong>${escapeHtml(meta.chosen || '')}</strong></div>`;
+                }
+            }
+        }
+    } else if (event.type === 'message') {
+        if (document.getElementById(`message-${event.data.id}`)) return;
+        // Play notification sound for new messages from others (not joins, not when focused)
+        if (soundEnabled && !document.hasFocus() && event.data.type !== 'join' && event.data.type !== 'leave' && event.data.type !== 'summary' && event.data.sender && event.data.sender.toLowerCase() !== username.toLowerCase()) {
+            playNotificationSound(event.data.sender);
+        }
+        appendMessage(event.data);
+    } else if (event.type === 'agent_renamed') {
+        // Migrate active mentions before the agents config rebuild
+        if (activeMentions.has(event.old_name)) {
+            activeMentions.delete(event.old_name);
+            activeMentions.add(event.new_name);
+        }
+        // Migrate the per-channel remembered toggles too
+        for (const ch of Object.keys(_channelMentions)) {
+            const arr = _channelMentions[ch];
+            const idx = arr.indexOf(event.old_name);
+            if (idx !== -1) arr[idx] = event.new_name;
+        }
+        // Update sender name, color, and avatar on all existing messages in the DOM
+        const newColor = getColor(event.new_name);
+        const newAvatar = getAvatarSvg(event.new_name);
+        const newAgentKey = (resolveAgent(event.new_name.toLowerCase()) || event.new_name).toLowerCase();
+        const newHat = agentHats[newAgentKey] || '';
+        document.querySelectorAll('#messages .message').forEach(el => {
+            // Regular chat messages
+            const senderEl = el.querySelector('.msg-sender');
+            if (senderEl && senderEl.textContent === event.old_name) {
+
+                senderEl.textContent = event.new_name;
+                senderEl.style.color = newColor;
+                // Update bubble accent color
+                const bubble = el.querySelector('.chat-bubble');
+                if (bubble) bubble.style.setProperty('--bubble-color', newColor);
+                // Update avatar
+                const avatarWrap = el.querySelector('.avatar-wrap');
+                if (avatarWrap) {
+                    avatarWrap.dataset.agent = newAgentKey;
+                    const avatar = avatarWrap.querySelector('.avatar');
+                    if (avatar) {
+                        avatar.style.backgroundColor = newColor;
+                        avatar.innerHTML = newAvatar;
+                    }
+                    // Update hat
+                    let hatEl = avatarWrap.querySelector('.hat-overlay');
+                    if (newHat) {
+                        if (!hatEl) {
+                            hatEl = document.createElement('div');
+                            hatEl.className = 'hat-overlay';
+                            avatarWrap.appendChild(hatEl);
+                        }
+                        hatEl.dataset.agent = newAgentKey;
+                        hatEl.innerHTML = newHat;
+                    } else if (hatEl) {
+                        hatEl.remove();
+                    }
+                }
+            }
+            // Join/leave messages (separate structure, no .msg-sender)
+            const joinText = el.querySelector('.join-text strong');
+            if (joinText && joinText.textContent === event.old_name) {
+
+                joinText.textContent = event.new_name;
+                joinText.style.color = newColor;
+                const joinDot = el.querySelector('.join-dot');
+                if (joinDot) joinDot.style.background = newColor;
+            }
+        });
+    } else if (event.type === 'agents') {
+        applyAgentConfig(event.data);
+    } else if (event.type === 'base_colors') {
+        baseColors = event.data || {};
+    } else if (event.type === 'todos') {
+        todos = {};
+        for (const [id, status] of Object.entries(event.data)) {
+            todos[parseInt(id)] = status;
+        }
+    } else if (event.type === 'todo_update') {
+        const d = event.data;
+        if (d.status === null) {
+            delete todos[d.id];
+        } else {
+            todos[d.id] = d.status;
+        }
+        updateTodoState(d.id, d.status);
+    } else if (event.type === 'status') {
+        updateStatus(event.data);
+    } else if (event.type === 'typing') {
+        updateTyping(event.agent, event.active);
+    } else if (event.type === 'settings') {
+        applySettings(event.data);
+    } else if (event.type === 'delete') {
+        handleDeleteBroadcast(event.ids);
+    } else if (event.type === 'rules' || event.type === 'decisions') {
+        rules = event.data || [];
+        renderRulesPanel();
+        updateRulesBadge();
+    } else if (event.type === 'rule' || event.type === 'decision') {
+        handleRuleEvent(event.action, event.data);
+    } else if (event.type === 'hats') {
+        agentHats = event.data || {};
+        updateAllHats();
+    } else if (event.type === 'schedules') {
+        schedulesList = event.data || [];
+        renderSchedulesBar();
+    } else if (event.type === 'schedule') {
+        handleScheduleEvent(event.action, event.data);
+    } else if (event.type === 'pending_instance') {
+        // A new 2nd+ instance registered — queue naming lightbox
+        _pendingNameQueue.push({
+            name: event.name,
+            label: event.label || event.name,
+            color: event.color || '#888',
+            base: event.base || '',
+        });
+        _showNextPendingName();
+    } else if (event.type === 'channel_renamed') {
+        // Migrate per-channel client state to the new name
+        const channelIndex = channelList.indexOf(event.old_name);
+        if (channelIndex !== -1) {
+            channelList = [...channelList];
+            channelList[channelIndex] = event.new_name;
+        }
+        if (channelUnread[event.old_name] !== undefined) {
+            channelUnread[event.new_name] = channelUnread[event.old_name];
+            delete channelUnread[event.old_name];
+        }
+        if (_channelMentions[event.old_name] !== undefined) {
+            _channelMentions[event.new_name] = _channelMentions[event.old_name];
+            delete _channelMentions[event.old_name];
+        }
+        if (pendingChannelSwitch === event.old_name) {
+            pendingChannelSwitch = event.new_name;
+        }
+        // Migrate data-channel on existing DOM elements
+        const container = document.getElementById('messages');
+        for (const el of container.children) {
+            if ((el.dataset.channel || 'general') === event.old_name) {
+                el.dataset.channel = event.new_name;
+            }
+        }
+        // Update per-channel date tracking
+        if (lastMessageDates[event.old_name]) {
+            lastMessageDates[event.new_name] = lastMessageDates[event.old_name];
+            delete lastMessageDates[event.old_name];
+        }
+        // Update active channel if we were on the renamed one
+        if (activeChannel === event.old_name) {
+            activeChannel = event.new_name;
+            localStorage.setItem('agentchattr-channel', event.new_name);
+            Store.set('activeChannel', event.new_name);
+        }
+        filterMessagesByChannel();
+        renderChannelTabs();
+    } else if (event.type === 'edit') {
+        // A message was edited/demoted — re-render it in place
+        const updatedMsg = event.message;
+        if (updatedMsg && updatedMsg.id != null) {
+            const el = document.querySelector(`.message[data-id="${updatedMsg.id}"]`);
+            if (el) {
+                // Insert a fresh message after the old one, then remove the old
+                const placeholder = document.createElement('div');
+                el.after(placeholder);
+                el.remove();
+                // Temporarily hijack container to insert at the right spot
+                const container = document.getElementById('messages');
+                appendMessage(updatedMsg, { history: true });
+                // Move the newly appended message to where the old one was
+                const newEl = container.lastElementChild;
+                if (newEl && newEl.dataset.id == updatedMsg.id) {
+                    placeholder.replaceWith(newEl);
+                } else {
+                    placeholder.remove();
+                }
+            }
+        }
+    } else if (event.type === 'clear') {
+        const _clearDbgList = document.getElementById('jobs-list');
+        const _clearDbgBefore = _clearDbgList ? _clearDbgList.children.length : -1;
+        console.log('CLEAR_DEBUG clear event received, channel=' + (event.channel || 'ALL'), 'jobs-panel-children-before=' + _clearDbgBefore);
+        const clearChannel = event.channel || null;
+        if (clearChannel) {
+            // Per-channel clear: remove only messages from that channel
+            const container = document.getElementById('messages');
+            const toRemove = [];
+            for (const el of container.children) {
+                const isDivider = el.classList.contains('date-divider');
+                if ((el.dataset.id || isDivider) && (el.dataset.channel || 'general') === clearChannel) {
+                    toRemove.push(el);
+                }
+            }
+            toRemove.forEach(el => el.remove());
+            // Clean up orphaned date dividers and reset tracking
+            delete lastMessageDates[clearChannel];
+            filterMessagesByChannel();
+        } else {
+            // Full clear (all channels)
+            document.getElementById('messages').innerHTML = '';
+            lastMessageDate = null;
+            lastMessageDates = {};
+        }
+        dayFloatRefresh();
+        requestAnimationFrame(() => {
+            const _clearDbgAfter = _clearDbgList ? _clearDbgList.children.length : -1;
+            console.log('CLEAR_DEBUG after clear (next frame), jobs-panel-children=' + _clearDbgAfter);
+        });
+    } else if (event.type === 'reload') {
+        // Server requests full page reload (e.g. after import)
+        location.reload();
+    }
+}
+
 function connectWebSocket() {
+    historyGeneration++;
+    historyScheduled = false;
+    historyLoading = true;
+    historyReceived = false;
+    pendingHistory = [];
+    pendingLiveEvents = [];
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(SESSION_TOKEN)}`);
 
@@ -380,247 +686,7 @@ function connectWebSocket() {
         }
     };
 
-    ws.onmessage = (e) => {
-        const event = JSON.parse(e.data);
-        // Emit through Hub for modules to subscribe (PR 1 seam)
-        Hub.emit(event.type, event);
-        if (event.type === 'message_update') {
-            // Re-render an updated message in-place (e.g. decision card resolved)
-            const updated = event.message;
-            if (updated && updated.id) {
-                const existing = document.querySelector(`.message[data-id="${updated.id}"]`);
-                if (existing && updated.type === 'decision') {
-                    // Update just the choices area within the bubble
-                    const choicesEl = existing.querySelector('.decision-choices');
-                    const meta = updated.metadata || {};
-                    if (choicesEl && meta.resolved) {
-                        choicesEl.innerHTML = `<div class="decision-resolved">You chose: <strong>${escapeHtml(meta.chosen || '')}</strong></div>`;
-                    }
-                }
-            }
-        } else if (event.type === 'message') {
-            // Play notification sound for new messages from others (not joins, not when focused)
-            if (soundEnabled && !document.hasFocus() && event.data.type !== 'join' && event.data.type !== 'leave' && event.data.type !== 'summary' && event.data.sender && event.data.sender.toLowerCase() !== username.toLowerCase()) {
-                playNotificationSound(event.data.sender);
-            }
-            appendMessage(event.data);
-        } else if (event.type === 'agent_renamed') {
-            // Migrate active mentions before the agents config rebuild
-            if (activeMentions.has(event.old_name)) {
-                activeMentions.delete(event.old_name);
-                activeMentions.add(event.new_name);
-            }
-            // Migrate the per-channel remembered toggles too
-            for (const ch of Object.keys(_channelMentions)) {
-                const arr = _channelMentions[ch];
-                const idx = arr.indexOf(event.old_name);
-                if (idx !== -1) arr[idx] = event.new_name;
-            }
-            // Update sender name, color, and avatar on all existing messages in the DOM
-            const newColor = getColor(event.new_name);
-            const newAvatar = getAvatarSvg(event.new_name);
-            const newAgentKey = (resolveAgent(event.new_name.toLowerCase()) || event.new_name).toLowerCase();
-            const newHat = agentHats[newAgentKey] || '';
-            document.querySelectorAll('#messages .message').forEach(el => {
-                // Regular chat messages
-                const senderEl = el.querySelector('.msg-sender');
-                if (senderEl && senderEl.textContent === event.old_name) {
-
-                    senderEl.textContent = event.new_name;
-                    senderEl.style.color = newColor;
-                    // Update bubble accent color
-                    const bubble = el.querySelector('.chat-bubble');
-                    if (bubble) bubble.style.setProperty('--bubble-color', newColor);
-                    // Update avatar
-                    const avatarWrap = el.querySelector('.avatar-wrap');
-                    if (avatarWrap) {
-                        avatarWrap.dataset.agent = newAgentKey;
-                        const avatar = avatarWrap.querySelector('.avatar');
-                        if (avatar) {
-                            avatar.style.backgroundColor = newColor;
-                            avatar.innerHTML = newAvatar;
-                        }
-                        // Update hat
-                        let hatEl = avatarWrap.querySelector('.hat-overlay');
-                        if (newHat) {
-                            if (!hatEl) {
-                                hatEl = document.createElement('div');
-                                hatEl.className = 'hat-overlay';
-                                avatarWrap.appendChild(hatEl);
-                            }
-                            hatEl.dataset.agent = newAgentKey;
-                            hatEl.innerHTML = newHat;
-                        } else if (hatEl) {
-                            hatEl.remove();
-                        }
-                    }
-                }
-                // Join/leave messages (separate structure, no .msg-sender)
-                const joinText = el.querySelector('.join-text strong');
-                if (joinText && joinText.textContent === event.old_name) {
-
-                    joinText.textContent = event.new_name;
-                    joinText.style.color = newColor;
-                    const joinDot = el.querySelector('.join-dot');
-                    if (joinDot) joinDot.style.background = newColor;
-                }
-            });
-        } else if (event.type === 'agents') {
-            applyAgentConfig(event.data);
-        } else if (event.type === 'base_colors') {
-            baseColors = event.data || {};
-        } else if (event.type === 'todos') {
-            todos = {};
-            for (const [id, status] of Object.entries(event.data)) {
-                todos[parseInt(id)] = status;
-            }
-        } else if (event.type === 'todo_update') {
-            const d = event.data;
-            if (d.status === null) {
-                delete todos[d.id];
-            } else {
-                todos[d.id] = d.status;
-            }
-            updateTodoState(d.id, d.status);
-        } else if (event.type === 'status') {
-            updateStatus(event.data);
-            // Status is the last event sent on connect — enable sounds after history
-            if (!soundEnabled) {
-                soundEnabled = true;
-                const loader = document.getElementById('loading-indicator');
-                if (loader) loader.classList.add('hidden');
-                filterMessagesByChannel();
-                renderChannelTabs();
-                // Ensure refresh/reconnect lands on the latest visible message.
-                requestAnimationFrame(() => {
-                    autoScroll = true;
-                    scrollToBottom();
-                });
-            }
-        } else if (event.type === 'typing') {
-            updateTyping(event.agent, event.active);
-        } else if (event.type === 'settings') {
-            applySettings(event.data);
-        } else if (event.type === 'delete') {
-            handleDeleteBroadcast(event.ids);
-        } else if (event.type === 'rules' || event.type === 'decisions') {
-            rules = event.data || [];
-            renderRulesPanel();
-            updateRulesBadge();
-        } else if (event.type === 'rule' || event.type === 'decision') {
-            handleRuleEvent(event.action, event.data);
-        } else if (event.type === 'hats') {
-            agentHats = event.data || {};
-            updateAllHats();
-        } else if (event.type === 'schedules') {
-            schedulesList = event.data || [];
-            renderSchedulesBar();
-        } else if (event.type === 'schedule') {
-            handleScheduleEvent(event.action, event.data);
-        } else if (event.type === 'pending_instance') {
-            // A new 2nd+ instance registered — queue naming lightbox
-            _pendingNameQueue.push({
-                name: event.name,
-                label: event.label || event.name,
-                color: event.color || '#888',
-                base: event.base || '',
-            });
-            _showNextPendingName();
-        } else if (event.type === 'channel_renamed') {
-            // Migrate per-channel client state to the new name
-            const channelIndex = channelList.indexOf(event.old_name);
-            if (channelIndex !== -1) {
-                channelList = [...channelList];
-                channelList[channelIndex] = event.new_name;
-            }
-            if (channelUnread[event.old_name] !== undefined) {
-                channelUnread[event.new_name] = channelUnread[event.old_name];
-                delete channelUnread[event.old_name];
-            }
-            if (_channelMentions[event.old_name] !== undefined) {
-                _channelMentions[event.new_name] = _channelMentions[event.old_name];
-                delete _channelMentions[event.old_name];
-            }
-            if (pendingChannelSwitch === event.old_name) {
-                pendingChannelSwitch = event.new_name;
-            }
-            // Migrate data-channel on existing DOM elements
-            const container = document.getElementById('messages');
-            for (const el of container.children) {
-                if ((el.dataset.channel || 'general') === event.old_name) {
-                    el.dataset.channel = event.new_name;
-                }
-            }
-            // Update per-channel date tracking
-            if (lastMessageDates[event.old_name]) {
-                lastMessageDates[event.new_name] = lastMessageDates[event.old_name];
-                delete lastMessageDates[event.old_name];
-            }
-            // Update active channel if we were on the renamed one
-            if (activeChannel === event.old_name) {
-                activeChannel = event.new_name;
-                localStorage.setItem('agentchattr-channel', event.new_name);
-                Store.set('activeChannel', event.new_name);
-            }
-            filterMessagesByChannel();
-            renderChannelTabs();
-        } else if (event.type === 'edit') {
-            // A message was edited/demoted — re-render it in place
-            const updatedMsg = event.message;
-            if (updatedMsg && updatedMsg.id != null) {
-                const el = document.querySelector(`.message[data-id="${updatedMsg.id}"]`);
-                if (el) {
-                    // Insert a fresh message after the old one, then remove the old
-                    const placeholder = document.createElement('div');
-                    el.after(placeholder);
-                    el.remove();
-                    // Temporarily hijack container to insert at the right spot
-                    const container = document.getElementById('messages');
-                    appendMessage(updatedMsg);
-                    // Move the newly appended message to where the old one was
-                    const newEl = container.lastElementChild;
-                    if (newEl && newEl.dataset.id == updatedMsg.id) {
-                        placeholder.replaceWith(newEl);
-                    } else {
-                        placeholder.remove();
-                    }
-                }
-            }
-        } else if (event.type === 'clear') {
-            const _clearDbgList = document.getElementById('jobs-list');
-            const _clearDbgBefore = _clearDbgList ? _clearDbgList.children.length : -1;
-            console.log('CLEAR_DEBUG clear event received, channel=' + (event.channel || 'ALL'), 'jobs-panel-children-before=' + _clearDbgBefore);
-            const clearChannel = event.channel || null;
-            if (clearChannel) {
-                // Per-channel clear: remove only messages from that channel
-                const container = document.getElementById('messages');
-                const toRemove = [];
-                for (const el of container.children) {
-                    const isDivider = el.classList.contains('date-divider');
-                    if ((el.dataset.id || isDivider) && (el.dataset.channel || 'general') === clearChannel) {
-                        toRemove.push(el);
-                    }
-                }
-                toRemove.forEach(el => el.remove());
-                // Clean up orphaned date dividers and reset tracking
-                delete lastMessageDates[clearChannel];
-                filterMessagesByChannel();
-            } else {
-                // Full clear (all channels)
-                document.getElementById('messages').innerHTML = '';
-                lastMessageDate = null;
-                lastMessageDates = {};
-            }
-            dayFloatRefresh();
-            requestAnimationFrame(() => {
-                const _clearDbgAfter = _clearDbgList ? _clearDbgList.children.length : -1;
-                console.log('CLEAR_DEBUG after clear (next frame), jobs-panel-children=' + _clearDbgAfter);
-            });
-        } else if (event.type === 'reload') {
-            // Server requests full page reload (e.g. after import)
-            location.reload();
-        }
-    };
+    ws.onmessage = (e) => handleServerEvent(JSON.parse(e.data));
 
     ws.onclose = (e) => {
         // Server sends 4003 when session token is invalid (server restarted).
@@ -632,8 +698,13 @@ function connectWebSocket() {
         }
         console.log('Disconnected, reconnecting in 2s...');
         soundEnabled = false;  // suppress sounds during reconnect history replay
-        const loader = document.getElementById('loading-indicator');
-        if (loader) loader.classList.remove('hidden');
+        historyGeneration++;
+        historyScheduled = false;
+        historyLoading = true;
+        historyReceived = false;
+        pendingHistory = [];
+        pendingLiveEvents = [];
+        setHistoryIndicator(true);
         reconnectTimer = setTimeout(connectWebSocket, 2000);
     };
 
@@ -752,14 +823,17 @@ function dayFloatRefresh() {
 
 // --- Messages ---
 
-function appendMessage(msg) {
-    const container = document.getElementById('messages');
+function appendMessage(msg, options = {}) {
+    // History replay and a live delivery can contain the same saved message.
+    if (document.getElementById(`message-${msg.id}`)) return;
+    const container = options.container || document.getElementById('messages');
 
     // Insert date divider if needed
     maybeInsertDateDivider(container, msg);
 
     const el = document.createElement('div');
     el.className = 'message';
+    el.id = `message-${msg.id}`;
     el.dataset.id = msg.id;
     const msgChannel = msg.channel || 'general';
     el.dataset.channel = msgChannel;
@@ -913,7 +987,7 @@ function appendMessage(msg) {
     if (msgChannel !== activeChannel) {
         el.style.display = 'none';
         // Track unread for background channels (skip joins/leaves and initial history load)
-        if (soundEnabled && msg.type !== 'join' && msg.type !== 'leave') {
+        if (!options.history && soundEnabled && msg.type !== 'join' && msg.type !== 'leave') {
             channelUnread[msgChannel] = (channelUnread[msgChannel] || 0) + 1;
             renderChannelTabs();
             // Play soft pluck for cross-channel chat messages from others (only when focused)
@@ -926,11 +1000,11 @@ function appendMessage(msg) {
     container.appendChild(el);
 
     // Collapse consecutive job_created messages into a group
-    if (msg.type === 'job_created' && window._collapseJobBreadcrumbs) {
+    if (!options.history && msg.type === 'job_created' && window._collapseJobBreadcrumbs) {
         window._collapseJobBreadcrumbs(container, el);
     }
 
-    if (msgChannel !== activeChannel) return;  // don't scroll for hidden messages
+    if (options.history || msgChannel !== activeChannel) return;  // history scrolls once per batch
 
     if (autoScroll) {
         scrollToBottom();
@@ -994,9 +1068,9 @@ function colorMentions(textHtml) {
     });
 }
 
-function scrollToBottom() {
+function scrollToBottom(instant = false) {
     const timeline = document.getElementById('timeline');
-    timeline.scrollTop = timeline.scrollHeight;
+    timeline.scrollTo({ top: timeline.scrollHeight, behavior: instant ? 'instant' : 'auto' });
     unreadCount = 0;
     updateScrollAnchor();
 }
@@ -2587,6 +2661,10 @@ function setupScroll() {
     const timeline = document.getElementById('timeline');
     const messages = document.getElementById('messages');
 
+    timeline.addEventListener('wheel', (event) => {
+        if (event.deltaY < 0) autoScroll = false;
+    }, { passive: true });
+
     timeline.addEventListener('scroll', () => {
         const distFromBottom = timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight;
         autoScroll = distFromBottom < 60;
@@ -2600,7 +2678,7 @@ function setupScroll() {
 
     // Keep pinned to bottom when content changes (e.g. images load)
     const resizeObserver = new ResizeObserver(() => {
-        if (autoScroll) {
+        if (autoScroll && !historyLoading) {
             scrollToBottom();
         }
     });

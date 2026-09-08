@@ -1132,8 +1132,14 @@ async def websocket_endpoint(websocket: WebSocket):
     # Sort history by timestamp to interleave messages from different channels correctly
     history.sort(key=lambda m: m.get("timestamp", 0))
     
-    for msg in history:
-        await websocket.send_text(json.dumps({"type": "message", "data": msg}))
+    # Saved messages have their own boundary; presence updates can arrive at
+    # any time and must never make old history look like new chat.
+    for offset in range(0, len(history), 100):
+        await websocket.send_text(json.dumps({
+            "type": "history", "messages": history[offset:offset + 100],
+        }))
+        await asyncio.sleep(0)
+    await websocket.send_text(json.dumps({"type": "history_complete"}))
 
     # Send status
     await broadcast_status()
