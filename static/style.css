@@ -1242,7 +1242,7 @@ main#timeline {
 
 #channel-bar {
     display: grid;
-    grid-template-columns: 1fr auto 1fr;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
     padding: 0 16px;
     background: var(--bg-header);
@@ -1253,7 +1253,7 @@ main#timeline {
 }
 
 .channel-bar-left-spacer {
-    /* Empty grid column 1 balances right side for true centering */
+    display: none;
 }
 
 .channel-main {
@@ -1278,6 +1278,15 @@ main#timeline {
 }
 
 #channel-tabs::-webkit-scrollbar { display: none; }
+
+#channel-bar .channel-bar-right {
+    container-type: normal;
+}
+
+#channel-tabs .channel-tab,
+#channel-tabs .channel-inline-create {
+    flex-shrink: 0;
+}
 
 .channel-tab {
     background: transparent;

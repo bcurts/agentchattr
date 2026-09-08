@@ -62,7 +62,6 @@ room_settings: dict = {
 
 # Channel validation
 _CHANNEL_NAME_RE = _re.compile(r'^[a-z0-9][a-z0-9\-]{0,19}$')
-MAX_CHANNELS = 8
 
 # Agent hats (persisted to data/hats.json)
 agent_hats: dict[str, str] = {}  # { agent_name: svg_string }
@@ -1414,8 +1413,6 @@ async def websocket_endpoint(websocket: WebSocket):
                 if not name or not _CHANNEL_NAME_RE.match(name):
                     continue
                 if name in room_settings["channels"]:
-                    continue
-                if len(room_settings["channels"]) >= MAX_CHANNELS:
                     continue
                 room_settings["channels"].append(name)
                 _save_settings()
