@@ -755,6 +755,19 @@ function dayFloatRefresh() {
 function appendMessage(msg) {
     const container = document.getElementById('messages');
 
+    // Skip a message that is already rendered. The server replays a channel's
+    // whole history on every connect, and ws.onclose reconnects without
+    // clearing the timeline, so without this guard every reconnect appended the
+    // entire history again and the message list grew without bound.
+    //
+    // Above maybeInsertDateDivider on purpose, so a replayed message cannot add
+    // a duplicate divider either. The 'edit' handler re-renders through this
+    // function but removes the old element first, so its lookup misses and the
+    // re-render still works - keep that order if it is ever reworked.
+    if (msg.id != null && container.querySelector(`.message[data-id="${msg.id}"]`)) {
+        return;
+    }
+
     // Insert date divider if needed
     maybeInsertDateDivider(container, msg);
 
