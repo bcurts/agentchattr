@@ -815,8 +815,6 @@ def chat_rules(
         if not sender.strip():
             return "Error: sender is required."
         result = rules.propose(rule, sender, reason)
-        if result is None:
-            return "Error: too many rules."
         # Add proposal card to chat timeline
         if store:
             store.add(

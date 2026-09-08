@@ -243,6 +243,21 @@ class SessionStore:
         self._fire("update", result)
         return result
 
+    def set_choice(self, session_id: int, message_id: int | None) -> dict | None:
+        """Keep the current turn while its participant asks the human a question."""
+        with self._lock:
+            session = self._find(session_id)
+            if not session or session["state"] not in ("active", "waiting", "paused"):
+                return None
+            session["choice_message_id"] = message_id
+            if message_id is not None:
+                session["last_choice_message_id"] = message_id
+            session["updated_at"] = time.time()
+            self._save()
+            result = dict(session)
+        self._fire("update", result)
+        return result
+
     def pause(self, session_id: int) -> dict | None:
         """Pause session (human interruption)."""
         with self._lock:

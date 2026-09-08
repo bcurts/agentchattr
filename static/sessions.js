@@ -287,7 +287,10 @@ function updateSessionBar() {
     if (endBtn) endBtn.style.display = '';
 
     const waitingAgent = s.current_agent || s.waiting_on;
-    if (s.state === 'waiting' && waitingAgent) {
+    if (s.state !== 'paused' && s.choice_message_id != null) {
+        waitingEl.textContent = 'Waiting for your choice';
+        waitingEl.style.display = '';
+    } else if (s.state === 'waiting' && waitingAgent) {
         waitingEl.textContent = `Waiting for ${waitingAgent}`;
         waitingEl.style.display = '';
     } else if (s.state === 'paused') {

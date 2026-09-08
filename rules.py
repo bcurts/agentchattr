@@ -6,10 +6,8 @@ import threading
 import uuid
 from pathlib import Path
 
-MAX_ACTIVE_RULES = 10
 MAX_TEXT_CHARS = 160
 MAX_REASON_CHARS = 240
-SOFT_WARNING_THRESHOLD = 7
 
 
 class RuleStore:
@@ -116,9 +114,6 @@ class RuleStore:
 
     def propose(self, text: str, author: str, reason: str = "") -> dict | None:
         with self._lock:
-            total = len(self._rules)
-            if total >= 50:  # generous total cap including all states
-                return None
             r = {
                 "id": self._next_id,
                 "uid": str(uuid.uuid4()),
@@ -136,9 +131,6 @@ class RuleStore:
 
     def activate(self, rule_id: int) -> dict | None:
         with self._lock:
-            active_count = sum(1 for r in self._rules if r.get("status") == "active")
-            if active_count >= MAX_ACTIVE_RULES:
-                return None
             for r in self._rules:
                 if r["id"] == rule_id:
                     r["status"] = "active"

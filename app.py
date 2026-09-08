@@ -1250,7 +1250,10 @@ async def websocket_endpoint(websocket: WebSocket):
             elif event.get("type") in ("decision_approve", "rule_activate"):
                 rid = event.get("id")
                 if rid is not None:
-                    rules.activate(int(rid))
+                    if not rules.activate(int(rid)):
+                        await websocket.send_text(json.dumps({
+                            "type": "rule_error", "error": "Rule no longer exists. Refresh the page.",
+                        }))
                 continue
 
             elif event.get("type") in ("decision_unapprove", "rule_deactivate"):
@@ -1822,14 +1825,16 @@ async def resolve_rule_proposal(msg_id: int, request: Request):
         return JSONResponse({"error": "not a rule proposal"}, status_code=400)
     body = await request.json()
     action = body.get("action", "")
-    meta = msg.get("metadata", {})
+    meta = dict(msg.get("metadata") or {})
     rule_id = meta.get("rule_id")
 
     if action == "activate" and rule_id is not None:
-        rules.activate(int(rule_id))
+        if not rules.activate(int(rule_id)):
+            return JSONResponse({"error": "Rule no longer exists."}, status_code=409)
         meta["status"] = "activated"
     elif action == "draft" and rule_id is not None:
-        rules.make_draft(int(rule_id))
+        if not rules.make_draft(int(rule_id)):
+            return JSONResponse({"error": "Rule no longer exists."}, status_code=409)
         meta["status"] = "drafted"
     elif action == "dismiss" and rule_id is not None:
         rules.delete(int(rule_id))
