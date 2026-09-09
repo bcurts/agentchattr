@@ -104,9 +104,10 @@ def load_config(root: Path | None = None) -> dict:
     """Load config.toml and merge config.local.toml if it exists.
 
     config.local.toml is gitignored and intended for user-specific agents
-    (e.g. local LLM endpoints) that shouldn't be committed.
-    Only the [agents] section is merged — local entries are added alongside
-    (not replacing) the agents defined in config.toml.
+    (e.g. local LLM endpoints or trusted reverse-proxy origins) that
+    shouldn't be committed. Only safe local-only settings are merged:
+    [agents] entries and [server].trusted_origins. Local agent entries are
+    added alongside (not replacing) the agents defined in config.toml.
 
     AGENTCHATTR_* environment variables override values from config.toml
     (see module docstring for the list).
@@ -121,6 +122,19 @@ def load_config(root: Path | None = None) -> dict:
     if local_path.exists():
         with open(local_path, "rb") as f:
             local = tomllib.load(f)
+
+        local_server = local.get("server", {})
+        local_trusted_origins = local_server.get("trusted_origins")
+        if isinstance(local_trusted_origins, list):
+            server_cfg = config.setdefault("server", {})
+            merged = []
+            for origin in [
+                *server_cfg.get("trusted_origins", []),
+                *local_trusted_origins,
+            ]:
+                if isinstance(origin, str) and origin not in merged:
+                    merged.append(origin)
+            server_cfg["trusted_origins"] = merged
 
         # Merge [agents] section — local agents are added ONLY if they don't already exist.
         # This protects the "holy trinity" (claude, codex, gemini) from being overridden.

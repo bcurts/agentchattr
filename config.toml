@@ -2,6 +2,7 @@
 port = 8300
 host = "127.0.0.1"
 data_dir = "./data"
+trusted_origins = []        # Optional HTTPS origins for reverse proxy / Tailscale access
 
 # Add agents here. Each gets a status pill, @mention routing, and color.
 # "cwd" is the working directory for the agent's terminal session.
