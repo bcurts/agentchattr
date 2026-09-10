@@ -136,7 +136,27 @@ def _deliver(text: str, tmux_session: str, buffer_name: str, delay: float) -> bo
     return True
 
 
-def get_activity_checker(session_name, trigger_flag=None):
+def _without_codex_input_animation(output: bytes) -> bytes:
+    """Ignore Codex's single-dot particles in and immediately around its prompt.
+
+    Keep output above the composer intact, including real Braille output and
+    progress spinners. Replacing particles with spaces preserves text columns.
+    """
+    dots = "⠁⠂⠄⠈⠐⠠⡀⢀"
+    lines = output.decode("utf-8", errors="replace").splitlines()
+    prompt = next((i for i in range(len(lines) - 1, -1, -1)
+                   if lines[i].lstrip(" " + dots).startswith("›")), None)
+    if prompt is None:
+        return output
+    translation = str.maketrans({dot: " " for dot in dots})
+    lines[prompt] = lines[prompt].translate(translation).rstrip()
+    for index in (prompt - 1, prompt + 1):
+        if 0 <= index < len(lines) and not lines[index].strip(" \t" + dots):
+            lines[index] = ""
+    return "\n".join(lines).encode("utf-8")
+
+
+def get_activity_checker(session_name, trigger_flag=None, *, provider=""):
     """Return a callable that detects tmux pane output by hashing content."""
     last_hash = [None]
 
@@ -150,7 +170,10 @@ def get_activity_checker(session_name, trigger_flag=None):
                 ["tmux", "capture-pane", "-t", session_name, "-p"],
                 capture_output=True, timeout=2,
             )
-            h = hash(result.stdout)
+            output = result.stdout
+            if provider == "codex":
+                output = _without_codex_input_animation(output)
+            h = hash(output)
             changed = last_hash[0] is not None and h != last_hash[0]
             last_hash[0] = h
             return changed

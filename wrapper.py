@@ -888,7 +888,10 @@ def main():
         from wrapper_unix import get_activity_checker, run_agent
 
         unix_session_name = f"agentchattr-{assigned_name}"
-        _set_activity_checker(get_activity_checker(unix_session_name, trigger_flag=_trigger_flag))
+        _set_activity_checker(get_activity_checker(
+            unix_session_name, trigger_flag=_trigger_flag,
+            provider=_provider_from_command(command),
+        ))
 
     run_kwargs = dict(
         command=command,
