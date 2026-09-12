@@ -93,6 +93,15 @@ label = "MiniMax"
 api_key_env = "MINIMAX_API_KEY"
 temperature = 1.0
 
+[agents.orca]
+type = "api"
+base_url = "https://api.orcarouter.ai/v1"
+model = "anthropic/claude-sonnet-5"
+color = "#4f46e5"
+label = "OrcaRouter"
+api_key_env = "ORCAROUTER_API_KEY"
+temperature = 1.0
+
 [routing]
 # "none" = only route on explicit @mention. "all" = route to all agents by default.
 default = "none"

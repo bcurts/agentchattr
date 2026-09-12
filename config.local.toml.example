@@ -52,3 +52,18 @@
 # label = "MiniMax"
 # api_key_env = "MINIMAX_API_KEY"
 # temperature = 1.0
+
+# --- Example: OrcaRouter (cloud gateway) ---
+# OrcaRouter routes every call through OpenAI- and Anthropic-compatible endpoints.
+# Get an API key at https://www.orcarouter.ai and set ORCAROUTER_API_KEY in your
+# environment before launching. Model IDs are namespaced (e.g. anthropic/claude-sonnet-5,
+# z-ai/glm-4.6) — see https://api.orcarouter.ai/v1/models for the full catalog.
+#
+# [agents.orca]
+# type = "api"
+# base_url = "https://api.orcarouter.ai/v1"
+# model = "anthropic/claude-sonnet-5"
+# color = "#4f46e5"
+# label = "OrcaRouter"
+# api_key_env = "ORCAROUTER_API_KEY"
+# temperature = 1.0
