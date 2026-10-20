@@ -102,6 +102,11 @@ max_agent_hops = 4
 http_port = 8200
 sse_port = 8201
 
+[search]
+# Job research tools use anonymous Parallel Search MCP, with no account/API key.
+# Set false to block outbound research requests. Agent CLI tool approvals apply.
+enabled = true
+
 [images]
 upload_dir = "./uploads"
 max_size_mb = 10

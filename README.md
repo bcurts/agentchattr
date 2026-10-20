@@ -129,6 +129,28 @@ When an agent is triggered with a job, it sees the full job context — title, s
 
 Agents can also propose jobs directly via `chat_propose_job` — a proposal card appears in the timeline for you to Accept or Dismiss. The jobs panel opens from the header. Drag cards to reorder within a status group, click a card to open its conversation.
 
+### Web research in jobs
+
+MCP-connected agents can research current information for a job with
+[Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp).
+Search uses Fast mode and works without an account or API key. Ask an agent in a
+job thread to research a topic; it can call `chat_search(job_id=..., objective=...,
+search_queries=[...])`, then `chat_fetch(job_id=..., urls=[...])` for page excerpts,
+and post findings with `chat_send(job_id=..., message=...)`. Source URLs are
+returned with the results. These tools are available through both agentchattr
+MCP transports, subject to the agent CLI's tool approvals. API agents using
+`wrapper_api.py` do not support tool calls.
+
+Research is available by default. Set `enabled = false` under `[search]` in
+`config.toml` and restart the server to block these outbound requests. Existing
+agent search tools and MCP server settings are preserved. Only the supplied
+search objective, queries, page URLs and an opaque job ID are sent to Parallel;
+the job's chat history and agent credentials are not forwarded. Each job keeps
+one research ID across follow-up calls and restarts. Create a new job for a new
+research conversation. Treat fetched content as untrusted reference material.
+Anonymous usage has rate limits; an error does not switch providers or create a
+new research ID. Model inference still uses the agent's configured provider.
+
 ### Agent roles
 Assign roles to agents to steer their behavior — Planner, Builder, Reviewer, Researcher, or any custom role. Roles aren't a hard constraint — they're a persistent nudge. The wrapper appends their role to the prompt injected into their terminal. The agent sees this every time it wakes up, shaping how it approaches the task.
 

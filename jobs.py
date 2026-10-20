@@ -106,6 +106,21 @@ class JobStore:
                     return dict(a)
             return None
 
+    def research_session_id(self, job_id: int) -> str | None:
+        """Return a persistent opaque ID for this bounded research conversation.
+
+        Create lazily so legacy jobs work too. A new job starts a new research
+        conversation; retries, reopening and server restarts keep the same ID.
+        """
+        with self._lock:
+            for job in self._jobs:
+                if job["id"] == job_id:
+                    if not job.get("research_session_id"):
+                        job["research_session_id"] = str(uuid.uuid4())
+                        self._save()
+                    return job["research_session_id"]
+            return None
+
     def create(self, title: str, job_type: str, channel: str,
                created_by: str, anchor_msg_id: int | None = None,
                assignee: str | None = None,
