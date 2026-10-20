@@ -21,6 +21,7 @@ INCLUDE_FILES = [
     "jobs.py",
     "mcp_bridge.py",
     "mcp_proxy.py",
+    "parallel_search.py",
     "registry.py",
     "router.py",
     "rules.py",

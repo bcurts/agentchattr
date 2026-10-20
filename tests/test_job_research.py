@@ -290,7 +290,9 @@ class ResearchCallerTests(unittest.IsolatedAsyncioTestCase):
         async with await self.connect() as streams:
             async with ClientSession(streams[0], streams[1]) as session:
                 await session.initialize()
-                self.assertTrue((await self.search(session)).isError)
+                result = await self.search(session)
+                self.assertTrue(result.isError)
+                self.assertIn('503', result.content[0].text)
         # Only initialization was attempted. No replacement provider or retry.
         self.assertEqual(len(self.remote.requests), 1)
         self.assertEqual(self.calls(), [])
