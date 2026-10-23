@@ -28,12 +28,12 @@ if not exist ".venv" (
 call .venv\Scripts\activate.bat
 
 REM Start server if not already running, then wait for it
-netstat -ano | findstr :8300 | findstr LISTENING >nul 2>&1
+python -c "import socket; socket.create_connection(('127.0.0.1', 8300), 1)" >nul 2>&1
 if %errorlevel% neq 0 (
     start "agentchattr server" cmd /c "python run.py"
 )
 :wait_server
-netstat -ano | findstr :8300 | findstr LISTENING >nul 2>&1
+python -c "import socket; socket.create_connection(('127.0.0.1', 8300), 1)" >nul 2>&1
 if %errorlevel% neq 0 (
     timeout /t 1 /nobreak >nul
     goto :wait_server
