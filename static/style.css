@@ -261,6 +261,15 @@ header h1 {
 .status-pill.available .status-dot { background: var(--online); }
 .status-pill.offline .status-dot { background: #555; }
 
+.status-pill.waiting-approval {
+    border-color: #e9aa4f;
+    color: #f4ca83;
+}
+.status-pill.waiting-approval .status-dot {
+    background: #e9aa4f;
+    box-shadow: 0 0 7px #e9aa4f;
+}
+
 .status-pill.offline {
     opacity: 0.4;
 }

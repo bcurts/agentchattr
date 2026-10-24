@@ -253,6 +253,58 @@ kernel32.ReadConsoleOutputW.argtypes = [
 kernel32.ReadConsoleOutputW.restype = wintypes.BOOL
 
 
+def _approval_prompt_visible(screen_text):
+    """Recognize the choice menu of known Claude/Codex approval prompts."""
+    import re
+
+    lines = [line.strip().lower() for line in screen_text.splitlines() if line.strip()]
+    tail = "\n".join(lines[-16:])
+    prompt = any(phrase in tail for phrase in (
+        "this command requires approval",
+        "do you want to proceed?",
+        "would you like to run the following command?",
+        "would you like to make the following edits?",
+        "do you want to allow",
+        "would you like to allow",
+    ))
+    selected = re.search(r"(?m)^\s*[❯>›]\s*\d+\.", tail)
+    choices = re.search(r"(?m)^\s*[❯>›]?\s*\d+\.\s*(?:yes|allow|approve)\b", tail)
+    return bool(prompt and selected and choices)
+
+
+def _read_console_snapshot(handle):
+    """Read the visible console as raw character cells and screen text."""
+    import array as _array
+
+    csbi = _CONSOLE_SCREEN_BUFFER_INFO()
+    if not kernel32.GetConsoleScreenBufferInfo(handle, ctypes.byref(csbi)):
+        return None
+    rect = csbi.srWindow
+    width = rect.Right - rect.Left + 1
+    height = rect.Bottom - rect.Top + 1
+    if width <= 0 or height <= 0:
+        return None
+
+    buffer_size = _COORD(width, height)
+    buffer_coord = _COORD(0, 0)
+    read_rect = _SMALL_RECT(rect.Left, rect.Top, rect.Right, rect.Bottom)
+    char_info_array = (_CHAR_INFO * (width * height))()
+    if not kernel32.ReadConsoleOutputW(
+        handle, char_info_array, buffer_size, buffer_coord,
+        ctypes.byref(read_rect),
+    ):
+        return None
+
+    raw = bytes(char_info_array)
+    shorts = _array.array("H")
+    shorts.frombytes(raw)
+    characters = shorts[::2]
+    char_data = characters.tobytes()
+    rows = ["".join(chr(c) if c else " " for c in characters[i:i + width]).rstrip()
+            for i in range(0, len(characters), width)]
+    return char_data, "\n".join(rows)
+
+
 def get_activity_checker(pid_holder, agent_name="unknown", trigger_flag=None):
     """Return a callable that detects agent activity by diffing visible characters.
 
@@ -265,15 +317,14 @@ def get_activity_checker(pid_holder, agent_name="unknown", trigger_flag=None):
     message is injected. Forces active state immediately (covers thinking phase).
     pid_holder: not used for screen hashing, but kept for signature compatibility.
     """
-    import array as _array
-    import os as _os
-
     last_chars = [None]  # previous poll's character bytes
     handle = kernel32.GetStdHandle(STD_OUTPUT_HANDLE)
     MIN_CHANGED_CELLS = 10  # idle noise is 2-5 cells; real work is 50+
     IDLE_COOLDOWN = 5       # need 5 consecutive idle polls (5s) before going idle
     _consecutive_idle = [0]
     _is_active = [False]
+    _waiting_approval = [False]
+    _approval_change_polls = [0]
 
     def check():
         # External trigger: queue watcher injected a message → force active
@@ -284,35 +335,18 @@ def get_activity_checker(pid_holder, agent_name="unknown", trigger_flag=None):
             _consecutive_idle[0] = 0
             _is_active[0] = True
 
-        # Get buffer dimensions
-        csbi = _CONSOLE_SCREEN_BUFFER_INFO()
-        if not kernel32.GetConsoleScreenBufferInfo(handle, ctypes.byref(csbi)):
-            return _is_active[0]
-
-        rect = csbi.srWindow
-        width = rect.Right - rect.Left + 1
-        height = rect.Bottom - rect.Top + 1
-        if width <= 0 or height <= 0:
-            return _is_active[0]
-
-        # Read visible window
-        buffer_size = _COORD(width, height)
-        buffer_coord = _COORD(0, 0)
-        read_rect = _SMALL_RECT(rect.Left, rect.Top, rect.Right, rect.Bottom)
-        char_info_array = (_CHAR_INFO * (width * height))()
-
-        ok = kernel32.ReadConsoleOutputW(
-            handle, char_info_array, buffer_size, buffer_coord,
-            ctypes.byref(read_rect),
-        )
-        if not ok:
-            return _is_active[0]
-
-        # Extract visible characters only (skip attributes)
-        raw = bytes(char_info_array)
-        shorts = _array.array("H")
-        shorts.frombytes(raw)
-        char_data = shorts[::2].tobytes()
+        snapshot = _read_console_snapshot(handle)
+        if snapshot is None:
+            return "waiting_approval" if _waiting_approval[0] else _is_active[0]
+        char_data, screen_text = snapshot
+        approval_candidate = _approval_prompt_visible(screen_text)
+        if approval_candidate == _waiting_approval[0]:
+            _approval_change_polls[0] = 0
+        else:
+            _approval_change_polls[0] += 1
+            if _approval_change_polls[0] >= 2:
+                _waiting_approval[0] = approval_candidate
+                _approval_change_polls[0] = 0
 
         # Count how many characters actually changed
         prev = last_chars[0]
@@ -335,7 +369,7 @@ def get_activity_checker(pid_holder, agent_name="unknown", trigger_flag=None):
             if _consecutive_idle[0] >= IDLE_COOLDOWN:
                 _is_active[0] = False
 
-        return _is_active[0]
+        return "waiting_approval" if _waiting_approval[0] else _is_active[0]
 
     return check
 

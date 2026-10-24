@@ -1856,10 +1856,14 @@ function updateStatus(data) {
         const pill = document.getElementById(`status-${name}`);
         if (!pill) continue;
 
-        pill.classList.remove('available', 'working', 'offline');
+        pill.classList.remove('available', 'working', 'offline', 'waiting-approval');
+        pill.title = info.waiting_approval && info.available
+            ? `@${name} — Waiting for approval` : `@${name}`;
         // Pending pills keep their pending animation (set in buildStatusPills)
         if (!pill.classList.contains('pending')) {
-            if (info.busy && info.available) {
+            if (info.waiting_approval && info.available) {
+                pill.classList.add('waiting-approval');
+            } else if (info.busy && info.available) {
                 pill.classList.add('working');
             } else if (info.available) {
                 pill.classList.add('available');

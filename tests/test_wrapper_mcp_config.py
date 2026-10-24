@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from wrapper import _write_json_mcp_settings  # noqa: E402
+from wrapper import _apply_mcp_inject, _write_json_mcp_settings  # noqa: E402
 
 
 class JsonMcpSettingsTests(unittest.TestCase):
@@ -74,6 +74,22 @@ class JsonMcpSettingsTests(unittest.TestCase):
         data = self._read()
         self.assertIn("some-other-server", data["mcpServers"])
         self.assertIn("agentchattr", data["mcpServers"])
+
+
+class FlagModeProxyUrlTests(unittest.TestCase):
+    """'flag' mode (Claude, Kimi) writes the local proxy URL (F4b)."""
+
+    def test_flag_mode_writes_proxy_url_and_keeps_bearer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args, _env, path = _apply_mcp_inject(
+                {"mcp_inject": "flag", "mcp_flag": "--mcp-config"},
+                "claude", Path(tmp), "http://127.0.0.1:54321/mcp",
+                token="tok", mcp_cfg={"http_port": 8200},
+            )
+            entry = json.loads(path.read_text("utf-8"))["mcpServers"]["agentchattr"]
+            self.assertEqual(args, ["--mcp-config", str(path)])
+            self.assertEqual(entry["url"], "http://127.0.0.1:54321/mcp")
+            self.assertEqual(entry["headers"]["Authorization"], "Bearer tok")
 
 
 class ExpanduserPathTests(unittest.TestCase):

@@ -29,6 +29,7 @@ agents = None         # set by run.py — AgentManager instance
 _presence: dict[str, float] = {}
 _activity: dict[str, bool] = {}   # True = screen changed on last poll
 _activity_ts: dict[str, float] = {}  # timestamp of last active=True heartbeat
+_approval_wait: dict[str, bool] = {}  # wrapper sees a terminal approval prompt
 ACTIVITY_TIMEOUT = 8  # auto-expire activity after 8s without a fresh active=True
 _presence_lock = threading.Lock()   # guards both _presence and _activity
 _renamed_from: set[str] = set()    # old names from renames — suppress leave messages
@@ -287,7 +288,9 @@ def chat_send(
             job = jobs.get(job_id)
             if job:
                 job_channel = job.get("channel", "general")
-                raw_targets = router.get_targets(sender, text, job_channel)
+                origin = {"sender": sender, "text": text,
+                          "msg_id": msg.get("id"), "job_id": job_id}
+                raw_targets = router.get_targets(sender, text, job_channel, origin=origin)
                 targets = []
                 for t in raw_targets:
                     if registry:
@@ -345,7 +348,7 @@ def chat_send(
     msg = store.add(sender, message.strip(), attachments=attachments,
                     reply_to=reply_id, channel=channel,
                     msg_type=msg_type, metadata=metadata)
-    _update_cursor(sender, [msg], channel)
+    _advance_cursor_after_send(sender, msg, channel)
     with _presence_lock:
         _presence[sender] = time.time()
     return f"Sent (id={msg['id']})"
@@ -381,7 +384,7 @@ def chat_propose_job(
         channel=channel,
         metadata={"title": title, "body": body, "status": "pending"},
     )
-    _update_cursor(sender, [msg], channel)
+    _advance_cursor_after_send(sender, msg, channel)
     with _presence_lock:
         _presence[sender] = time.time()
     return f"Proposed job (msg_id={msg['id']}): {title}"
@@ -506,6 +509,8 @@ def migrate_identity(old_name: str, new_name: str):
             _activity[new_name] = _activity.pop(old_name)
         if old_name in _activity_ts:
             _activity_ts[new_name] = _activity_ts.pop(old_name)
+        if old_name in _approval_wait:
+            _approval_wait[new_name] = _approval_wait.pop(old_name)
         _renamed_from.add(old_name)  # suppress leave message for old name
     with _cursors_lock:
         if old_name in _cursors:
@@ -527,6 +532,7 @@ def purge_identity(name: str):
         _presence.pop(name, None)
         _activity.pop(name, None)
         _activity_ts.pop(name, None)
+        _approval_wait.pop(name, None)
     with _cursors_lock:
         _cursors.pop(name, None)
     with _last_read_lock:
@@ -564,12 +570,50 @@ def migrate_cursors_delete(channel: str):
 
 
 def _update_cursor(sender: str, msgs: list[dict], channel: str | None):
+    """Move the sender's cursor forward to the last message in `msgs`.
+
+    Never moves it backwards, so an explicit older since_id read cannot
+    re-deliver messages the agent has already consumed.
+    """
     if sender and msgs:
         ch_key = channel if channel else "__all__"
         with _cursors_lock:
             agent_cursors = _cursors.setdefault(sender, {})
+            current = agent_cursors.get(ch_key)
+            if current is not None and current >= msgs[-1]["id"]:
+                return
             agent_cursors[ch_key] = msgs[-1]["id"]
         _save_cursors()
+
+
+def _advance_cursor_after_send(sender: str, msg: dict, channel: str | None):
+    """Skip the sender's own message only when nothing else is unread.
+
+    If others posted between the sender's last read and this send, the cursor
+    stays put so the next chat_read returns them (plus the sender's own
+    message). Without an existing cursor nothing is created, so the first
+    read still returns recent context.
+    """
+    if not sender:
+        return
+    ch_key = channel if channel else "__all__"
+    with _cursors_lock:
+        cursor = _cursors.get(sender, {}).get(ch_key)
+    if cursor is None:
+        return
+    unread_from_others = [
+        m for m in store.get_since(cursor, channel=channel or None)
+        if m["id"] < msg["id"] and m.get("sender") != sender
+    ]
+    if unread_from_others:
+        return
+    with _cursors_lock:
+        agent_cursors = _cursors.get(sender, {})
+        # Compare-and-set: a concurrent read may already have moved it.
+        if agent_cursors.get(ch_key) != cursor:
+            return
+        agent_cursors[ch_key] = msg["id"]
+    _save_cursors()
 
 
 def chat_read(
@@ -636,6 +680,9 @@ def chat_read(
             out.append(entry)
         return json.dumps(out, ensure_ascii=False)
 
+    if limit < 1:
+        return "Error: limit must be at least 1."
+
     ch = channel if channel else None
     # Remember the channel this agent just read so chat_send without an
     # explicit channel defaults here instead of falling back to "general".
@@ -645,23 +692,41 @@ def chat_read(
         with _last_read_lock:
             _last_read_channel[sender] = ch
             _last_read_job_id.pop(sender, None)
+    # Unread reads (since_id or cursor) page oldest-first so a backlog larger
+    # than `limit` is delivered over several reads instead of dropped.
+    paged = True
     if since_id:
         msgs = store.get_since(since_id, channel=ch)
     elif sender:
         ch_key = ch if ch else "__all__"
         with _cursors_lock:
             agent_cursors = _cursors.get(sender, {})
-            cursor = agent_cursors.get(ch_key, 0)
-        if cursor:
+            cursor = agent_cursors.get(ch_key)
+        if cursor is not None:
             msgs = store.get_since(cursor, channel=ch)
         else:
             msgs = store.get_recent(limit, channel=ch)
+            paged = False
     else:
         msgs = store.get_recent(limit, channel=ch)
+        paged = False
 
-    msgs = msgs[-limit:]
+    remaining = 0
+    if paged:
+        remaining = max(0, len(msgs) - limit)
+        msgs = msgs[:limit]
+    else:
+        msgs = msgs[-limit:]
     _update_cursor(sender, msgs, ch)
     serialized = _serialize_messages(msgs)
+    if remaining:
+        # An explicit since_id page may sit behind the default cursor, so a
+        # plain follow-up read would skip ahead; point at the next since_id.
+        if since_id:
+            hint = f"Call chat_read with since_id={msgs[-1]['id']} to continue."
+        else:
+            hint = "Call chat_read again to continue."
+        serialized += f"\n[{remaining} more unread. {hint}]"
 
     # Escalating empty-read hints to discourage polling loops
     if not serialized and sender:
@@ -764,6 +829,22 @@ def set_active(name: str, active: bool):
         _activity[name] = active
         if active:
             _activity_ts[name] = __import__("time").time()
+
+
+def set_waiting_approval(name: str, waiting: bool) -> bool:
+    """Set the reported approval state; return whether it changed."""
+    with _presence_lock:
+        previous = _approval_wait.get(name, False)
+        if waiting:
+            _approval_wait[name] = True
+        else:
+            _approval_wait.pop(name, None)
+        return previous != waiting
+
+
+def is_waiting_approval(name: str) -> bool:
+    with _presence_lock:
+        return _approval_wait.get(name, False)
 
 
 def is_active(name: str) -> bool:

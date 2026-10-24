@@ -16,12 +16,13 @@ class AgentTrigger:
         return self._registry.is_registered(name)
 
     def get_status(self) -> dict:
-        from mcp_bridge import is_online, is_active, get_role
+        from mcp_bridge import is_online, is_active, is_waiting_approval, get_role
         instances = self._registry.get_all()
         return {
             name: {
                 "available": is_online(name),
                 "busy": is_active(name),
+                "waiting_approval": is_online(name) and is_waiting_approval(name),
                 "label": info["label"],
                 "color": info["color"],
                 "role": get_role(name),
