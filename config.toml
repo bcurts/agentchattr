@@ -106,6 +106,13 @@ sse_port = 8201
 upload_dir = "./uploads"
 max_size_mb = 10
 
+[attachments]
+# Non-image files share images.upload_dir; agents must be able to read that folder.
+max_size_mb = 25
+# Accept any file type, including files without an extension. To restrict types,
+# replace ["*"] with a list such as [".pdf", ".txt", ".py", ".wav"].
+allowed_extensions = ["*"]
+
 # --- MCP injection modes ---
 # By default, claude/codex/gemini/kimi use built-in MCP config injection.
 # For other CLI agents, set mcp_inject to tell the wrapper how to inject auth:

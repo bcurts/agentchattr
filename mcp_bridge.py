@@ -388,7 +388,7 @@ def chat_propose_job(
 
 
 def _resolve_attachments(attachments: list[dict]) -> list[dict]:
-    """Add absolute file_path to attachments so agents can read images."""
+    """Add absolute file_path so local agents can read attached images or files."""
     if not attachments:
         return attachments
     raw_dir = "./uploads"

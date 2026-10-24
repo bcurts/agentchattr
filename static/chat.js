@@ -6,6 +6,7 @@ const SESSION_TOKEN = window.__SESSION_TOKEN__ || "";
 
 let ws = null;
 let pendingAttachments = [];
+let channelUploads = 0;
 let autoScroll = true;
 let reconnectTimer = null;
 let username = 'user';
@@ -932,7 +933,7 @@ function appendMessage(msg, options = {}) {
         if (msg.attachments && msg.attachments.length > 0) {
             attachmentsHtml = '<div class="msg-attachments">';
             for (const att of msg.attachments) {
-                attachmentsHtml += `<img src="${escapeHtml(att.url)}" alt="${escapeHtml(att.name)}" onclick="openImageModal('${escapeHtml(att.url)}')">`;
+                attachmentsHtml += attachmentMarkup(att);
             }
             attachmentsHtml += '</div>';
         }
@@ -2478,14 +2479,19 @@ function updateSendButton() {
     const group = document.querySelector('.send-group');
     if (!input || !group) return;
     const hasContent = input.value.trim().length > 0 || pendingAttachments.length > 0;
-    group.classList.toggle('inactive', !hasContent);
+    group.classList.toggle('inactive', !hasContent || channelUploads > 0);
+    document.getElementById('send').disabled = channelUploads > 0;
 }
 
 function sendMessage() {
     const input = document.getElementById('input');
     let text = input.value.trim();
 
-    if (!text && pendingAttachments.length === 0) return;
+    if (channelUploads > 0 || (!text && pendingAttachments.length === 0)) return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        document.getElementById('attachment-status').textContent = 'Reconnecting. Your message has not been sent.';
+        return;
+    }
 
     // Prepend active mention toggles if the message doesn't already mention them
     // Skip for non-broadcast slash commands (e.g. /clear, /continue)
@@ -2523,11 +2529,7 @@ function sendMessage() {
         text: text,
         sender: username,
         channel: activeChannel,
-        attachments: pendingAttachments.map(a => ({
-            path: a.path,
-            name: a.name,
-            url: a.url,
-        })),
+        attachments: pendingAttachments,
     };
     if (replyingTo) {
         payload.reply_to = replyingTo.id;
@@ -2546,7 +2548,7 @@ function sendMessage() {
     input.focus();
 }
 
-// --- Image paste/drop ---
+// --- File and image paste/drop ---
 
 function setupPaste() {
     document.addEventListener('paste', async (e) => {
@@ -2557,16 +2559,11 @@ function setupPaste() {
         const jobInput = document.getElementById('jobs-conv-input-text');
         const isJobFocused = jobInput && document.activeElement === jobInput;
 
-        for (const item of items) {
-            if (item.type.startsWith('image/')) {
-                e.preventDefault();
-                const file = item.getAsFile();
-                if (isJobFocused) {
-                    await uploadJobImage(file);
-                } else {
-                    await uploadImage(file);
-                }
-            }
+        const files = Array.from(items).filter(item => item.kind === 'file')
+            .map(item => item.getAsFile()).filter(Boolean);
+        if (files.length) {
+            e.preventDefault();
+            await uploadFiles(files, isJobFocused);
         }
     });
 }
@@ -2604,31 +2601,31 @@ function setupDragDrop() {
         const files = e.dataTransfer?.files;
         if (!files) return;
 
-        for (const file of files) {
-            if (file.type.startsWith('image/')) {
-                await uploadImage(file);
-            }
-        }
+        const target = document.elementFromPoint(e.clientX, e.clientY) || e.target;
+        const inJob = target.closest('#jobs-panel') &&
+            !document.getElementById('jobs-conversation-view').classList.contains('hidden');
+        await uploadFiles(Array.from(files), Boolean(inJob));
     });
 }
 
-async function uploadImage(file) {
-    const form = new FormData();
-    form.append('file', file);
-
+async function uploadImage(file, channel = activeChannel) {
+    const status = document.getElementById('attachment-status');
+    if (channel !== activeChannel) return `${file.name}: channel changed. Please attach the file again.`;
+    channelUploads++;
+    updateSendButton();
+    status.textContent = `Uploading ${file.name}…`;
     try {
-        const resp = await fetch('/api/upload', { method: 'POST', headers: { 'X-Session-Token': SESSION_TOKEN }, body: form });
-        const data = await resp.json();
-
-        pendingAttachments.push({
-            path: data.path,
-            name: data.name,
-            url: data.url,
-        });
-
+        const data = await uploadAttachment(file);
+        if (channel !== activeChannel) throw new Error('Channel changed. Please attach the file again.');
+        pendingAttachments.push(data);
         renderAttachments();
-    } catch (err) {
-        console.error('Upload failed:', err);
+        status.textContent = '';
+    } catch (error) {
+        status.textContent = `${file.name}: ${error.message}`;
+        return status.textContent;
+    } finally {
+        channelUploads--;
+        updateSendButton();
     }
 }
 
@@ -2637,15 +2634,10 @@ function renderAttachments() {
     container.innerHTML = '';
 
     pendingAttachments.forEach((att, i) => {
-        const wrap = document.createElement('div');
-        wrap.className = 'attachment-preview';
-        wrap.innerHTML = `
-            <img src="${att.url}" alt="${escapeHtml(att.name)}" onclick="openImageModal('${escapeHtml(att.url)}')" title="Click to preview">
-            <button class="remove-btn" onclick="removeAttachment(${i})">x</button>
-        `;
-        container.appendChild(wrap);
+        container.appendChild(createAttachmentPreview(att, () => removeAttachment(i)));
     });
     repositionScrollAnchor();
+    updateSendButton();
 }
 
 function removeAttachment(index) {

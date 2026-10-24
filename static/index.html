@@ -4,9 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>agentchattr</title>
-    <link rel="stylesheet" href="/static/style.css?v=255">
+    <link rel="stylesheet" href="/static/style.css?v=259">
     <link rel="stylesheet" href="/static/sessions.css?v=223">
-    <link rel="stylesheet" href="/static/jobs.css?v=223">
+    <link rel="stylesheet" href="/static/jobs.css?v=225">
     <link rel="icon" href="/static/favicon.ico">
 </head>
 <body>
@@ -209,6 +209,7 @@
                     <div class="jobs-conv-input">
                         <div id="job-mention-menu" class="mention-menu hidden"></div>
                         <div id="job-attachments" class="job-attachments"></div>
+                        <div id="job-attachment-status" class="attachment-status" role="status"></div>
                         <div class="job-reply-target-row hidden" id="job-reply-target-row">
                             <button class="job-reply-target-btn" id="job-reply-target-btn" type="button" onclick="cycleJobReplyTarget()" title="Reply target">
                                 <span class="job-reply-target-prefix">To</span>
@@ -219,7 +220,7 @@
                         </div>
                         <div class="job-input-row">
                             <textarea id="jobs-conv-input-text" placeholder="Message..." rows="1"></textarea>
-                            <button onclick="sendJobMessage()">Send</button>
+                            <button id="job-send" onclick="sendJobMessage()">Send</button>
                         </div>
                     </div>
                 </div>
@@ -258,6 +259,7 @@
             <div id="slash-menu" class="hidden"></div>
             <div id="mention-menu" class="hidden"></div>
             <div id="attachments"></div>
+            <div id="attachment-status" class="attachment-status" role="status"></div>
             <div id="input-row">
                 <span id="sender-label" class="sender-label">user</span>
                 <button id="session-launch-btn" onclick="showSessionLauncher()" title="Start a session">
@@ -358,22 +360,23 @@
                 </div>
             </div>
             <div class="input-hint">
-                Enter to send &middot; Shift+Enter for newline &middot; Paste/drop images &middot; Mic for voice &middot; Type / or @ for autocomplete
+                Enter to send &middot; Shift+Enter for newline &middot; Paste or drop files &middot; Mic for voice &middot; Type / or @ for autocomplete
             </div>
         </footer>
     </div>
 
     <div id="dropzone" class="hidden">
-        <div class="dropzone-inner">Drop image here</div>
+        <div class="dropzone-inner">Drop files here</div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="/static/core.js?v=223"></script>
     <script src="/static/store.js?v=223"></script>
     <script src="/static/sessions.js?v=224"></script>
-    <script src="/static/jobs.js?v=224"></script>
+    <script src="/static/attachments.js?v=5"></script>
+    <script src="/static/jobs.js?v=226"></script>
     <script src="/static/channels.js?v=226"></script>
     <script src="/static/rules-panel.js?v=224"></script>
-    <script src="/static/chat.js?v=273"></script>
+    <script src="/static/chat.js?v=275"></script>
 </body>
 </html>

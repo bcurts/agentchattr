@@ -9,7 +9,7 @@ import uuid
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form
 from fastapi.requests import Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -212,8 +212,10 @@ def _install_security_middleware(token: str, cfg: dict):
 
             # Static assets, index page, and uploaded images are public.
             # The index page injects the token client-side via same-origin script.
-            # Uploads use random filenames and have path-traversal protection.
-            if path == "/" or path.startswith(("/static/", "/uploads/", "/api/roles")):
+            # Images keep their public preview URLs. Other attachments require
+            # the browser session token, like the rest of the API.
+            public_image = path.startswith("/uploads/") and Path(path).suffix.lower() in IMAGE_UPLOAD_EXTS
+            if path == "/" or path.startswith(("/static/", "/api/roles")) or public_image:
                 return await call_next(request)
 
             # Agent registration/heartbeat: loopback only (no remote agent minting).
@@ -1476,31 +1478,55 @@ async def websocket_endpoint(websocket: WebSocket):
 
 # --- REST endpoints ---
 
-ALLOWED_UPLOAD_EXTS = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg'}
+IMAGE_UPLOAD_EXTS = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg'}
+ALLOWED_UPLOAD_EXTS = IMAGE_UPLOAD_EXTS  # backwards-compatible image policy
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB default
 
 
 @app.post("/api/upload")
-async def upload_image(file: UploadFile = File(...)):
+async def upload_image(file: UploadFile = File(...), display_name: str | None = Form(None)):
     upload_dir = Path(config.get("images", {}).get("upload_dir", "./uploads"))
     upload_dir.mkdir(parents=True, exist_ok=True)
 
-    ext = Path(file.filename).suffix or ".png"
-    if ext.lower() not in ALLOWED_UPLOAD_EXTS:
-        return JSONResponse({"error": f"unsupported file type: {ext}"}, status_code=400)
+    # Uploaded names are display labels only; never use them as disk paths.
+    name = (display_name or file.filename or "file").replace("\\", "/").rsplit("/", 1)[-1]
+    ext = Path(name).suffix.lower()
+    file_cfg = config.get("attachments", {})
+    allowed_files = {str(value).lower() for value in file_cfg.get("allowed_extensions", ["*"])}
+    is_image = ext in IMAGE_UPLOAD_EXTS
+    if not is_image and "*" not in allowed_files and ext not in allowed_files:
+        return JSONResponse({"error": f"unsupported file type: {ext or '(no extension)'}"}, status_code=400)
 
-    content = await file.read()
-    max_bytes = config.get("images", {}).get("max_size_mb", 10) * 1024 * 1024
-    if len(content) > max_bytes:
-        return JSONResponse({"error": f"file too large (max {max_bytes // 1024 // 1024} MB)"}, status_code=400)
-
-    filename = f"{uuid.uuid4().hex[:8]}{ext}"
+    policy = config.get("images", {}) if is_image else file_cfg
+    max_mb = policy.get("max_size_mb", 10 if is_image else 25)
+    max_bytes = int(max_mb * 1024 * 1024)
+    # Keep storage URLs simple even for names with unusual suffixes (e.g. .c++).
+    storage_ext = ext if not ext or _re.fullmatch(r"\.[a-z0-9_-]{1,32}", ext) else ".bin"
+    filename = f"{uuid.uuid4().hex}{storage_ext}"
     filepath = upload_dir / filename
-    filepath.write_bytes(content)
+    size = 0
+    try:
+        with filepath.open("xb") as destination:
+            while chunk := await file.read(64 * 1024):
+                size += len(chunk)
+                if size > max_bytes:
+                    raise ValueError(f"file too large (max {max_mb} MB)")
+                destination.write(chunk)
+    except ValueError as exc:
+        filepath.unlink(missing_ok=True)
+        return JSONResponse({"error": str(exc)}, status_code=413)
+    except BaseException:
+        filepath.unlink(missing_ok=True)
+        raise
+
+    import mimetypes
 
     return JSONResponse({
-        "name": file.filename,
+        "name": name,
         "url": f"/uploads/{filename}",
+        "size": size,
+        "media_type": mimetypes.guess_type(name)[0] or "application/octet-stream",
+        "kind": "image" if is_image else "file",
     })
 
 
@@ -2695,6 +2721,11 @@ async def serve_upload(filename: str):
     filepath = (upload_dir / filename).resolve()
     if not filepath.is_relative_to(upload_dir.resolve()):
         return JSONResponse({"error": "invalid path"}, status_code=400)
-    if filepath.exists():
-        return FileResponse(filepath)
+    if filepath.is_file():
+        if filepath.suffix.lower() in IMAGE_UPLOAD_EXTS:
+            return FileResponse(filepath)
+        # Documents are downloads, never executable same-origin pages.
+        return FileResponse(filepath, media_type="application/octet-stream",
+                            filename=filepath.name,
+                            headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"})
     return JSONResponse({"error": "not found"}, status_code=404)

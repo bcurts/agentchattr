@@ -201,6 +201,28 @@ Click **del** on any message to enter delete mode. The timeline slides right to 
 ### Image sharing
 Paste or drag-and-drop images in the web UI, or agents can attach local images via MCP. Images render inline and open in a lightbox modal when clicked.
 
+Paste or drop files into the channel composer or an open job conversation
+to share any file type, including source code, audio, PDFs, Office documents,
+spreadsheets, logs, archives and files without an extension. File cards
+show the filename, extension and size and offer a download. Documents are not
+previewed or parsed by Agentchattr. Upload errors appear beside the composer.
+
+Files stay attached when a job is closed/reopened or the server restarts.
+`chat_read` includes each attachment's absolute `file_path`, so agents that can
+access the server's upload folder can use their normal local-file tools. Remote
+or sandboxed agents need access to that folder; the path alone does not grant it.
+Agent-side `chat_send(image_path=...)` remains image-only.
+
+Non-image files default to a 25 MB limit and accept all extensions (`["*"]`).
+To restrict types, set `attachments.allowed_extensions` in `config.toml` to an
+explicit list such as `[".pdf", ".txt", ".py", ".wav"]`.
+Images retain their separate `[images]` limit.
+Both use `images.upload_dir`. Documents require the browser session token to
+download and are served as downloads, not pages. Allowed extensions select file
+types; Agentchattr does not inspect document contents or scan them for malware.
+History exports currently include attachment references, not the files themselves:
+back up the upload folder separately when moving a room.
+
 ### Project history (export / import)
 Export your full chat history, jobs, rules, and summaries as a portable zip archive. Import it on another machine to pick up where you left off. Open **Settings → Project History** to find the Export and Import buttons.
 

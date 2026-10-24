@@ -28,6 +28,7 @@ let jobReorderMute = null; // { ids:Set<number>, channel, status, until:number, 
 let jobReorderMuteTimer = null;
 let _jobViewSwitching = false;
 let jobPendingAttachments = [];
+let jobUploads = 0;
 let jobMentionVisible = false;
 let jobMentionIndex = 0;
 let jobMentionStart = -1;
@@ -876,6 +877,7 @@ function renderJobsList() {
 // ---------------------------------------------------------------------------
 
 async function openJobConversation(jobId) {
+    if (activeJobId !== jobId) clearJobAttachments();
     const job = jobsData.find(a => a.id === jobId);
     if (!job) return;
     activeJobId = jobId;
@@ -1116,7 +1118,7 @@ function appendJobMessage(msg) {
         if (msg.attachments && msg.attachments.length > 0) {
             attHtml = '<div class="job-msg-attachments">';
             for (const att of msg.attachments) {
-                attHtml += `<img src="${window.escapeHtml(att.url)}" alt="${window.escapeHtml(att.name || '')}" onclick="openImageModal('${window.escapeHtml(att.url)}')">`;
+                attHtml += attachmentMarkup(att);
             }
             attHtml += '</div>';
         }
@@ -1141,7 +1143,7 @@ async function sendJobMessage() {
     if (!activeJobId) return;
     const input = document.getElementById('jobs-conv-input-text');
     const text = input.value.trim();
-    if (!text && jobPendingAttachments.length === 0) return;
+    if (jobUploads > 0 || (!text && jobPendingAttachments.length === 0)) return;
     const explicitTargets = _extractJobMentionTargets(text);
     const hasBroadcastMention = /@(?:all|both)\b/i.test(text);
     let outboundText = text;
@@ -1161,9 +1163,7 @@ async function sendJobMessage() {
             body: JSON.stringify({
                 text: outboundText,
                 sender: window.username,
-                attachments: jobPendingAttachments.map(a => ({
-                    path: a.path, name: a.name, url: a.url,
-                })),
+                attachments: jobPendingAttachments,
             }),
         });
         if (resp.ok) {
@@ -1177,16 +1177,25 @@ async function sendJobMessage() {
     }
 }
 
-async function uploadJobImage(file) {
-    const form = new FormData();
-    form.append('file', file);
+async function uploadJobImage(file, jobId = activeJobId) {
+    if (!activeJobId) return;
+    if (jobId !== activeJobId) return `${file.name}: job changed. Please attach the file again.`;
+    const status = document.getElementById('job-attachment-status');
+    jobUploads++;
+    document.getElementById('job-send').disabled = true;
+    status.textContent = `Uploading ${file.name}…`;
     try {
-        const resp = await fetch('/api/upload', { method: 'POST', headers: { 'X-Session-Token': window.SESSION_TOKEN }, body: form });
-        const data = await resp.json();
-        jobPendingAttachments.push({ path: data.path, name: data.name, url: data.url });
+        const data = await uploadAttachment(file);
+        if (jobId !== activeJobId) throw new Error('Job changed. Please attach the file again.');
+        jobPendingAttachments.push(data);
         renderJobAttachments();
-    } catch (err) {
-        console.error('Job upload failed:', err);
+        status.textContent = '';
+    } catch (error) {
+        status.textContent = `${file.name}: ${error.message}`;
+        return status.textContent;
+    } finally {
+        jobUploads--;
+        document.getElementById('job-send').disabled = jobUploads > 0;
     }
 }
 
@@ -1195,10 +1204,7 @@ function renderJobAttachments() {
     if (!container) return;
     container.innerHTML = '';
     jobPendingAttachments.forEach((att, i) => {
-        const wrap = document.createElement('div');
-        wrap.className = 'attachment-preview';
-        wrap.innerHTML = `<img src="${att.url}" alt="${window.escapeHtml(att.name)}"><button class="remove-btn" onclick="removeJobAttachment(${i})">x</button>`;
-        container.appendChild(wrap);
+        container.appendChild(createAttachmentPreview(att, () => removeJobAttachment(i)));
     });
 }
 

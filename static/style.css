@@ -3225,10 +3225,35 @@ footer {
 
 #attachments:empty { display: none; }
 
-#attachments .attachment-preview {
-    position: relative;
-    display: inline-block;
+.file-attachment {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 100px;
+    max-width: min(320px, 100%);
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-msg);
+    color: var(--text);
+    text-decoration: none;
+    overflow-wrap: anywhere;
 }
+a.file-attachment:hover { border-color: var(--accent); }
+.file-attachment-info { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.file-download-icon { flex-shrink: 0; color: var(--text-dim); }
+.file-attachment:hover .file-download-icon { color: var(--text); }
+.file-attachment-name { font-size: 13px; }
+.file-attachment-detail { font-size: 11px; color: var(--text-muted); }
+.attachment-status { font-size: 12px; color: var(--text-muted); margin: 6px 0; }
+.attachment-status:empty { display: none; }
+#attachments .attachment-preview, .job-attachments .attachment-preview {
+    position: relative;
+    display: inline-flex;
+    max-width: min(320px, 100%);
+    align-self: flex-start;
+}
+.attachment-preview .file-attachment { max-width: 100%; }
 
 #attachments .attachment-preview img {
     width: 60px;
@@ -3242,12 +3267,13 @@ footer {
     border-color: var(--accent);
 }
 
-#attachments .attachment-preview .remove-btn {
+.attachment-preview > .attachment-remove {
     position: absolute;
     top: -4px;
     right: -4px;
     width: 18px;
     height: 18px;
+    padding: 0;
     background: var(--error-color);
     color: var(--text-on-accent);
     border: none;
