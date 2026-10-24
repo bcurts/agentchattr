@@ -19,6 +19,7 @@ class MessageStore:
         self._lock = threading.Lock()
         self._callbacks: list = []  # called on each new message
         self._todo_callbacks: list = []  # called on todo changes
+        self._reaction_callbacks: list = []  # called on changed reactions
         self._delete_callbacks: list = []  # called on message deletion
         self.upload_dir = self._path.parent.parent / "uploads"  # Default fallback
         self._load()
@@ -48,6 +49,31 @@ class MessageStore:
     def on_message(self, callback):
         """Register a callback(msg) called whenever a message is added."""
         self._callbacks.append(callback)
+
+    def on_reaction(self, callback):
+        """Register a callback(msg_id, reactions) for changed reactions."""
+        self._reaction_callbacks.append(callback)
+
+    def react(self, msg_id: int, emoji: str, sender: str) -> dict | None:
+        """Add one reaction without creating a chat message or routing trigger."""
+        with self._lock:
+            msg = next((m for m in self._messages if m["id"] == msg_id), None)
+            if msg is None:
+                return None
+            reactions = msg.setdefault("metadata", {}).setdefault("reactions", {})
+            names = reactions.setdefault(emoji, [])
+            if sender in names:
+                return dict(msg)
+            names.append(sender)
+            self._rewrite_jsonl()
+            snapshot = {key: list(value) for key, value in reactions.items()}
+            updated = dict(msg)
+        for callback in self._reaction_callbacks:
+            try:
+                callback(msg_id, snapshot)
+            except Exception:
+                pass
+        return updated
 
     def add(self, sender: str, text: str, msg_type: str = "chat",
             attachments: list | None = None, reply_to: int | None = None,

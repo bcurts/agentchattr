@@ -330,6 +330,7 @@ def configure(cfg: dict, session_token: str = ""):
     # Bridge: when ANY message is added to store (including via MCP),
     # broadcast to all WebSocket clients
     store.on_message(_on_store_message)
+    store.on_reaction(_on_store_reaction)
 
     _load_settings()
     _load_hats()
@@ -564,6 +565,20 @@ def _on_store_message(msg: dict):
     asyncio.run_coroutine_threadsafe(_handle_new_message(msg), _event_loop)
 
 
+def _on_store_reaction(msg_id: int, reactions: dict):
+    """Broadcast a reaction change without passing it through message routing."""
+    if _event_loop is None:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+        if loop is _event_loop:
+            asyncio.ensure_future(broadcast_reaction(msg_id, reactions))
+            return
+    except RuntimeError:
+        pass
+    asyncio.run_coroutine_threadsafe(broadcast_reaction(msg_id, reactions), _event_loop)
+
+
 def _on_rule_change(action: str, rule: dict):
     """Called from any thread when a rule changes."""
     if _event_loop is None:
@@ -744,9 +759,15 @@ async def _handle_new_message(msg: dict):
         if sender in known_agents:
             store.add("system", f"Loop guard: only humans can /continue. {sender} tried to self-resume.", channel=channel)
             return
-        router.continue_routing(channel)
         store.add("system", f"Routing resumed by {sender}.", channel=channel)
-        await broadcast_status()
+        await _resume_routing(channel)
+        return
+
+    if cmd_word == "/newtask":
+        if sender in known_agents:
+            store.add("system", f"Only humans can /newtask. {sender} tried to reset the sessions.", channel=channel)
+            return
+        await _start_new_task(sender, text, channel)
         return
 
     if stripped == "/roastreview":
@@ -849,7 +870,58 @@ async def _handle_new_message(msg: dict):
                            "errors": ["Invalid JSON in session block"], "valid": False},
             )
 
-    raw_targets = router.get_targets(sender, text, channel)
+    origin = {"sender": sender, "text": text, "msg_id": msg.get("id")}
+    custom_prompt = text if is_hidden_session_request else ""
+    await _route_mentions(sender, text, channel, origin=origin,
+                          custom_prompt=custom_prompt, known_agents=known_agents)
+
+
+async def _start_new_task(sender: str, text: str, channel: str):
+    """Task boundary: clear the loop guard and restart every agent's CLI session.
+
+    Wrappers keep their identity and queued wake-ups; the chat is the shared memory.
+    """
+    parts = _re.sub(r"@[\w-]+\s*", "", text).strip().split(None, 1)
+    name = parts[1].strip() if len(parts) > 1 else ""
+    router.reset_all()  # blocked hops in any channel belong to the finished task
+    agent_names = registry.get_all_names() if registry else list(config.get("agents", {}).keys())
+    for agent_name in agent_names:
+        agents.request_restart(agent_name)
+    title = f"New task: {name}" if name else "New task"
+    store.add("system", f"{title} (started by {sender}). Agent sessions are restarting; "
+              "the chat history stays as shared context.", channel=channel)
+    await broadcast_status()
+
+
+async def _resume_routing(channel: str):
+    """Lift the loop-guard pause and re-deliver the messages it blocked."""
+    blocked = router.continue_routing(channel)
+    await broadcast_status()
+    known_agents = set(registry.get_all_names()) if registry else set()
+    known_agents.update(config.get("agents", {}).keys())
+    # The woken agent will still see the earlier "Loop guard" notice in history,
+    # so the wake prompt says the pause is over.
+    resumed = ("a human typed /continue, so the agent chain is resumed and no longer paused "
+               "(ignore the earlier Loop guard notice)")
+    for origin in blocked:
+        # Routed again (hops counted again) without re-storing the message.
+        if origin.get("job_id"):
+            prompt = (f"use mcp to read job_id={origin['job_id']} - {resumed}; you're mentioned "
+                      "in a job thread, take appropriate action and respond")
+            await _route_job_mentions(origin["sender"], origin["text"], channel,
+                                      origin["job_id"], origin=origin, custom_prompt=prompt)
+        else:
+            prompt = (f"use mcp to read #{channel} - {resumed}; you're mentioned, "
+                      "take appropriate action and respond")
+            await _route_mentions(origin["sender"], origin["text"], channel,
+                                  origin=origin, custom_prompt=prompt,
+                                  known_agents=known_agents)
+
+
+async def _route_mentions(sender: str, text: str, channel: str, *, origin: dict | None,
+                          custom_prompt: str = "", known_agents: set[str]):
+    """Resolve @mention targets for a message and trigger them."""
+    raw_targets = router.get_targets(sender, text, channel, origin=origin)
     # Resolve base family names to actual registered instances
     # e.g. 'claude' → 'claude-prime' when slot-1 was renamed
     targets = []
@@ -874,7 +946,6 @@ async def _handle_new_message(msg: dict):
 
     # Build a readable message string for the wake prompt
     chat_msg = f"{sender}: {text}" if text else ""
-    custom_prompt = text if is_hidden_session_request else ""
 
     # Session turn guard: if a session is active on this channel and the sender
     # is an agent, only allow triggering the agent whose turn it is.
@@ -969,6 +1040,10 @@ async def broadcast_todo_update(msg_id: int, status: str | None):
         except Exception:
             dead.add(client)
     ws_clients.difference_update(dead)
+
+
+async def broadcast_reaction(msg_id: int, reactions: dict):
+    await _broadcast(json.dumps({"type": "reaction", "data": {"id": msg_id, "reactions": reactions}}))
 
 
 async def broadcast_settings():
@@ -1167,9 +1242,21 @@ async def websocket_endpoint(websocket: WebSocket):
                         await broadcast_clear(channel=channel)
                         continue
                     if cmd == "/continue":
-                        router.continue_routing()
+                        known_agents = set(registry.get_all_names()) if registry else set()
+                        known_agents.update(config.get("agents", {}).keys())
+                        if sender in known_agents:
+                            store.add("system", f"Loop guard: only humans can /continue. {sender} tried to self-resume.", channel=channel)
+                            continue
                         store.add("system", "Resuming agent conversation...", msg_type="system", channel=channel)
-                        await broadcast_status()
+                        await _resume_routing(channel)
+                        continue
+                    if cmd == "/newtask":
+                        known_agents = set(registry.get_all_names()) if registry else set()
+                        known_agents.update(config.get("agents", {}).keys())
+                        if sender in known_agents:
+                            store.add("system", f"Only humans can /newtask. {sender} tried to reset the sessions.", channel=channel)
+                            continue
+                        await _start_new_task(sender, text, channel)
                         continue
                     # Broadcast slash commands — expand without storing the raw command.
                     # _handle_new_message will store the expanded version.
@@ -2021,27 +2108,33 @@ async def post_job_message(job_id: int, request: Request):
     job = jobs.get(job_id)
     if job:
         channel = job.get("channel", "general")
-        raw_targets = router.get_targets(sender, text, channel)
-        targets = []
-        for t in raw_targets:
-            if registry:
-                targets.extend(registry.resolve_to_instances(t))
-            else:
-                targets.append(t)
-        targets = list(dict.fromkeys(targets))
-
-        import mcp_bridge
-        chat_msg = f"{sender}: {text}" if text else ""
-        for target in targets:
-            if registry:
-                inst = registry.get_instance(target)
-                if inst and inst.get("state") == "pending":
-                    continue
-            if agents.is_available(target):
-                await agents.trigger(target, message=chat_msg, channel=channel,
-                                     job_id=job_id)
+        origin = {"sender": sender, "text": text, "msg_id": msg.get("id"), "job_id": job_id}
+        await _route_job_mentions(sender, text, channel, job_id, origin=origin)
 
     return msg
+
+
+async def _route_job_mentions(sender: str, text: str, channel: str, job_id: int, *,
+                              origin: dict | None, custom_prompt: str = ""):
+    """Trigger @mentioned agents for a job-thread message, keeping the job context."""
+    raw_targets = router.get_targets(sender, text, channel, origin=origin)
+    targets = []
+    for t in raw_targets:
+        if registry:
+            targets.extend(registry.resolve_to_instances(t))
+        else:
+            targets.append(t)
+    targets = list(dict.fromkeys(targets))
+
+    chat_msg = f"{sender}: {text}" if text else ""
+    for target in targets:
+        if registry:
+            inst = registry.get_instance(target)
+            if inst and inst.get("state") == "pending":
+                continue
+        if agents.is_available(target):
+            await agents.trigger(target, message=chat_msg, channel=channel,
+                                 job_id=job_id, prompt=custom_prompt)
 
 
 @app.delete("/api/jobs/{job_id}/messages/{msg_id}")
@@ -2174,11 +2267,33 @@ async def register_agent(request: Request):
     label = body.get("label")
     if not base:
         return JSONResponse({"error": "base is required"}, status_code=400)
-    result = registry.register(base, label)
+    import mcp_bridge
+    # A relaunched wrapper presents its saved token(s) to take back its own
+    # identity instead of churning to base-2 (F3). Live owners are never displaced.
+    reclaim = body.get("reclaim") or []
+    hints = {r["token"]: r.get("name") for r in reclaim
+             if isinstance(r, dict) and isinstance(r.get("token"), str)}
+    dead_tokens = []
+    result = None
+    if hints:
+        taken = registry.takeover(base, list(hints), is_live=mcp_bridge.is_online)
+        if "busy" in taken:
+            return JSONResponse({"error": "identity_in_use", "name": taken["busy"],
+                                 "retry_after": mcp_bridge.PRESENCE_TIMEOUT}, status_code=409)
+        dead_tokens = taken.pop("dead_tokens", [])
+        if "token" in taken:
+            result = taken
+            result["reclaimed"] = True
+            old_name = hints.get(result.pop("matched_token"))
+            if old_name and old_name != result["name"] and not registry.is_registered(old_name):
+                result["migrate_queue_from"] = old_name
+    if result is None:
+        result = registry.register(base, label)
     if result is None:
         return JSONResponse({"error": f"unknown base: {base}"}, status_code=400)
+    if dead_tokens:
+        result["dead_tokens"] = dead_tokens
     # Touch presence so the instance doesn't immediately time out
-    import mcp_bridge
     with mcp_bridge._presence_lock:
         mcp_bridge._presence[result["name"]] = __import__("time").time()
     # If slot 1 was renamed (e.g. "claude" → "claude-1"), migrate state
@@ -2219,7 +2334,14 @@ async def deregister_agent(name: str, request: Request):
     elif registry and registry.is_agent_family(name):
         return JSONResponse({"error": "authenticated agent session required"}, status_code=403)
 
-    result = registry.deregister(name)
+    # {"reclaimable": true} = console close / SIGTERM: keep the token so the
+    # relaunched wrapper can take the identity back. Default is a deliberate exit.
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    reclaimable = isinstance(body, dict) and body.get("reclaimable") is True
+    result = registry.deregister(name, reclaimable=reclaimable)
     if result is None:
         return JSONResponse({"error": "not found"}, status_code=404)
     # Clean up runtime state (presence, activity, cursors, rename chains)
@@ -2299,6 +2421,8 @@ async def heartbeat(agent_name: str, request: Request):
         mcp_bridge._presence[current_name] = __import__("time").time()
     # Optional activity report from wrapper's terminal monitor
     _activity_changed = False
+    _approval_changed = False
+    waiting_approval = False
     try:
         body = await request.json()
         if "active" in body:
@@ -2306,10 +2430,21 @@ async def heartbeat(agent_name: str, request: Request):
             was_active = mcp_bridge._activity.get(current_name, False)
             mcp_bridge.set_active(current_name, active_val)
             _activity_changed = was_active != active_val
+        if "waiting_approval" in body:
+            waiting_approval = bool(body["waiting_approval"])
+            _approval_changed = mcp_bridge.set_waiting_approval(
+                current_name, waiting_approval,
+            )
     except Exception:
         pass  # No body = plain heartbeat
+    if _approval_changed:
+        channel = _agent_last_channel.get(current_name, _last_active_channel)
+        text = (f"{current_name} is waiting for approval in its terminal."
+                if waiting_approval else
+                f"{current_name} is no longer waiting for approval.")
+        store.add("system", text, msg_type="system", channel=channel)
     # Immediately broadcast on activity state change (don't wait for background checker)
-    if _activity_changed:
+    if _activity_changed or _approval_changed:
         await broadcast_status()
     # Return canonical name so wrapper can track renames
     resp = {"ok": True, "name": current_name}

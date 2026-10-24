@@ -254,6 +254,59 @@ class RuntimeRegistry:
         self._save_instances()
         return result
 
+    def takeover(self, base: str, tokens: list[str], is_live) -> dict:
+        """Hand a relaunched wrapper the identity its saved token belongs to.
+
+        Covers a stale live entry (the old wrapper died without deregistering) and a
+        reclaimable one (console close / crash timeout). `is_live(name)` reports a
+        recent heartbeat; a live owner is never displaced. The token is rotated under
+        the lock, so of two wrappers presenting the same token only the first wins.
+
+        Returns the instance dict (with the new token) on success, {"busy": name} if
+        every matching identity is still live, else {"dead_tokens": [...]}.
+        """
+        busy = None
+        dead = []
+        result = None
+        with self._lock:
+            for token in tokens:
+                inst = next((i for i in self._instances.values() if i.token == token), None)
+                if inst is not None:
+                    if inst.base != base:
+                        dead.append(token)
+                    elif is_live(inst.name):
+                        busy = busy or inst.name
+                    else:
+                        result = inst
+                        break
+                    continue
+                name = next((n for n, i in self._reclaimable.items() if i.token == token), None)
+                inst = self._reclaimable.get(name)
+                if (inst is None or inst.base != base or name in self._instances
+                        or any(li.base == inst.base and li.slot == inst.slot
+                               for li in self._instances.values())):
+                    dead.append(token)
+                    continue
+                del self._reclaimable[name]
+                self._reserved.pop(name, None)
+                self._instances[name] = inst
+                result = inst
+                break
+            if result is not None:
+                matched = result.token
+                result.token = secrets.token_hex(16)
+                result.epoch += 1
+                result.state = "active"
+                result = _inst_dict(result, include_token=True)
+                result["matched_token"] = matched
+                if dead:
+                    result["dead_tokens"] = dead
+        if result is None:
+            return {"busy": busy} if busy else {"dead_tokens": dead}
+        self._notify()
+        self._save_instances()
+        return result
+
     def deregister(self, name: str, reclaimable: bool = False) -> dict | None:
         """Remove an instance. Name is reserved for GRACE_PERIOD seconds.
 

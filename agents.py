@@ -16,12 +16,13 @@ class AgentTrigger:
         return self._registry.is_registered(name)
 
     def get_status(self) -> dict:
-        from mcp_bridge import is_online, is_active, get_role
+        from mcp_bridge import is_online, is_active, is_waiting_approval, get_role
         instances = self._registry.get_all()
         return {
             name: {
                 "available": is_online(name),
                 "busy": is_active(name),
+                "waiting_approval": is_online(name) and is_waiting_approval(name),
                 "label": info["label"],
                 "color": info["color"],
                 "role": get_role(name),
@@ -52,6 +53,14 @@ class AgentTrigger:
             f.write(json.dumps(entry) + "\n")
 
         log.info("Queued @%s trigger (ch=%s, job=%s): %s", agent_name, channel, job_id, message[:80])
+
+    def request_restart(self, agent_name: str):
+        """Queue a CLI session restart; the wrapper runs it before later wake-ups."""
+        queue_file = self._data_dir / f"{agent_name}_queue.jsonl"
+        self._data_dir.mkdir(parents=True, exist_ok=True)
+        with open(queue_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"type": "restart"}) + "\n")
+        log.info("Queued @%s session restart", agent_name)
 
     def trigger_sync(self, agent_name: str, message: str = "", channel: str = "general",
                      job_id: int | None = None, **kwargs):

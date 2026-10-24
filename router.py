@@ -10,7 +10,7 @@ class Router:
         self.default_mention = default_mention
         self.max_hops = max_hops
         self._online_checker = online_checker  # callable() -> set of online agent names
-        # Per-channel state: { channel: { hop_count, paused, guard_emitted } }
+        # Per-channel state: { channel: { hop_count, paused, guard_emitted, blocked } }
         self._channels: dict[str, dict] = {}
         self._build_pattern()
 
@@ -20,6 +20,7 @@ class Router:
                 "hop_count": 0,
                 "paused": False,
                 "guard_emitted": False,
+                "blocked": [],  # origins of mention messages held by the loop guard
             }
         return self._channels[channel]
 
@@ -49,8 +50,14 @@ class Router:
     def _is_agent(self, sender: str) -> bool:
         return sender.lower() in self.agent_names
 
-    def get_targets(self, sender: str, text: str, channel: str = "general") -> list[str]:
-        """Determine which agents should receive this message."""
+    def get_targets(self, sender: str, text: str, channel: str = "general",
+                    origin: dict | None = None) -> list[str]:
+        """Determine which agents should receive this message.
+
+        `origin` describes the message (sender, text, msg_id). When the loop
+        guard blocks an agent message that has mentions, its origin is kept so
+        continue_routing() can hand it back for re-delivery.
+        """
         ch = self._get_ch(channel)
         mentions = self.parse_mentions(text)
 
@@ -59,6 +66,8 @@ class Router:
             ch["hop_count"] = 0
             ch["paused"] = False
             ch["guard_emitted"] = False
+            # The human has taken over; stale agent hops must not replay.
+            ch["blocked"] = []
             if not mentions:
                 if self.default_mention in ("both", "all"):
                     return list(self.agent_names)
@@ -68,24 +77,39 @@ class Router:
             return mentions
         else:
             # Agent message: blocked while loop guard is active
-            if ch["paused"]:
-                return []
             # Only route if explicit @mention
             if not mentions:
+                return []
+            if ch["paused"]:
+                if origin is not None:
+                    ch["blocked"].append(origin)
                 return []
             ch["hop_count"] += 1
             if ch["hop_count"] > self.max_hops:
                 ch["paused"] = True
+                if origin is not None:
+                    ch["blocked"].append(origin)
                 return []
             # Don't route back to self
             return [m for m in mentions if m != sender]
 
-    def continue_routing(self, channel: str = "general"):
-        """Resume after loop guard pause."""
+    def continue_routing(self, channel: str = "general") -> list[dict]:
+        """Resume after loop guard pause.
+
+        Returns the origins of messages the guard blocked, oldest first, so
+        the caller can re-deliver them.
+        """
         ch = self._get_ch(channel)
         ch["hop_count"] = 0
         ch["paused"] = False
         ch["guard_emitted"] = False
+        blocked, ch["blocked"] = ch["blocked"], []
+        return blocked
+
+    def reset_all(self):
+        """Clear the guard in every channel, dropping blocked hops (a new task)."""
+        for channel in list(self._channels):
+            self.continue_routing(channel)
 
     def is_paused(self, channel: str = "general") -> bool:
         return self._get_ch(channel)["paused"]

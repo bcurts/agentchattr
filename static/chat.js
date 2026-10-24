@@ -463,6 +463,12 @@ function handleServerEvent(event) {
             playNotificationSound(event.data.sender);
         }
         appendMessage(event.data);
+    } else if (event.type === 'reaction') {
+        const el = document.getElementById(`message-${event.data.id}`);
+        if (el) {
+            const badges = el.querySelector('.msg-reactions');
+            if (badges) badges.innerHTML = renderReactionBadges(event.data.reactions);
+        }
     } else if (event.type === 'agent_renamed') {
         // Migrate active mentions before the agents config rebuild
         if (activeMentions.has(event.old_name)) {
@@ -823,6 +829,13 @@ function dayFloatRefresh() {
 
 // --- Messages ---
 
+function renderReactionBadges(reactions) {
+    return Object.entries(reactions || {}).map(([emoji, senders]) => {
+        const names = Array.isArray(senders) ? senders : [];
+        return `<span class="reaction-badge" title="${escapeHtml(names.join(', '))}">${escapeHtml(emoji)} ${names.length}</span>`;
+    }).join('');
+}
+
 function appendMessage(msg, options = {}) {
     // History replay and a live delivery can contain the same saved message.
     if (document.getElementById(`message-${msg.id}`)) return;
@@ -975,12 +988,20 @@ function appendMessage(msg, options = {}) {
                 ).join('') + '</div>';
             }
         }
-        el.innerHTML = `<div class="todo-strip"></div>${isSelf ? '' : avatarHtml}<div class="chat-bubble" style="--bubble-color: ${senderColor}">${replyHtml}<div class="bubble-header"><span class="msg-sender" style="color: ${senderColor}">${escapeHtml(msg.sender)}</span>${rolePillHtml}<span class="msg-time">${msg.time || ''}</span><span class="msg-num">#${msg.id}</span></div><div class="msg-text">${textHtml}</div>${choicesHtml}${attachmentsHtml}<button class="convert-job-pill" onclick="startJobFromMessage(${msg.id}); event.stopPropagation();" title="Convert to job">convert to job</button><button class="bubble-copy" onclick="copyMessage(${msg.id}, event)" title="Copy message"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div><div class="msg-actions"><button class="reply-btn" onclick="startReply(${msg.id}, event)">reply</button><button class="todo-hint" onclick="todoCycle(${msg.id}); event.stopPropagation();">${statusLabel}</button><button class="delete-btn" onclick="deleteClick(${msg.id}, event)" title="Delete">del</button></div>`;
+        el.innerHTML = `<div class="todo-strip"></div>${isSelf ? '' : avatarHtml}<div class="chat-bubble" style="--bubble-color: ${senderColor}">${replyHtml}<div class="bubble-header"><span class="msg-sender" style="color: ${senderColor}">${escapeHtml(msg.sender)}</span>${rolePillHtml}<span class="msg-time">${msg.time || ''}</span><span class="msg-num">#${msg.id}</span></div><div class="msg-text">${textHtml}</div>${choicesHtml}${attachmentsHtml}<div class="msg-reactions">${renderReactionBadges(msg.metadata?.reactions)}</div><button class="convert-job-pill" onclick="startJobFromMessage(${msg.id}); event.stopPropagation();" title="Convert to job">convert to job</button><button class="bubble-copy" onclick="copyMessage(${msg.id}, event)" title="Copy message"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div><div class="msg-actions"><button class="reply-btn" onclick="startReply(${msg.id}, event)">reply</button><button class="todo-hint" onclick="todoCycle(${msg.id}); event.stopPropagation();">${statusLabel}</button><button class="delete-btn" onclick="deleteClick(${msg.id}, event)" title="Delete">del</button></div>`;
         if (todoStatus) el.classList.add('msg-todo', `msg-todo-${todoStatus}`);
         if (msg.metadata?.session_output) el.classList.add('session-output');
 
         // Add copy buttons to code blocks
         addCodeCopyButtons(el);
+    }
+
+    // System and card messages can be reacted to as well as chat bubbles.
+    if (!el.querySelector('.msg-reactions')) {
+        const badges = document.createElement('div');
+        badges.className = 'msg-reactions';
+        badges.innerHTML = renderReactionBadges(msg.metadata?.reactions);
+        el.appendChild(badges);
     }
 
     // Hide messages from other channels
@@ -1856,10 +1877,14 @@ function updateStatus(data) {
         const pill = document.getElementById(`status-${name}`);
         if (!pill) continue;
 
-        pill.classList.remove('available', 'working', 'offline');
+        pill.classList.remove('available', 'working', 'offline', 'waiting-approval');
+        pill.title = info.waiting_approval && info.available
+            ? `@${name} — Waiting for approval` : `@${name}`;
         // Pending pills keep their pending animation (set in buildStatusPills)
         if (!pill.classList.contains('pending')) {
-            if (info.busy && info.available) {
+            if (info.waiting_approval && info.available) {
+                pill.classList.add('waiting-approval');
+            } else if (info.busy && info.available) {
                 pill.classList.add('working');
             } else if (info.available) {
                 pill.classList.add('available');

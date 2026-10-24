@@ -197,8 +197,13 @@ def run_agent(
     session_name=None,
     inject_env=None,
     inject_delay: float = 0.3,
+    restart_event=None,
 ):
-    """Run agent inside a tmux session, inject via tmux send-keys."""
+    """Run agent inside a tmux session, inject via tmux send-keys.
+
+    restart_event, when set, relaunches the CLI after it exits even under
+    no_restart (a /newtask session reset).
+    """
     _check_tmux()
 
     session_name = session_name or f"agentchattr-{agent}"
@@ -250,6 +255,9 @@ def run_agent(
             if result.returncode != 0:
                 print(f"  Error: failed to create tmux session (exit {result.returncode})")
                 break
+            # No host pid under tmux; a launch number identifies the CLI session.
+            if pid_holder is not None:
+                pid_holder[0] = (pid_holder[0] or 0) + 1
 
             # Attach — blocks until agent exits or user detaches (Ctrl+B, D)
             subprocess.run(["tmux", "attach-session", "-t", session_name])
@@ -262,9 +270,14 @@ def run_agent(
                 print(f"  Reattach: tmux attach -t {session_name}")
                 while _session_exists(session_name):
                     time.sleep(1)
-                break
+                if restart_event is None or not restart_event.is_set():
+                    break
 
             # Session gone — agent exited
+            if restart_event is not None and restart_event.is_set():
+                restart_event.clear()
+                print(f"\n  {agent.capitalize()} session reset for a new task.")
+                continue
             if no_restart:
                 break
 

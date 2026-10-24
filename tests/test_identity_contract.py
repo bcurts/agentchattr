@@ -252,8 +252,18 @@ class WrapperLaunchTests(unittest.TestCase):
             {},
         )
 
-    def test_build_provider_launch_for_claude_uses_direct_server_auth(self):
-        """Claude bypasses proxy — connects directly to MCP server with bearer token."""
+    def test_flag_mode_needs_proxy(self):
+        """Claude/Kimi ('flag') go through the local proxy so a chat-server
+        restart doesn't drop their MCP session (F4b). Other file/env modes
+        still connect directly."""
+        self.assertTrue(wrapper._needs_proxy("flag"))
+        self.assertTrue(wrapper._needs_proxy("proxy_flag"))
+        self.assertTrue(wrapper._needs_proxy(""))
+        for mode in ("settings_file", "env", "env_content"):
+            self.assertFalse(wrapper._needs_proxy(mode), mode)
+
+    def test_build_provider_launch_for_claude_points_at_proxy(self):
+        """Claude's --mcp-config points at the local proxy, not the server."""
         with tempfile.TemporaryDirectory() as tmp:
             # Create a fake project .mcp.json so _read_project_mcp_servers works
             project_dir = Path(tmp) / "project"
@@ -270,7 +280,7 @@ class WrapperLaunchTests(unittest.TestCase):
                 agent_cfg={},
                 instance_name="claude-2",
                 data_dir=Path(tmp),
-                proxy_url=None,
+                proxy_url="http://127.0.0.1:7777/mcp",
                 extra_args=["--debug"],
                 env={"PATH": os.environ.get("PATH", "")},
                 token="test_token_abc",
@@ -282,11 +292,12 @@ class WrapperLaunchTests(unittest.TestCase):
             config_path = Path(args[1])
             self.assertTrue(config_path.exists())
             payload = json.loads(config_path.read_text("utf-8"))
-            # Points at real server, not proxy
+            # Points at the proxy, not the real server
             self.assertEqual(
                 payload["mcpServers"]["agentchattr"]["url"],
-                "http://127.0.0.1:8200/mcp",
+                "http://127.0.0.1:7777/mcp",
             )
+            self.assertEqual(config_path.parent, Path(tmp) / "provider-config")
             # Bearer token in headers
             self.assertEqual(
                 payload["mcpServers"]["agentchattr"]["headers"]["Authorization"],
