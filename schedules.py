@@ -189,7 +189,7 @@ class ScheduleStore:
         with self._lock:
             s = {
                 "id": schedule_id,
-                "prompt": prompt.strip()[:500],
+                "prompt": prompt.strip(),
                 "targets": [t.strip().lstrip("@") for t in targets if t.strip()],
                 "channel": channel or "general",
                 "interval_seconds": interval_seconds or 86400,
