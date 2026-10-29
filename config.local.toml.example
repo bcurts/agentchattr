@@ -6,10 +6,14 @@
 #
 # Usage:
 #   1. cp config.local.toml.example config.local.toml
-#   2. Edit the [agents.NAME] section below
+#   2. Edit [server] and/or the [agents.NAME] section below
 #   3. Start the server: python run.py
 #   4. Start the wrapper: python wrapper_api.py NAME
 #      (or use: windows/start_api_agent.bat NAME)
+
+# --- Optional: trusted browser origins for Tailscale / reverse proxy access ---
+# [server]
+# trusted_origins = ["https://your-machine.your-tailnet.ts.net"]
 
 # --- Example: Qwen via llama-server ---
 # [agents.qwen]
