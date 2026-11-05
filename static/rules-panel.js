@@ -172,7 +172,7 @@ function renderRulesPanel() {
 
     // Update header counter
     const counter = document.getElementById('rules-counter');
-    if (counter) counter.textContent = `${activeCount}/10`;
+    if (counter) counter.textContent = t('rules.activeCount', { count: activeCount });
 
     if (panelRules.length === 0) {
         const ghost = document.createElement('div');
@@ -209,14 +209,6 @@ function renderRulesPanel() {
         const g = groups.find(g => g.key === status);
         if (g) g.items.push(r);
         else groups[2].items.push(r);
-    }
-
-    // Soft warning at 7+ active
-    if (activeCount >= 7) {
-        const warning = document.createElement('div');
-        warning.className = 'rules-soft-warning';
-        warning.textContent = t('rules.softWarning');
-        list.appendChild(warning);
     }
 
     for (const group of groups) {
@@ -534,25 +526,33 @@ function cancelDeleteRule(id) {
 
 async function resolveRuleProposal(msgId, action) {
     try {
-        await fetch(`/api/messages/${msgId}/resolve_rule_proposal`, {
+        const response = await fetch(`/api/messages/${msgId}/resolve_rule_proposal`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-Session-Token': window.SESSION_TOKEN },
             body: JSON.stringify({ action }),
         });
+        if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
+            throw new Error(_ruleErrorMessage(payload));
+        }
     } catch (e) {
-        console.error('Failed to resolve rule proposal:', e);
+        showToast(t('rules.updateFailed', { message: e.message }), 'error');
     }
 }
 
 async function dismissRuleProposal(msgId) {
     // Demote to regular chat message — same as job proposal dismiss
     try {
-        await fetch(`/api/messages/${msgId}/demote_rule_proposal`, {
+        const response = await fetch(`/api/messages/${msgId}/demote_rule_proposal`, {
             method: 'POST',
             headers: { 'X-Session-Token': window.SESSION_TOKEN },
         });
+        if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
+            throw new Error(_ruleErrorMessage(payload));
+        }
     } catch (e) {
-        console.error('Failed to dismiss rule proposal:', e);
+        showToast(t('rules.dismissFailed', { message: e.message }), 'error');
     }
 }
 
@@ -586,3 +586,10 @@ window.cancelDeleteRule = cancelDeleteRule;
 window.resolveRuleProposal = resolveRuleProposal;
 window.dismissRuleProposal = dismissRuleProposal;
 window.RulesPanel = { init: _rulesPanelInit };
+
+function _ruleErrorMessage(payload) {
+    if (payload.error_code === 'rule_not_found') return t('rules.missing');
+    return payload.error || t('rules.tryAgain');
+}
+
+Hub.on('rule_error', event => showToast(_ruleErrorMessage(event), 'error'));

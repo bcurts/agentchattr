@@ -133,10 +133,24 @@ _YOLO_ARG_MAP: dict[str, list[str]] = {
 # agent config doesn't provide mode_label/mode_desc itself.
 _MODE_LABEL_MAP: dict[str, str] = {
     "opencode": "Auto",
+    "dsh": "完全访问",
 }
 _MODE_DESC_MAP: dict[str, str] = {
     "opencode": "Auto 模式（工作目录内免确认，目录外直接拒绝）",
+    "dsh": "完全访问模式（免审批执行，可修改文件与运行命令）",
 }
+
+# Agent types that are served by a dedicated adapter instead of the generic
+# CLI `wrapper.py`. Each entry maps the agent base name to the adapter module
+# that owns its launch/lifecycle path.
+_ADAPTER_ENTRY_MAP: dict[str, str] = {
+    "dsh": "wrapper_dsh.py",
+}
+
+# Marker used by dedicated adapters so the supervisor can inject
+# `--no-restart` at the correct argv position (the base name follows the
+# adapter path, mirroring `wrapper.py <base>`).
+_INTERNAL_ADAPTER_ROLE = "wrapper-dsh"
 
 _SESSION_TOKEN_RE = re.compile(r"Session token:\s*([0-9a-fA-F]{32,})")
 
@@ -499,6 +513,11 @@ class Launcher:
         return [sys.executable, str(self.root / "run.py")]
 
     def _wrapper_command(self, base: str) -> list[str]:
+        adapter = _ADAPTER_ENTRY_MAP.get(base)
+        if adapter:
+            if getattr(sys, "frozen", False):
+                return [sys.executable, "--agentchattr-internal", _INTERNAL_ADAPTER_ROLE, base]
+            return [sys.executable, str(self.root / adapter), base]
         if getattr(sys, "frozen", False):
             return [sys.executable, "--agentchattr-internal", "wrapper", base]
         return [sys.executable, str(self.root / "wrapper.py"), base]
@@ -508,7 +527,12 @@ class Launcher:
             return cmd
         if len(cmd) >= 4 and cmd[1:3] == ["--agentchattr-internal", "wrapper"]:
             return [cmd[0], cmd[1], cmd[2], cmd[3], "--no-restart", *cmd[4:]]
-        if len(cmd) >= 3 and Path(cmd[1]).name.lower() == "wrapper.py":
+        if len(cmd) >= 4 and cmd[1] == "--agentchattr-internal" and cmd[2] == _INTERNAL_ADAPTER_ROLE:
+            return [cmd[0], cmd[1], cmd[2], cmd[3], "--no-restart", *cmd[4:]]
+        if len(cmd) >= 3 and Path(cmd[1]).name.lower() in {
+            "wrapper.py",
+            *_ADAPTER_ENTRY_MAP.values(),
+        }:
             return [cmd[0], cmd[1], cmd[2], "--no-restart", *cmd[3:]]
         return [*cmd, "--no-restart"]
 

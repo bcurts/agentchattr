@@ -20,3 +20,12 @@ agents_lineup.svg
 goals.py
 pr-reviews/
 agentchattr-*.zip
+
+# Local agent configuration, downloaded runtimes and validation output.
+.kimi-code/
+.workbuddy/
+dsh-runtime/
+node_modules/
+.credentials.yaml
+dsh-debug/
+dsh-live-report*.json

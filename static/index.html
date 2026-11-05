@@ -7,9 +7,9 @@
     <script>
         document.documentElement.dataset.theme = localStorage.getItem('agentchattr-theme') === 'dark' ? 'dark' : 'light';
     </script>
-    <link rel="stylesheet" href="/static/style.css?v=252">
+    <link rel="stylesheet" href="/static/style.css?v=253">
     <link rel="stylesheet" href="/static/sessions.css?v=224">
-    <link rel="stylesheet" href="/static/jobs.css?v=225">
+    <link rel="stylesheet" href="/static/jobs.css?v=226">
     <link rel="icon" href="/static/favicon.ico">
 </head>
 <body>
@@ -223,6 +223,7 @@
                     <div class="jobs-conv-input">
                         <div id="job-mention-menu" class="mention-menu hidden"></div>
                         <div id="job-attachments" class="job-attachments"></div>
+                        <div id="job-attachment-status" class="attachment-status" role="status"></div>
                         <div class="job-reply-target-row hidden" id="job-reply-target-row">
                             <button class="job-reply-target-btn" id="job-reply-target-btn" type="button" onclick="cycleJobReplyTarget()" title="Reply target" data-i18n-title="jobs.replyTarget.title">
                                 <span class="job-reply-target-prefix" data-i18n="jobs.replyTargetPrefix">To</span>
@@ -233,7 +234,9 @@
                         </div>
                         <div class="job-input-row">
                             <textarea id="jobs-conv-input-text" placeholder="Message..." rows="1" data-i18n-placeholder="jobs.message.placeholder"></textarea>
-                            <button onclick="sendJobMessage()" data-i18n="common.send">Send</button>
+                            <button type="button" onclick="document.getElementById('job-file-input').click()" data-i18n-title="attachment.add" title="Add files">📎</button>
+                            <input id="job-file-input" type="file" multiple hidden onchange="uploadFiles(Array.from(this.files), true); this.value = ''">
+                            <button id="job-send" onclick="sendJobMessage()" data-i18n="common.send">Send</button>
                         </div>
                     </div>
                 </div>
@@ -272,8 +275,11 @@
             <div id="slash-menu" class="hidden"></div>
             <div id="mention-menu" class="hidden"></div>
             <div id="attachments"></div>
+            <div id="attachment-status" class="attachment-status" role="status"></div>
             <div id="input-row">
                 <span id="sender-label" class="sender-label">user</span>
+                <button type="button" onclick="document.getElementById('file-input').click()" data-i18n-title="attachment.add" title="Add files">📎</button>
+                <input id="file-input" type="file" multiple hidden onchange="uploadFiles(Array.from(this.files)); this.value = ''">
                 <button id="session-launch-btn" onclick="showSessionLauncher()" title="Start a session" data-i18n-title="composer.startSession.title">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <polygon points="5 3 19 12 5 21 5 3"/>
@@ -348,24 +354,26 @@
                 </div>
             </div>
             <div class="input-hint">
-                <span data-i18n="composer.hint">Enter to send &middot; Shift+Enter for newline &middot; Paste/drop images &middot; Mic for voice &middot; Type / or @ for autocomplete</span>
+                <span data-i18n="composer.hint">Enter to send &middot; Shift+Enter for newline &middot; Paste/drop files &middot; Mic for voice &middot; Type / or @ for autocomplete</span>
             </div>
         </footer>
     </div>
 
     <div id="dropzone" class="hidden">
-        <div class="dropzone-inner" data-i18n="composer.dropImage">Drop image here</div>
+        <div class="dropzone-inner" data-i18n="composer.dropImage">Drop files here</div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="/static/core.js?v=223"></script>
     <script src="/static/store.js?v=223"></script>
     <script src="/static/theme.js?v=1"></script>
-    <script src="/static/i18n.js?v=2"></script>
-    <script src="/static/sessions.js?v=223"></script>
-    <script src="/static/jobs.js?v=225"></script>
-    <script src="/static/channels.js?v=225"></script>
-    <script src="/static/rules-panel.js?v=223"></script>
-    <script src="/static/chat.js?v=268"></script>
+    <script src="/static/i18n.js?v=4"></script>
+    <script src="/static/sessions.js?v=224"></script>
+    <script src="/static/attachments.js?v=1"></script>
+    <script src="/static/jobs.js?v=226"></script>
+    <script src="/static/channel-mentions.js?v=2"></script>
+    <script src="/static/channels.js?v=226"></script>
+    <script src="/static/rules-panel.js?v=224"></script>
+    <script src="/static/chat.js?v=270"></script>
 </body>
 </html>

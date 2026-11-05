@@ -37,6 +37,49 @@ else:
 SERVER_NAME = "agentchattr"
 
 
+def _lock_antigravity_settings(path: Path):
+    """Hold a non-blocking OS lock until the returned file is closed."""
+    lock_path = Path(str(path.expanduser().resolve()) + ".agentchattr.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    handle = open(lock_path, "a+b")
+    try:
+        if os.name == "nt":
+            import msvcrt
+            handle.seek(0)
+            if not handle.read(1):
+                handle.write(b"\0")
+                handle.flush()
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        handle.close()
+        raise
+    return handle
+
+
+def _antigravity_env(env: dict[str, str]) -> dict[str, str]:
+    """Apply the launch scripts' version pin and common installation paths."""
+    result = dict(env)
+    result["AGY_CLI_DISABLE_AUTO_UPDATE"] = "1"
+    if os.name == "nt":
+        local = result.get("LOCALAPPDATA", "")
+        candidates = [Path(local) / "agy" / "bin"] if local else []
+        executable = "agy.exe"
+    else:
+        candidates = [Path.home() / ".local/bin", Path("/usr/local/bin"),
+                      Path("/opt/homebrew/bin"), Path.home() / ".agy/bin"]
+        executable = "agy"
+    paths = result.get("PATH", "").split(os.pathsep)
+    for directory in candidates:
+        if (directory / executable).is_file() and str(directory) not in paths:
+            paths.insert(0, str(directory))
+    result["PATH"] = os.pathsep.join(paths)
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Per-instance provider config
 # ---------------------------------------------------------------------------
@@ -889,7 +932,7 @@ def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = Fals
 # Main
 # ---------------------------------------------------------------------------
 
-def main():
+def _main(lock_handles):
     import argparse
     import urllib.error
     import urllib.request
@@ -925,6 +968,23 @@ def main():
     agent_cfg = config.get("agents", {}).get(agent, {})
     project_dir = _resolve_agent_workdir(ROOT, agent_cfg.get("cwd", "."), args.workdir)
     command = agent_cfg.get("command", agent)
+    settings_lock = None
+    if agent == "antigravity":
+        raw_path = agent_cfg.get("mcp_settings_path", "")
+        if not raw_path:
+            print("  Antigravity requires a configured MCP settings path.")
+            sys.exit(1)
+        settings_path = Path(raw_path).expanduser()
+        if not settings_path.is_absolute():
+            settings_path = project_dir / settings_path
+        try:
+            settings_lock = _lock_antigravity_settings(settings_path)
+        except OSError:
+            print("  Antigravity MCP settings are locked or unavailable. "
+                  "Another instance may already be running; check the settings path.")
+            sys.exit(1)
+    if settings_lock is not None:
+        lock_handles.append(settings_lock)
     data_dir = ROOT / config.get("server", {}).get("data_dir", "./data")
     data_dir.mkdir(parents=True, exist_ok=True)
     server_port = config.get("server", {}).get("port", 8300)
@@ -1055,7 +1115,10 @@ def main():
     strip_vars = {"CLAUDECODE"} | set(agent_cfg.get("strip_env", []))
     env = {k: v for k, v in os.environ.items() if k not in strip_vars}
 
-    resolved = shutil.which(command)
+    if agent == "antigravity":
+        env = _antigravity_env(env)
+
+    resolved = shutil.which(command, path=env.get("PATH"))
     if not resolved:
         print(f"  Error: '{command}' not found on PATH.")
         print("  Install it first, then try again.")
@@ -1079,6 +1142,10 @@ def main():
         mcp_cfg=mcp_cfg,
         project_dir=project_dir,
     )
+    if agent == "antigravity":
+        # tmux may have an older environment than this wrapper process.
+        inject_env["AGY_CLI_DISABLE_AUTO_UPDATE"] = "1"
+        inject_env["PATH"] = env.get("PATH", "")
 
     print(f"  === {assigned_name.capitalize()} Chat Wrapper ===")
     if not needs_proxy:
@@ -1299,6 +1366,15 @@ def main():
             proxy.stop()
 
     print("  Wrapper stopped.")
+
+
+def main():
+    lock_handles = []
+    try:
+        return _main(lock_handles)
+    finally:
+        for handle in lock_handles:
+            handle.close()
 
 
 if __name__ == "__main__":

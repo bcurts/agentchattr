@@ -13,7 +13,7 @@ import uuid
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form
 from fastapi.requests import Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -191,8 +191,9 @@ def _install_security_middleware(token: str, cfg: dict):
 
             # Static assets, index page, and uploaded images are public.
             # The index page injects the token client-side via same-origin script.
-            # Uploads use random filenames and have path-traversal protection.
-            if path == "/" or path == "/launcher" or path.startswith(("/static/", "/uploads/", "/api/roles")):
+            # Legacy image previews remain public; documents require a session.
+            public_image = path.startswith("/uploads/") and Path(path).suffix.lower() in IMAGE_UPLOAD_EXTS
+            if path == "/" or path == "/launcher" or path.startswith(("/static/", "/api/roles")) or public_image:
                 return await call_next(request)
 
             # Local desktop launcher endpoints are restricted to loopback.
@@ -412,9 +413,11 @@ def _presence_iteration(*, now: float, registry, store, mcp_bridge, pid_alive_fn
                 if renamed:
                     mcp_bridge.migrate_identity(renamed["old"], renamed["new"])
                     store.rename_sender(renamed["old"], renamed["new"])
+                    _migrate_agent_last_channel(renamed["old"], renamed["new"])
                     rename_events.append((renamed["old"], renamed["new"]))
-                store.add(name, f"{name} disconnected (timeout)",
-                          msg_type="leave", channel=last_channel)
+                if name not in posted_leave:
+                    store.add(name, f"{name} disconnected (timeout)",
+                              msg_type="leave", channel=_agent_channel_for(name, last_channel))
                 posted_leave.add(name)
 
     # Re-fetch registered names (may have changed from crash timeout above)
@@ -442,7 +445,8 @@ def _presence_iteration(*, now: float, registry, store, mcp_bridge, pid_alive_fn
         # Post leave message ONCE per offline transition (debounced)
         if name not in posted_leave:
             posted_leave.add(name)
-            store.add(name, f"{name} disconnected", msg_type="leave", channel=last_channel)
+            store.add(name, f"{name} disconnected", msg_type="leave",
+                      channel=_agent_channel_for(name, last_channel))
 
     # Clear leave debounce for agents that came back online
     posted_leave -= currently_online
@@ -459,7 +463,8 @@ def _presence_iteration(*, now: float, registry, store, mcp_bridge, pid_alive_fn
             continue
         if not registry.is_registered(name) and name not in posted_leave:
             posted_leave.add(name)
-            store.add(name, f"{name} disconnected", msg_type="leave", channel=last_channel)
+            store.add(name, f"{name} disconnected", msg_type="leave",
+                      channel=_agent_channel_for(name, last_channel))
 
     online_changed = known_online != currently_online
 
@@ -487,6 +492,8 @@ def _presence_iteration(*, now: float, registry, store, mcp_bridge, pid_alive_fn
 def configure(cfg: dict, session_token: str = "", launcher_token: str = ""):
     global store, rules, summaries, jobs, schedules, router, agents, registry, session_store, session_engine, config, launcher_shutdown_token
     config = cfg
+    with _agent_channel_lock:
+        _agent_last_channel.clear()
     launcher_shutdown_token = launcher_token or ""
     # --- Security: store the session token and install middleware ---
     _install_security_middleware(session_token, cfg)
@@ -671,6 +678,49 @@ def configure(cfg: dict, session_token: str = "", launcher_token: str = ""):
 
 _event_loop = None  # set by run.py after starting the event loop
 _last_active_channel: str = "general"  # last channel any message was sent in
+_agent_last_channel: dict[str, str] = {}
+_agent_channel_lock = threading.RLock()
+
+
+def _agent_channel_for(name: str, fallback: str | None = None) -> str:
+    """Resolve a leave notice without routing it into a deleted channel."""
+    channels = room_settings.get("channels", ["general"])
+    with _agent_channel_lock:
+        remembered = _agent_last_channel.get(name)
+        if remembered in channels:
+            return remembered
+        candidate = fallback if fallback is not None else _last_active_channel
+        return candidate if candidate in channels else "general"
+
+
+def _migrate_agent_last_channel(old_name: str, new_name: str):
+    """Move channel memory alongside every identity/name migration."""
+    if old_name == new_name:
+        return
+    with _agent_channel_lock:
+        channel = _agent_last_channel.pop(old_name, None)
+        if channel is not None:
+            _agent_last_channel[new_name] = channel
+
+
+def _rename_activity_channel(old_name: str, new_name: str):
+    global _last_active_channel
+    with _agent_channel_lock:
+        for name, channel in list(_agent_last_channel.items()):
+            if channel == old_name:
+                _agent_last_channel[name] = new_name
+        if _last_active_channel == old_name:
+            _last_active_channel = new_name
+
+
+def _forget_activity_channel(channel: str):
+    global _last_active_channel
+    with _agent_channel_lock:
+        for name, remembered in list(_agent_last_channel.items()):
+            if remembered == channel:
+                del _agent_last_channel[name]
+        if _last_active_channel == channel:
+            _last_active_channel = "general"
 
 
 def set_event_loop(loop):
@@ -831,8 +881,11 @@ async def _handle_new_message(msg: dict):
 
     # Track last active channel for leave/join messages (skip system messages)
     global _last_active_channel
-    if msg_type not in ("system", "leave", "join"):
-        _last_active_channel = channel
+    if sender and sender != "system" and msg_type not in ("system", "leave", "join"):
+        with _agent_channel_lock:
+            _last_active_channel = channel
+            if sender and sender != "system":
+                _agent_last_channel[sender] = channel
     # Strip @mentions to find the slash command (e.g. "@claude @codex /hatmaking")
     stripped = _re.sub(r"@[\w-]+\s*", "", text).strip().lower()
     _broadcast_cmds = ("/hatmaking", "/artchallenge", "/roastreview", "/poetry")
@@ -1378,7 +1431,12 @@ async def websocket_endpoint(websocket: WebSocket):
             elif event.get("type") in ("decision_approve", "rule_activate"):
                 rid = event.get("id")
                 if rid is not None:
-                    rules.activate(int(rid))
+                    result = rules.activate(int(rid))
+                    if not result:
+                        await websocket.send_text(json.dumps({
+                            "type": "rule_error", "error_code": "rule_not_found",
+                            "error": "Rule no longer exists. Refresh the page.",
+                        }))
                 continue
 
             elif event.get("type") in ("decision_unapprove", "rule_deactivate"):
@@ -1488,6 +1546,7 @@ async def websocket_endpoint(websocket: WebSocket):
                             mcp_bridge.migrate_identity(agent_name, new_id)
                             # Update sender on all historical messages
                             store.rename_sender(agent_name, new_id)
+                            _migrate_agent_last_channel(agent_name, new_id)
                             # Notify clients so they can update sender in DOM
                             rename_event = json.dumps({
                                 "type": "agent_renamed",
@@ -1516,6 +1575,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                 import mcp_bridge
                                 mcp_bridge.migrate_identity(agent_name, new_id)
                                 store.rename_sender(agent_name, new_id)
+                                _migrate_agent_last_channel(agent_name, new_id)
                                 rename_event = json.dumps({
                                     "type": "agent_renamed",
                                     "old_name": agent_name,
@@ -1553,6 +1613,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                 mcp_bridge.migrate_identity(agent_name, new_id)
                                 # Update sender on all historical messages
                                 store.rename_sender(agent_name, new_id)
+                                _migrate_agent_last_channel(agent_name, new_id)
                                 rename_event = json.dumps({
                                     "type": "agent_renamed",
                                     "old_name": agent_name,
@@ -1587,6 +1648,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 idx = room_settings["channels"].index(old_name)
                 room_settings["channels"][idx] = new_name
                 store.rename_channel(old_name, new_name)
+                _rename_activity_channel(old_name, new_name)
                 import mcp_bridge
                 mcp_bridge.migrate_cursors_rename(old_name, new_name)
                 _save_settings()
@@ -1611,6 +1673,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     continue
                 room_settings["channels"].remove(name)
                 store.delete_channel(name)
+                _forget_activity_channel(name)
                 import mcp_bridge
                 mcp_bridge.migrate_cursors_delete(name)
                 _save_settings()
@@ -1625,31 +1688,55 @@ async def websocket_endpoint(websocket: WebSocket):
 
 # --- REST endpoints ---
 
-ALLOWED_UPLOAD_EXTS = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg'}
+IMAGE_UPLOAD_EXTS = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg'}
+ALLOWED_UPLOAD_EXTS = IMAGE_UPLOAD_EXTS  # backwards-compatible image policy
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB default
 
 
 @app.post("/api/upload")
-async def upload_image(file: UploadFile = File(...)):
+async def upload_image(file: UploadFile = File(...), display_name: str | None = Form(None)):
     upload_dir = Path(config.get("images", {}).get("upload_dir", "./uploads"))
     upload_dir.mkdir(parents=True, exist_ok=True)
 
-    ext = Path(file.filename).suffix or ".png"
-    if ext.lower() not in ALLOWED_UPLOAD_EXTS:
-        return JSONResponse({"error": f"unsupported file type: {ext}"}, status_code=400)
+    # Uploaded names are display labels only; never use them as disk paths.
+    name = (display_name or file.filename or "file").replace("\\", "/").rsplit("/", 1)[-1]
+    ext = Path(name).suffix.lower()
+    file_cfg = config.get("attachments", {})
+    allowed_files = {str(value).lower() for value in file_cfg.get("allowed_extensions", ["*"])}
+    is_image = ext in IMAGE_UPLOAD_EXTS
+    if not is_image and "*" not in allowed_files and ext not in allowed_files:
+        return JSONResponse({"error": f"unsupported file type: {ext or '(no extension)'}"}, status_code=400)
 
-    content = await file.read()
-    max_bytes = config.get("images", {}).get("max_size_mb", 10) * 1024 * 1024
-    if len(content) > max_bytes:
-        return JSONResponse({"error": f"file too large (max {max_bytes // 1024 // 1024} MB)"}, status_code=400)
-
-    filename = f"{uuid.uuid4().hex[:8]}{ext}"
+    policy = config.get("images", {}) if is_image else file_cfg
+    max_mb = policy.get("max_size_mb", 10 if is_image else 25)
+    max_bytes = int(max_mb * 1024 * 1024)
+    # Keep storage URLs simple even for names with unusual suffixes (e.g. .c++).
+    storage_ext = ext if not ext or _re.fullmatch(r"\.[a-z0-9_-]{1,32}", ext) else ".bin"
+    filename = f"{uuid.uuid4().hex}{storage_ext}"
     filepath = upload_dir / filename
-    filepath.write_bytes(content)
+    size = 0
+    try:
+        with filepath.open("xb") as destination:
+            while chunk := await file.read(64 * 1024):
+                size += len(chunk)
+                if size > max_bytes:
+                    raise ValueError(f"file too large (max {max_mb} MB)")
+                destination.write(chunk)
+    except ValueError as exc:
+        filepath.unlink(missing_ok=True)
+        return JSONResponse({"error": str(exc)}, status_code=413)
+    except BaseException:
+        filepath.unlink(missing_ok=True)
+        raise
+
+    import mimetypes
 
     return JSONResponse({
-        "name": file.filename,
+        "name": name,
         "url": f"/uploads/{filename}",
+        "size": size,
+        "media_type": mimetypes.guess_type(name)[0] or "application/octet-stream",
+        "kind": "image" if is_image else "file",
     })
 
 
@@ -1850,6 +1937,7 @@ async def launcher_release_agent(name: str, request: Request):
         if renamed:
             mcp_bridge.migrate_identity(renamed["old"], renamed["new"])
             store.rename_sender(renamed["old"], renamed["new"])
+            _migrate_agent_last_channel(renamed["old"], renamed["new"])
             if _event_loop:
                 rename_event = json.dumps({
                     "type": "agent_renamed",
@@ -2060,14 +2148,18 @@ async def resolve_rule_proposal(msg_id: int, request: Request):
         return JSONResponse({"error": "not a rule proposal"}, status_code=400)
     body = await request.json()
     action = body.get("action", "")
-    meta = msg.get("metadata", {})
+    meta = dict(msg.get("metadata") or {})
     rule_id = meta.get("rule_id")
 
     if action == "activate" and rule_id is not None:
-        rules.activate(int(rule_id))
+        if not rules.activate(int(rule_id)):
+            return JSONResponse({"error": "Rule no longer exists. Refresh the page.",
+                                 "error_code": "rule_not_found"}, status_code=409)
         meta["status"] = "activated"
     elif action == "draft" and rule_id is not None:
-        rules.make_draft(int(rule_id))
+        if not rules.make_draft(int(rule_id)):
+            return JSONResponse({"error": "Rule no longer exists. Refresh the page.",
+                                 "error_code": "rule_not_found"}, status_code=409)
         meta["status"] = "drafted"
     elif action == "dismiss" and rule_id is not None:
         rules.delete(int(rule_id))
@@ -2457,6 +2549,7 @@ async def register_agent(request: Request):
     if renamed:
         mcp_bridge.migrate_identity(renamed["old"], renamed["new"])
         store.rename_sender(renamed["old"], renamed["new"])
+        _migrate_agent_last_channel(renamed["old"], renamed["new"])
         if _event_loop:
             rename_event = json.dumps({
                 "type": "agent_renamed",
@@ -2501,6 +2594,7 @@ async def deregister_agent(name: str, request: Request):
     if renamed:
         mcp_bridge.migrate_identity(renamed["old"], renamed["new"])
         store.rename_sender(renamed["old"], renamed["new"])
+        _migrate_agent_last_channel(renamed["old"], renamed["new"])
         if _event_loop:
             rename_event = json.dumps({
                 "type": "agent_renamed",
@@ -2553,6 +2647,7 @@ async def rename_agent_label(name: str, request: Request):
     mcp_bridge.migrate_identity(name, new_id)
     # Update sender on all historical messages
     store.rename_sender(name, new_id)
+    _migrate_agent_last_channel(name, new_id)
     return JSONResponse({"ok": True, "new_name": new_id})
 
 
@@ -2986,8 +3081,15 @@ async def serve_upload(filename: str):
     filepath = (upload_dir / filename).resolve()
     if not filepath.is_relative_to(upload_dir.resolve()):
         return JSONResponse({"error": "invalid path"}, status_code=400)
-    if filepath.exists():
-        return FileResponse(filepath)
+    if filepath.suffix.lower() != Path(filename).suffix.lower():
+        return JSONResponse({"error": "invalid path"}, status_code=400)
+    if filepath.is_file():
+        if filepath.suffix.lower() in IMAGE_UPLOAD_EXTS:
+            return FileResponse(filepath, headers={"Content-Security-Policy": "sandbox", "X-Content-Type-Options": "nosniff"})
+        # Documents are downloads, never executable same-origin pages.
+        return FileResponse(filepath, media_type="application/octet-stream",
+                            filename=filepath.name,
+                            headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"})
     return JSONResponse({"error": "not found"}, status_code=404)
 
 @app.websocket("/ws/launcher/events")

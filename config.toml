@@ -25,6 +25,20 @@ cwd = ".."
 color = "#4285f4"
 label = "Gemini"
 
+# Antigravity uses a fixed user settings file. The wrapper prevents concurrent
+# launches from overwriting another Antigravity instance's chat identity.
+[agents.antigravity]
+command = "agy"
+cwd = ".."
+color = "#00bfa5"
+label = "Antigravity"
+mcp_inject = "settings_file"
+mcp_settings_path = "~/.gemini/config/mcp_config.json"
+mcp_transport = "http"
+mcp_http_key = "serverURL"
+# Keep project-specific tools out of this user-wide settings file.
+mcp_merge_project = false
+
 [agents.kimi]
 command = "kimi"
 cwd = ".."
@@ -89,6 +103,35 @@ label = "MiniMax"
 api_key_env = "MINIMAX_API_KEY"
 temperature = 1.0
 
+# --- DeepSeek Harness (DSH) ---
+# DSH runs through a dedicated adapter (wrapper_dsh.py) that speaks the
+# `dsh --profile sdk` JSON-RPC protocol over stdio instead of injecting
+# terminal keystrokes. One DSH subprocess is spawned per instance, each with
+# its own DSH_HOME, profile, session store and logs.
+#
+# Reuses the installed @deepseek-ai/dsh package from your existing npx cache.
+# Model/provider and the selected credential are copied from DSH Web into a
+# private instance home. Original Web settings, sessions and credentials stay
+# unchanged. Set provider/model explicitly only to override the Web selection.
+# Optional overrides:
+#   dsh_entry          — explicit npm package lib/bin.js (normally auto-detected)
+#   node_path          — explicit node executable
+#   provider / model   — override the Web model route
+#   reasoning_effort   — optional reasoning effort hint
+#   max_tokens         — optional output-token cap
+#
+# The launcher always shows this agent's mode as "完全访问" (full access):
+# DSH runs with danger-full-access sandboxing and no approval prompts, so it
+# can modify files and run commands unattended. Remove this block to disable
+# DSH entirely — no existing data is migrated.
+[agents.dsh]
+command = "dsh"
+cwd = ".."
+color = "#4d6bfe"
+label = "DeepSeek Harness"
+mode_label = "完全访问"
+mode_desc = "完全访问模式（免审批执行，可修改文件与运行命令）"
+
 [routing]
 # "none" = only route on explicit @mention. "all" = route to all agents by default.
 default = "none"
@@ -97,6 +140,11 @@ max_agent_hops = 4
 [mcp]
 http_port = 8200
 sse_port = 8201
+
+[attachments]
+# Ordinary files share images.upload_dir. Local agents need access to it.
+max_size_mb = 25
+allowed_extensions = ["*"]
 
 [images]
 upload_dir = "./uploads"

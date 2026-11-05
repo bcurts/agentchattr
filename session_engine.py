@@ -25,7 +25,7 @@ class SessionEngine:
         self._messages = message_store
         self._trigger = agent_trigger
         self._registry = registry
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
 
         # Hook into message stream
         self._messages.on_message(self._on_message)
@@ -134,9 +134,13 @@ class SessionEngine:
         sender = msg.get("sender", "")
 
         # Ignore system-generated messages (banners, phase markers, etc.)
-        if sender == "system" or msg.get("type", "chat") != "chat":
+        if sender == "system" or msg.get("type", "chat") not in ("chat", "decision"):
             return
 
+        with self._lock:
+            self._handle_participant_message(msg, channel, sender)
+
+    def _handle_participant_message(self, msg: dict, channel: str, sender: str):
         session = self._store.get_active(channel)
         if not session:
             return
@@ -152,13 +156,34 @@ class SessionEngine:
         if sender_is_agent and sender not in cast_agents:
             return
 
+        # A choice card asks for input; it is not the participant's completed turn.
+        if msg.get("type") == "decision":
+            if sender == expected_agent:
+                self._store.set_choice(session["id"], msg["id"])
+            return
+
+        choice_id = session.get("choice_message_id")
+        if choice_id is not None and not sender_is_agent and msg.get("reply_to") is not None:
+            choice = self._messages.get_by_id(msg["reply_to"])
+            if (choice and choice.get("type") == "decision"
+                    and (choice.get("metadata") or {}).get("resolved")):
+                if msg["reply_to"] == choice_id:
+                    self._store.set_choice(session["id"], None)
+                # Normal @mention routing wakes the participant with the answer.
+                # An older card must not release the current question.
+                return
+
         # Human spoke but it's not their turn — pause if an agent is expected
         if not sender_is_agent and sender != expected_agent and self._is_agent(expected_agent):
+            if choice_id is not None:
+                self._store.set_choice(session["id"], None)
             self._store.pause(session["id"])
             log.info("Session %d paused: human interruption by %s", session["id"], sender)
             return
 
         if sender == expected_agent:
+            if choice_id is not None:
+                return
             # Auto-resume if paused
             if session["state"] == "paused":
                 self._store.resume(session["id"])
@@ -173,7 +198,18 @@ class SessionEngine:
     # --- Engine core ---
 
     def _advance(self, session: dict, message_id: int):
-        """Advance session after the expected agent has responded."""
+        """Advance once, only if this response still belongs to the current turn."""
+        with self._lock:
+            current = self._store.get(session["id"])
+            if (not current or current["state"] not in ("active", "waiting")
+                    or current.get("choice_message_id") is not None
+                    or message_id <= current.get("last_choice_message_id", -1)
+                    or (current["current_phase"], current["current_turn"])
+                    != (session["current_phase"], session["current_turn"])):
+                return
+            self._advance_current(current, message_id)
+
+    def _advance_current(self, session: dict, message_id: int):
         tmpl = self._store.get_template(session["template_id"])
         if not tmpl:
             self._store.interrupt(session["id"], "template not found")

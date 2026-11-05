@@ -412,7 +412,7 @@ def chat_propose_job(
 
 
 def _resolve_attachments(attachments: list[dict]) -> list[dict]:
-    """Add absolute file_path to attachments so agents can read images."""
+    """Add absolute file_path so local agents can read attached images or files."""
     if not attachments:
         return attachments
     raw_dir = "./uploads"
@@ -525,8 +525,12 @@ def get_all_roles() -> dict[str, str]:
 
 def migrate_identity(old_name: str, new_name: str):
     """Migrate all runtime state when an agent is renamed (presence, cursors, activity, roles)."""
-    old_name = _canonical_agent_name(old_name)
-    new_name = _canonical_agent_name(new_name)
+    # The registry has already renamed the instance. Following its alias map
+    # here would resolve the old key to the new key and strand the old state.
+    old_name = canonicalize_name(old_name)
+    new_name = canonicalize_name(new_name)
+    if not old_name or not new_name or old_name == new_name:
+        return
     with _presence_lock:
         if old_name in _presence:
             _presence[new_name] = _presence.pop(old_name)
@@ -538,6 +542,12 @@ def migrate_identity(old_name: str, new_name: str):
     with _cursors_lock:
         if old_name in _cursors:
             _cursors[new_name] = _cursors.pop(old_name)
+    with _last_read_lock:
+        for remembered in (_last_read_channel, _last_read_job_id):
+            if old_name in remembered:
+                remembered[new_name] = remembered.pop(old_name)
+    if old_name in _empty_read_count:
+        _empty_read_count[new_name] = _empty_read_count.pop(old_name)
     if old_name in _roles:
         _roles[new_name] = _roles.pop(old_name)
         _save_roles()
@@ -848,8 +858,6 @@ def chat_rules(
         if not sender.strip():
             return "Error: sender is required."
         result = rules.propose(rule, sender, reason)
-        if result is None:
-            return "Error: too many rules."
         # Add proposal card to chat timeline
         if store:
             store.add(
@@ -911,11 +919,25 @@ def chat_claim(sender: str, name: str = "", ctx: Context | None = None) -> str:
     if not registry:
         return "Error: registry not available."
     target = name.strip() if name.strip() else None
+    previous = registry.get_instance(sender)
+    previous_name = previous["name"] if previous else sender
     result = registry.claim(sender, target)
     if isinstance(result, str):
         return f"Error: {result}"
     # Touch presence with the CONFIRMED name (may differ from sender)
     confirmed = result.get("name", sender)
+    if confirmed != previous_name:
+        migrate_identity(previous_name, confirmed)
+        if store:
+            store.rename_sender(previous_name, confirmed)
+        import app
+        app._migrate_agent_last_channel(previous_name, confirmed)
+        loop = getattr(app, "_event_loop", None)
+        if loop:
+            asyncio.run_coroutine_threadsafe(app._broadcast(json.dumps({
+                "type": "agent_renamed", "old_name": previous_name,
+                "new_name": confirmed,
+            })), loop)
     _touch_presence(confirmed)
     _notify_status_async()
     return json.dumps({"confirmed_name": confirmed, "label": result.get("label", ""), "base": result.get("base", "")})

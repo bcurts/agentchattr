@@ -33,6 +33,8 @@ HIDDEN_IMPORTS = [
     "wrapper_windows",
     "wrapper_unix",
     "wrapper_api",
+    "wrapper_dsh",
+    "dsh_protocol",
     "app",
     "launcher_supervisor",
     "launcher_routes",

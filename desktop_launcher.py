@@ -118,6 +118,13 @@ def _run_internal_subcommand() -> int | None:
 
             wrapper.main()
             return 0
+        if command == "wrapper-dsh":
+            # DeepSeek Harness uses a dedicated adapter (JSON-RPC over stdio
+            # instead of terminal keyboard injection).
+            import wrapper_dsh
+
+            wrapper_dsh.main()
+            return 0
         print(f"Unknown internal command: {command}", file=sys.stderr)
         return 2
     except Exception:

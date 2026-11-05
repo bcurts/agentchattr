@@ -969,15 +969,10 @@ html[data-theme="light"] :is(.job-brief-text, .job-msg-text) :is(h1, h2, h3, h4,
 
 .job-attachments:empty { display: none; }
 
-.job-attachments .attachment-preview {
-    position: relative;
-    width: 60px;
-    height: 60px;
-}
 
 .job-attachments .attachment-preview img {
-    width: 100%;
-    height: 100%;
+    width: 60px;
+    height: 60px;
     object-fit: cover;
     border-radius: var(--radius-sm);
     border: 1px solid var(--border);

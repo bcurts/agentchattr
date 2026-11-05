@@ -204,11 +204,6 @@ function _showSidebarRenameDialog(oldName) {
         if (!newName || !/^[a-z0-9][a-z0-9\-]{0,19}$/.test(newName)) return;
         if (newName !== oldName) {
             window.ws.send(JSON.stringify({ type: 'channel_rename', old_name: oldName, new_name: newName }));
-            if (window.activeChannel === oldName) {
-                window._setActiveChannel(newName);
-                localStorage.setItem('agentchattr-channel', newName);
-                Store.set('activeChannel', newName);
-            }
         }
         cleanup();
     };
@@ -433,11 +428,6 @@ function showChannelRenameDialog(oldName) {
         if (!newName || !/^[a-z0-9][a-z0-9\-]{0,19}$/.test(newName)) return;
         if (newName !== oldName) {
             window.ws.send(JSON.stringify({ type: 'channel_rename', old_name: oldName, new_name: newName }));
-            if (window.activeChannel === oldName) {
-                window._setActiveChannel(newName);
-                localStorage.setItem('agentchattr-channel', newName);
-                Store.set('activeChannel', newName);
-            }
         }
         cleanup();
     };

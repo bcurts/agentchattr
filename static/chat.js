@@ -6,6 +6,7 @@ const SESSION_TOKEN = window.__SESSION_TOKEN__ || "";
 
 let ws = null;
 let pendingAttachments = [];
+let channelUploads = 0;
 let autoScroll = true;
 let reconnectTimer = null;
 let username = 'user';
@@ -13,13 +14,16 @@ let agentConfig = {};  // { name: { color, label } } — registered instances (u
 let baseColors = {};   // { name: { color, label } } — base agent colors (for message coloring)
 let todos = {};  // { msg_id: "todo" | "done" }
 let rules = [];  // array of rule objects from server
-let activeMentions = new Set();  // agent names with pre-@ toggled on
+const channelMentions = new ChannelMentions();
+let activeMentions;  // selection for the active channel
+let removedActiveChannel = null;
 let replyingTo = null;  // { id, sender, text } or null
 let unreadCount = 0;    // messages received while scrolled up
 let lastMessageDate = null;  // track date for dividers (general channel)
 let lastMessageDates = {};  // { channel: dateString } for per-channel dividers
 let soundEnabled = false;  // suppress sounds during initial history load
 let activeChannel = localStorage.getItem('agentchattr-channel') || 'general';
+activeMentions = channelMentions.get(activeChannel);
 let channelList = ['general'];
 let channelUnread = {};  // { channelName: count }
 let agentHats = {};  // { agent_name: svg_string }
@@ -47,7 +51,13 @@ Object.defineProperty(window, 'SESSION_TOKEN', { get() { return SESSION_TOKEN; }
 Object.defineProperty(window, 'activeChannel', { get() { return activeChannel; } });
 Object.defineProperty(window, 'channelList', { get() { return channelList; }, set(v) { channelList = v; } });
 Object.defineProperty(window, 'channelUnread', { get() { return channelUnread; }, set(v) { channelUnread = v; } });
-window._setActiveChannel = function(v) { activeChannel = v; };
+window._setActiveChannel = function(v) {
+    removedActiveChannel = null;
+    activeChannel = v;
+    activeMentions = channelMentions.get(v);
+    buildMentionToggles();
+    updateSchedulePopoverState();
+};
 window._setPendingChannelSwitch = function(v) { pendingChannelSwitch = v; };
 // scrollToBottom is set after function definition (see below)
 Object.defineProperty(window, 'username', { get() { return username; } });
@@ -451,11 +461,9 @@ function connectWebSocket() {
             }
             appendMessage(event.data);
         } else if (event.type === 'agent_renamed') {
-            // Migrate active mentions before the agents config rebuild
-            if (activeMentions.has(event.old_name)) {
-                activeMentions.delete(event.old_name);
-                activeMentions.add(event.new_name);
-            }
+            channelMentions.renameAgent(event.old_name, event.new_name);
+            buildMentionToggles();
+            updateSchedulePopoverState();
             // Update sender name, color, and avatar on all existing messages in the DOM
             const newColor = getColor(event.new_name);
             const newAvatar = getAvatarSvg(event.new_name);
@@ -572,6 +580,7 @@ function connectWebSocket() {
             });
             _showNextPendingName();
         } else if (event.type === 'channel_renamed') {
+            channelMentions.renameChannel(event.old_name, event.new_name);
             // Migrate data-channel on existing DOM elements
             const container = document.getElementById('messages');
             for (const el of container.children) {
@@ -585,10 +594,16 @@ function connectWebSocket() {
                 delete lastMessageDates[event.old_name];
             }
             // Update active channel if we were on the renamed one
-            if (activeChannel === event.old_name) {
+            if (activeChannel === event.old_name || removedActiveChannel === event.old_name) {
+                removedActiveChannel = null;
                 activeChannel = event.new_name;
+                activeMentions = channelMentions.get(activeChannel);
+                buildMentionToggles();
+                updateSchedulePopoverState();
                 localStorage.setItem('agentchattr-channel', event.new_name);
                 Store.set('activeChannel', event.new_name);
+                filterMessagesByChannel();
+                renderChannelTabs();
             }
         } else if (event.type === 'edit') {
             // A message was edited/demoted — re-render it in place
@@ -981,7 +996,7 @@ function appendMessage(msg) {
         if (msg.attachments && msg.attachments.length > 0) {
             attachmentsHtml = '<div class="msg-attachments">';
             for (const att of msg.attachments) {
-                attachmentsHtml += `<img src="${escapeHtml(att.url)}" alt="${escapeHtml(att.name)}" onclick="openImageModal('${escapeHtml(att.url)}')">`;
+                attachmentsHtml += attachmentMarkup(att);
             }
             attachmentsHtml += '</div>';
         }
@@ -1182,8 +1197,10 @@ function applyAgentConfig(data) {
     for (const [name, cfg] of Object.entries(data)) {
         agentConfig[name.toLowerCase()] = cfg;
     }
+    channelMentions.pruneAgents(Object.keys(agentConfig));
     buildStatusPills();
     buildMentionToggles();
+    updateSchedulePopoverState();
     buildSoundSettings();
     // Re-color any messages already rendered (e.g. from a reconnect)
     recolorMessages();
@@ -2034,9 +2051,17 @@ function applySettings(data) {
     }
     if (data.channels && Array.isArray(data.channels)) {
         channelList = data.channels;
+        channelMentions.reconcile(channelList);
+        if (removedActiveChannel && channelList.includes(removedActiveChannel)) {
+            removedActiveChannel = null;
+        }
         // If active channel was deleted, switch to general
         if (!channelList.includes(activeChannel)) {
+            removedActiveChannel = activeChannel;
             activeChannel = 'general';
+            activeMentions = channelMentions.get(activeChannel);
+            buildMentionToggles();
+            updateSchedulePopoverState();
             localStorage.setItem('agentchattr-channel', 'general');
             Store.set('activeChannel', 'general');
             filterMessagesByChannel();
@@ -2586,14 +2611,19 @@ function updateSendButton() {
     const group = document.querySelector('.send-group');
     if (!input || !group) return;
     const hasContent = input.value.trim().length > 0 || pendingAttachments.length > 0;
-    group.classList.toggle('inactive', !hasContent);
+    group.classList.toggle('inactive', !hasContent || channelUploads > 0);
+    document.getElementById('send').disabled = channelUploads > 0;
 }
 
 function sendMessage() {
     const input = document.getElementById('input');
     let text = input.value.trim();
 
-    if (!text && pendingAttachments.length === 0) return;
+    if (channelUploads > 0 || (!text && pendingAttachments.length === 0)) return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        document.getElementById('attachment-status').textContent = t('attachment.reconnecting');
+        return;
+    }
 
     // Prepend active mention toggles if the message doesn't already mention them
     // Skip for non-broadcast slash commands (e.g. /clear, /continue)
@@ -2631,11 +2661,7 @@ function sendMessage() {
         text: text,
         sender: username,
         channel: activeChannel,
-        attachments: pendingAttachments.map(a => ({
-            path: a.path,
-            name: a.name,
-            url: a.url,
-        })),
+        attachments: pendingAttachments,
     };
     if (replyingTo) {
         payload.reply_to = replyingTo.id;
@@ -2653,7 +2679,7 @@ function sendMessage() {
     input.focus();
 }
 
-// --- Image paste/drop ---
+// --- File and image paste/drop ---
 
 function setupPaste() {
     document.addEventListener('paste', async (e) => {
@@ -2664,16 +2690,11 @@ function setupPaste() {
         const jobInput = document.getElementById('jobs-conv-input-text');
         const isJobFocused = jobInput && document.activeElement === jobInput;
 
-        for (const item of items) {
-            if (item.type.startsWith('image/')) {
-                e.preventDefault();
-                const file = item.getAsFile();
-                if (isJobFocused) {
-                    await uploadJobImage(file);
-                } else {
-                    await uploadImage(file);
-                }
-            }
+        const files = Array.from(items).filter(item => item.kind === 'file')
+            .map(item => item.getAsFile()).filter(Boolean);
+        if (files.length) {
+            e.preventDefault();
+            await uploadFiles(files, isJobFocused);
         }
     });
 }
@@ -2711,31 +2732,31 @@ function setupDragDrop() {
         const files = e.dataTransfer?.files;
         if (!files) return;
 
-        for (const file of files) {
-            if (file.type.startsWith('image/')) {
-                await uploadImage(file);
-            }
-        }
+        const target = document.elementFromPoint(e.clientX, e.clientY) || e.target;
+        const inJob = target.closest('#jobs-panel') &&
+            !document.getElementById('jobs-conversation-view').classList.contains('hidden');
+        await uploadFiles(Array.from(files), Boolean(inJob));
     });
 }
 
-async function uploadImage(file) {
-    const form = new FormData();
-    form.append('file', file);
-
+async function uploadImage(file, channel = activeChannel) {
+    const status = document.getElementById('attachment-status');
+    if (channel !== activeChannel) return `${file.name}: ${t('attachment.channelChanged')}`;
+    channelUploads++;
+    updateSendButton();
+    status.textContent = t('attachment.uploading', {name: file.name});
     try {
-        const resp = await fetch('/api/upload', { method: 'POST', headers: { 'X-Session-Token': SESSION_TOKEN }, body: form });
-        const data = await resp.json();
-
-        pendingAttachments.push({
-            path: data.path,
-            name: data.name,
-            url: data.url,
-        });
-
+        const data = await uploadAttachment(file);
+        if (channel !== activeChannel) throw new Error(t('attachment.channelChanged'));
+        pendingAttachments.push(data);
         renderAttachments();
-    } catch (err) {
-        console.error('Upload failed:', err);
+        status.textContent = '';
+    } catch (error) {
+        status.textContent = `${file.name}: ${error.message}`;
+        return status.textContent;
+    } finally {
+        channelUploads--;
+        updateSendButton();
     }
 }
 
@@ -2744,15 +2765,10 @@ function renderAttachments() {
     container.innerHTML = '';
 
     pendingAttachments.forEach((att, i) => {
-        const wrap = document.createElement('div');
-        wrap.className = 'attachment-preview';
-        wrap.innerHTML = `
-            <img src="${att.url}" alt="${escapeHtml(att.name)}" onclick="openImageModal('${escapeHtml(att.url)}')" title="Click to preview">
-            <button class="remove-btn" onclick="removeAttachment(${i})">x</button>
-        `;
-        container.appendChild(wrap);
+        container.appendChild(createAttachmentPreview(att, () => removeAttachment(i)));
     });
     repositionScrollAnchor();
+    updateSendButton();
 }
 
 function removeAttachment(index) {
@@ -2855,6 +2871,7 @@ function startReply(msgId, event) {
         }
     }
 
+    updateSchedulePopoverState();
     document.getElementById('input').focus();
 }
 
@@ -3203,11 +3220,6 @@ function renderTodosPanel() {
 function buildMentionToggles() {
     const container = document.getElementById('mention-toggles');
     container.innerHTML = '';
-
-    // Prune stale mentions for agents no longer in config
-    for (const name of activeMentions) {
-        if (!(name in agentConfig)) activeMentions.delete(name);
-    }
 
     for (const [name, cfg] of Object.entries(agentConfig)) {
         if (cfg.state === 'pending') continue;  // skip pending instances

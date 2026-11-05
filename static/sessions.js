@@ -293,7 +293,10 @@ function updateSessionBar() {
     if (endBtn) endBtn.style.display = '';
 
     const waitingAgent = s.current_agent || s.waiting_on;
-    if (s.state === 'waiting' && waitingAgent) {
+    if (s.state !== 'paused' && s.choice_message_id != null) {
+        waitingEl.textContent = t('sessions.waitingForChoice');
+        waitingEl.style.display = '';
+    } else if (s.state === 'waiting' && waitingAgent) {
         waitingEl.textContent = t('sessions.waitingFor', { agent: waitingAgent });
         waitingEl.style.display = '';
     } else if (s.state === 'paused') {
