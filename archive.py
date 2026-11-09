@@ -3,7 +3,7 @@
 import hashlib
 import io
 import json
-import re
+from channel_names import valid_channel_name
 import threading
 import time
 import uuid
@@ -134,7 +134,7 @@ def build_export(store, jobs_store, rules_store, summary_store,
 
 def import_archive(zip_bytes: bytes, store, jobs_store, rules_store,
                    summary_store, channel_list: list[str],
-                   max_channels: int = 8) -> dict:
+                   max_channels: int = 100) -> dict:
     """Import a zip archive, merging into current stores.
 
     Returns a report dict with counts and warnings.
@@ -215,7 +215,7 @@ def _do_import(zip_bytes, store, jobs_store, rules_store,
             return ch
         # Try to auto-create
         if len(channel_list) < max_channels:
-            if re.match(r'^[a-z0-9][a-z0-9-]{0,29}$', ch):
+            if valid_channel_name(ch):
                 channel_list.append(ch)
                 report["channels"]["created"].append(ch)
                 return ch

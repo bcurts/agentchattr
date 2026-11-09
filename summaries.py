@@ -42,6 +42,12 @@ class SummaryStore:
         with self._lock:
             return {ch: dict(s) for ch, s in self._summaries.items()}
 
+    def rename_channel(self, old_name: str, new_name: str):
+        with self._lock:
+            if old_name in self._summaries:
+                self._summaries[new_name] = self._summaries.pop(old_name)
+                self._save()
+
     def write(self, channel: str, text: str, author: str, message_id: int = 0,
               uid: str | None = None, updated_at: float | None = None) -> dict | None:
         text = text.strip()

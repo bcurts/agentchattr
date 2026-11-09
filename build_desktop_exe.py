@@ -20,6 +20,7 @@ RESOURCE_FILES = [
     "config.toml",
     "VERSION",
     "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
 ]
 
 RESOURCE_DIRS = [

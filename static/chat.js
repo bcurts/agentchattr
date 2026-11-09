@@ -32,6 +32,22 @@ let colorOverrides = JSON.parse(localStorage.getItem('agentchattr-color-override
 let schedulesList = [];  // array of schedule objects from server
 let _initialHistoryLoaded = false;  // false until initial history burst finishes
 let _historyLoadTimer = null;       // timer to flip _initialHistoryLoaded
+const conversationDrafts = new Map();
+
+window.onConversationSwitch = function(oldName, name) {
+    const input = document.getElementById('input');
+    conversationDrafts.set(oldName, { text: input.value, attachments: pendingAttachments.slice(), reply: replyingTo });
+    const draft = conversationDrafts.get(name);
+    input.value = draft?.text || '';
+    pendingAttachments = draft?.attachments.slice() || [];
+    replyingTo = draft?.reply || null;
+    document.getElementById('attachment-status').textContent = '';
+    renderAttachments();
+    renderReplyPreview();
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    updateSchedulePopoverState();
+    if (typeof refreshConversationEmptyState === 'function') refreshConversationEmptyState();
+};
 
 // Progressive reveal config for agent message streaming effect
 const STREAMING_CONFIG = {
@@ -180,8 +196,10 @@ function buildSoundSettings() {
     }
 }
 
-// Real brand logo SVGs from Bootstrap Icons (MIT licensed)
+// Brand SVGs from Bootstrap Icons and the official DeepSeek Harness favicon (MIT).
+// DeepSeek source: https://github.com/deepseek-ai/deepseek-harness/blob/master/apps/web/public/favicon.svg
 const BRAND_AVATARS = {
+    dsh: `<svg viewBox="0 0 50 50" fill="white" aria-hidden="true"><path d="M48.8354 10.0479C48.3232 9.79199 48.1025 10.2798 47.8032 10.5278C47.7007 10.6079 47.6143 10.7119 47.5273 10.8076C46.7793 11.624 45.9048 12.1597 44.7622 12.0957C43.0923 12 41.666 12.5356 40.4058 13.8398C40.1377 12.2319 39.2476 11.272 37.8926 10.6558C37.1836 10.3359 36.4668 10.0156 35.9702 9.31982C35.6235 8.82373 35.5293 8.27197 35.356 7.72754C35.2456 7.3999 35.1353 7.06396 34.7651 7.00781C34.3633 6.94385 34.2056 7.2876 34.0479 7.57568C33.418 8.75195 33.1733 10.0479 33.1973 11.3599C33.2524 14.312 34.4736 16.6641 36.8999 18.3359C37.1758 18.5278 37.2466 18.7197 37.1597 19C36.9946 19.5757 36.7974 20.1357 36.624 20.7119C36.5137 21.0801 36.3486 21.1597 35.9624 21C34.6309 20.4321 33.481 19.5918 32.4644 18.5757C30.7393 16.8721 29.1792 14.9917 27.2334 13.52C26.7764 13.1758 26.3193 12.856 25.8467 12.5518C23.8618 10.584 26.1069 8.96777 26.627 8.77588C27.1704 8.57568 26.8159 7.8877 25.0591 7.896C23.3022 7.90381 21.6953 8.50391 19.647 9.30371C19.3477 9.42383 19.0322 9.51172 18.7095 9.58398C16.8501 9.22363 14.9199 9.14355 12.9033 9.37598C9.10596 9.80762 6.07275 11.6396 3.84326 14.7681C1.16455 18.5278 0.53418 22.7998 1.30664 27.2559C2.11768 31.9521 4.46582 35.8398 8.07373 38.8799C11.8159 42.0322 16.1255 43.5762 21.041 43.2803C24.0269 43.104 27.3516 42.6963 31.1016 39.4561C32.0469 39.936 33.0396 40.1279 34.686 40.272C35.9546 40.3921 37.1758 40.208 38.1211 40.0078C39.6021 39.688 39.4995 38.2881 38.9639 38.0322C34.623 35.9678 35.5762 36.8081 34.71 36.1279C36.9155 33.4639 40.2402 30.6958 41.54 21.728C41.6426 21.0161 41.5557 20.5679 41.54 19.9917C41.5322 19.6396 41.6108 19.5039 42.0049 19.4639C43.0923 19.3359 44.1479 19.0317 45.1167 18.4878C47.9292 16.9199 49.064 14.3438 49.3315 11.2559C49.3711 10.7837 49.3237 10.2959 48.8354 10.0479ZM24.3262 37.8398C20.1196 34.4639 18.0791 33.3521 17.2358 33.3999C16.4482 33.4482 16.5898 34.3682 16.7632 34.9678C16.9443 35.5601 17.1812 35.9683 17.5117 36.4878C17.7402 36.832 17.8979 37.3442 17.2832 37.728C15.9282 38.584 13.5728 37.4399 13.4624 37.3838C10.7207 35.7358 8.42822 33.5601 6.81348 30.584C5.25342 27.7197 4.34766 24.6479 4.19775 21.3677C4.1582 20.5757 4.38672 20.2959 5.15869 20.1519C6.17529 19.96 7.22314 19.9199 8.23926 20.0718C12.5327 20.7119 16.1885 22.6719 19.2529 25.7759C21.002 27.5439 22.3252 29.6558 23.6885 31.7202C25.1377 33.9121 26.6978 36 28.6831 37.7119C29.3843 38.312 29.9434 38.7681 30.479 39.104C28.8643 39.2881 26.1699 39.3281 24.3262 37.8398ZM26.3433 24.6001C26.3433 24.248 26.6191 23.9678 26.9658 23.9678C27.0444 23.9678 27.1152 23.9839 27.1782 24.0078C27.2651 24.04 27.3438 24.0879 27.4067 24.1602C27.5171 24.272 27.5801 24.4321 27.5801 24.6001C27.5801 24.9521 27.3042 25.2319 26.9575 25.2319C26.6108 25.2319 26.3433 24.9521 26.3433 24.6001ZM32.6064 27.8799C32.2046 28.0479 31.8027 28.1919 31.4165 28.208C30.8179 28.2397 30.1641 27.9922 29.8096 27.688C29.2583 27.2158 28.8643 26.9521 28.6987 26.1279C28.6279 25.7759 28.6675 25.2319 28.7305 24.9199C28.8721 24.248 28.7144 23.8159 28.2495 23.4238C27.8716 23.104 27.3911 23.0161 26.8633 23.0161C26.666 23.0161 26.4849 22.9277 26.3511 22.856C26.1304 22.7441 25.9492 22.4639 26.1226 22.1201C26.1777 22.0078 26.4458 21.7358 26.5088 21.688C27.2256 21.272 28.0527 21.4077 28.8169 21.7197C29.5259 22.0161 30.0615 22.5601 30.834 23.3281C31.6216 24.2559 31.7632 24.5117 32.2124 25.208C32.5669 25.752 32.8901 26.312 33.1104 26.9521C33.2446 27.3521 33.0713 27.6802 32.6064 27.8799Z" fill-rule="nonzero"/></svg>`,
     claude: `<svg viewBox="0 0 16 16" fill="white"><path d="m3.127 10.604 3.135-1.76.053-.153-.053-.085H6.11l-.525-.032-1.791-.048-1.554-.065-1.505-.08-.38-.081L0 7.832l.036-.234.32-.214.455.04 1.009.069 1.513.105 1.097.064 1.626.17h.259l.036-.105-.089-.065-.068-.064-1.566-1.062-1.695-1.121-.887-.646-.48-.327-.243-.306-.104-.67.435-.48.585.04.15.04.593.456 1.267.981 1.654 1.218.242.202.097-.068.012-.049-.109-.181-.9-1.626-.96-1.655-.428-.686-.113-.411a2 2 0 0 1-.068-.484l.496-.674L4.446 0l.662.089.279.242.411.94.666 1.48 1.033 2.014.302.597.162.553.06.17h.105v-.097l.085-1.134.157-1.392.154-1.792.052-.504.25-.605.497-.327.387.186.319.456-.045.294-.19 1.23-.37 1.93-.243 1.29h.142l.161-.16.654-.868 1.097-1.372.484-.545.565-.601.363-.287h.686l.505.751-.226.775-.707.895-.585.759-.839 1.13-.524.904.048.072.125-.012 1.897-.403 1.024-.186 1.223-.21.553.258.06.263-.218.536-1.307.323-1.533.307-2.284.54-.028.02.032.04 1.029.098.44.024h1.077l2.005.15.525.346.315.424-.053.323-.807.411-3.631-.863-.872-.218h-.12v.073l.726.71 1.331 1.202 1.667 1.55.084.383-.214.302-.226-.032-1.464-1.101-.565-.497-1.28-1.077h-.084v.113l.295.432 1.557 2.34.08.718-.112.234-.404.141-.444-.08-.911-1.28-.94-1.44-.759-1.291-.093.053-.448 4.821-.21.246-.484.186-.403-.307-.214-.496.214-.98.258-1.28.21-1.016.19-1.263.112-.42-.008-.028-.092.012-.953 1.307-1.448 1.957-1.146 1.227-.274.109-.477-.247.045-.44.266-.39 1.586-2.018.956-1.25.617-.723-.004-.105h-.036l-4.212 2.736-.75.096-.324-.302.04-.496.154-.162 1.267-.871z"/></svg>`,
     codex: `<svg viewBox="0 0 16 16" fill="white"><path d="M14.949 6.547a3.94 3.94 0 0 0-.348-3.273 4.11 4.11 0 0 0-4.4-1.934A4.1 4.1 0 0 0 8.423.2 4.15 4.15 0 0 0 6.305.086a4.1 4.1 0 0 0-1.891.948 4.04 4.04 0 0 0-1.158 1.753 4.1 4.1 0 0 0-1.563.679A4 4 0 0 0 .554 4.72a3.99 3.99 0 0 0 .502 4.731 3.94 3.94 0 0 0 .346 3.274 4.11 4.11 0 0 0 4.402 1.933c.382.425.852.764 1.377.995.526.231 1.095.35 1.67.346 1.78.002 3.358-1.132 3.901-2.804a4.1 4.1 0 0 0 1.563-.68 4 4 0 0 0 1.14-1.253 3.99 3.99 0 0 0-.506-4.716m-6.097 8.406a3.05 3.05 0 0 1-1.945-.694l.096-.054 3.23-1.838a.53.53 0 0 0 .265-.455v-4.49l1.366.778q.02.011.025.035v3.722c-.003 1.653-1.361 2.992-3.037 2.996m-6.53-2.75a2.95 2.95 0 0 1-.36-2.01l.095.057L5.29 12.09a.53.53 0 0 0 .527 0l3.949-2.246v1.555a.05.05 0 0 1-.022.041L6.473 13.3c-1.454.826-3.311.335-4.15-1.098m-.85-6.94A3.02 3.02 0 0 1 3.07 3.949v3.785a.51.51 0 0 0 .262.451l3.93 2.237-1.366.779a.05.05 0 0 1-.048 0L2.585 9.342a2.98 2.98 0 0 1-1.113-4.094zm11.216 2.571L8.747 5.576l1.362-.776a.05.05 0 0 1 .048 0l3.265 1.86a3 3 0 0 1 1.173 1.207 2.96 2.96 0 0 1-.27 3.2 3.05 3.05 0 0 1-1.36.997V8.279a.52.52 0 0 0-.276-.445m1.36-2.015-.097-.057-3.226-1.855a.53.53 0 0 0-.53 0L6.249 6.153V4.598a.04.04 0 0 1 .019-.04L9.533 2.7a3.07 3.07 0 0 1 3.257.139c.474.325.843.778 1.066 1.303.223.526.289 1.103.191 1.664zM5.503 8.575 4.139 7.8a.05.05 0 0 1-.026-.037V4.049c0-.57.166-1.127.476-1.607s.752-.864 1.275-1.105a3.08 3.08 0 0 1 3.234.41l-.096.054-3.23 1.838a.53.53 0 0 0-.265.455zm.742-1.577 1.758-1 1.762 1v2l-1.755 1-1.762-1z"/></svg>`,
     gemini: `<svg viewBox="0 0 65 65" fill="white"><path d="M32.447 0c.68 0 1.273.465 1.439 1.125a38.904 38.904 0 001.999 5.905c2.152 5 5.105 9.376 8.854 13.125 3.751 3.75 8.126 6.703 13.125 8.855a38.98 38.98 0 005.906 1.999c.66.166 1.124.758 1.124 1.438 0 .68-.464 1.273-1.125 1.439a38.902 38.902 0 00-5.905 1.999c-5 2.152-9.375 5.105-13.125 8.854-3.749 3.751-6.702 8.126-8.854 13.125a38.973 38.973 0 00-2 5.906 1.485 1.485 0 01-1.438 1.124c-.68 0-1.272-.464-1.438-1.125a38.913 38.913 0 00-2-5.905c-2.151-5-5.103-9.375-8.854-13.125-3.75-3.749-8.125-6.702-13.125-8.854a38.973 38.973 0 00-5.905-2A1.485 1.485 0 010 32.448c0-.68.465-1.272 1.125-1.438a38.903 38.903 0 005.905-2c5-2.151 9.376-5.104 13.125-8.854 3.75-3.749 6.703-8.125 8.855-13.125a38.972 38.972 0 001.999-5.905A1.485 1.485 0 0132.447 0z"/></svg>`,
@@ -579,8 +597,21 @@ function connectWebSocket() {
                 base: event.base || '',
             });
             _showNextPendingName();
+        } else if (event.type === 'channel_deleted') {
+            conversationDrafts.delete(event.name);
+            delete channelUnread[event.name];
+            delete lastMessageDates[event.name];
+            if (removedActiveChannel === event.name) removedActiveChannel = null;
+            for (const el of Array.from(document.getElementById('messages').children)) {
+                if (el.dataset.channel === event.name) el.remove();
+            }
+            renderChannelTabs();
         } else if (event.type === 'channel_renamed') {
             channelMentions.renameChannel(event.old_name, event.new_name);
+            if (conversationDrafts.has(event.old_name)) {
+                conversationDrafts.set(event.new_name, conversationDrafts.get(event.old_name));
+                conversationDrafts.delete(event.old_name);
+            }
             // Migrate data-channel on existing DOM elements
             const container = document.getElementById('messages');
             for (const el of container.children) {
@@ -595,6 +626,7 @@ function connectWebSocket() {
             }
             // Update active channel if we were on the renamed one
             if (activeChannel === event.old_name || removedActiveChannel === event.old_name) {
+                if (activeChannel !== event.old_name) window.onConversationSwitch(activeChannel, event.new_name);
                 removedActiveChannel = null;
                 activeChannel = event.new_name;
                 activeMentions = channelMentions.get(activeChannel);
@@ -1221,7 +1253,10 @@ function recolorMessages() {
         if (bubble) bubble.style.setProperty('--bubble-color', color);
         // Update avatar color
         const avatar = el.querySelector('.avatar');
-        if (avatar) avatar.style.backgroundColor = color;
+        if (avatar) {
+            avatar.style.backgroundColor = color;
+            avatar.innerHTML = getAvatarSvg(name);
+        }
         // Re-render markdown with updated mention colors and hashtags
         const textEl = el.querySelector('.msg-text');
         if (textEl && el.dataset.rawText) {
@@ -2057,6 +2092,7 @@ function applySettings(data) {
         }
         // If active channel was deleted, switch to general
         if (!channelList.includes(activeChannel)) {
+            window.onConversationSwitch(activeChannel, 'general');
             removedActiveChannel = activeChannel;
             activeChannel = 'general';
             activeMentions = channelMentions.get(activeChannel);
@@ -2520,6 +2556,7 @@ function setupInput() {
     const input = document.getElementById('input');
 
     input.addEventListener('keydown', (e) => {
+        if (e.isComposing || e.keyCode === 229) return;
         if (mentionMenuVisible) {
             const menu = document.getElementById('mention-menu');
             const items = menu.querySelectorAll('.mention-item');
@@ -2586,7 +2623,7 @@ function setupInput() {
     // Auto-resize + slash menu + mention menu + send button state
     function onInputChange() {
         input.style.height = 'auto';
-        input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+        input.style.height = Math.min(input.scrollHeight, 200) + 'px';
         updateSlashMenu(input.value);
         updateMentionMenu();
         updateSendButton();
@@ -4039,7 +4076,7 @@ function _helpCardDefs() {
         },
         {
             id: 'hg-channels',
-            anchor: '#channel-tabs',
+            anchor: '#channel-sidebar-add',
             row: 'middle',
             light: true,
             wide: true,
@@ -4047,9 +4084,9 @@ function _helpCardDefs() {
             `<div class="hg-module-title">${t('help.channels.title')} <span class="hg-loc">${t('help.channels.loc')}</span></div>` +
             `<p class="hg-module-desc">${t('help.channels.desc')}</p>` +
             '<div class="hg-mock-channels">' +
-                '<span class="hg-mock-ch active"># general</span>' +
-                '<span class="hg-mock-ch"># design</span>' +
-                '<span class="hg-mock-ch"># backend</span>' +
+                `<span class="hg-mock-ch active">${t('conversation.default')}</span>` +
+                `<span class="hg-mock-ch">${t('help.sessions.designReview')}</span>` +
+                `<span class="hg-mock-ch">${t('help.sessions.codeReview')}</span>` +
                 '<span class="hg-mock-ch-add">+</span>' +
             '</div>' +
             `<p class="hg-module-tip">${t('help.channels.tip')}</p>`
@@ -4248,7 +4285,7 @@ function _positionHelpRows() {
     var footer = document.querySelector('footer');
 
     var headerBottom = header ? header.getBoundingClientRect().bottom : 48;
-    var channelBarBottom = channelBar ? channelBar.getBoundingClientRect().bottom : headerBottom + 30;
+    var channelBarBottom = channelBar && channelBar.offsetParent ? channelBar.getBoundingClientRect().bottom : headerBottom;
     var footerTop = footer ? footer.getBoundingClientRect().top : window.innerHeight - 60;
 
     var topRow = document.getElementById('hg-row-top');
@@ -4454,13 +4491,6 @@ function _helpKeyHandler(e) {
 window.toggleHelp = toggleHelp;
 window.closeHelp = closeHelp;
 
-// Auto-show on first visit
-function initHelpTour() {
-    if (!localStorage.getItem('help_seen')) {
-        setTimeout(openHelp, 2500);
-    }
-}
-
 // --- Start ---
 
-document.addEventListener('DOMContentLoaded', function() { init(); initHelpTour(); });
+document.addEventListener('DOMContentLoaded', function() { init(); });

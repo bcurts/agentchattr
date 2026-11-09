@@ -44,6 +44,16 @@ class SessionStore:
 
     # --- Persistence ---
 
+    def rename_channel(self, old_name: str, new_name: str):
+        with self._lock:
+            changed = False
+            for session in self._sessions:
+                if session.get('channel') == old_name:
+                    session['channel'] = new_name
+                    changed = True
+            if changed:
+                self._save()
+
     def _load(self):
         if not self._path.exists():
             return

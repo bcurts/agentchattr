@@ -30,6 +30,8 @@ from session_store import SessionStore, validate_session_template
 from session_engine import SessionEngine
 from launcher import launcher
 from launcher_routes import router as launcher_router, launcher_events_ws
+from channel_names import valid_channel_name
+import mcp_bridge
 
 log = logging.getLogger(__name__)
 
@@ -66,8 +68,7 @@ room_settings: dict = {
 }
 
 # Channel validation
-_CHANNEL_NAME_RE = _re.compile(r'^[a-z0-9][a-z0-9\-]{0,19}$')
-MAX_CHANNELS = 8
+MAX_CHANNELS = 100
 
 # Agent hats (persisted to data/hats.json)
 agent_hats: dict[str, str] = {}  # { agent_name: svg_string }
@@ -492,6 +493,8 @@ def _presence_iteration(*, now: float, registry, store, mcp_bridge, pid_alive_fn
 def configure(cfg: dict, session_token: str = "", launcher_token: str = ""):
     global store, rules, summaries, jobs, schedules, router, agents, registry, session_store, session_engine, config, launcher_shutdown_token
     config = cfg
+    import mcp_bridge
+    mcp_bridge.clear_channel_aliases()
     with _agent_channel_lock:
         _agent_last_channel.clear()
     launcher_shutdown_token = launcher_token or ""
@@ -1251,6 +1254,7 @@ def _on_registry_change():
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    import mcp_bridge
     # --- Security: validate session token on WebSocket connect ---
     token = websocket.query_params.get("token", "")
     if token != session_token:
@@ -1329,7 +1333,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 text = event.get("text", "").strip()
                 attachments = event.get("attachments", [])
                 sender = event.get("sender") or room_settings.get("username", "user")
-                channel = event.get("channel", "general")
+                channel = mcp_bridge.resolve_channel(event.get("channel", "general"))
 
                 if not text and not attachments:
                     continue
@@ -1417,7 +1421,7 @@ async def websocket_endpoint(websocket: WebSocket):
                             rules.make_draft(rule["id"])
                         else:
                             # Agent proposals get a card in the timeline
-                            channel = event.get("channel", "general")
+                            channel = mcp_bridge.resolve_channel(event.get("channel", "general"))
                             msg = store.add(
                                 author, f"Rule proposal: {text}",
                                 msg_type="rule_proposal",
@@ -1623,23 +1627,27 @@ async def websocket_endpoint(websocket: WebSocket):
                 continue
 
             elif event.get("type") == "channel_create":
-                name = (event.get("name") or "").strip().lower()
-                if not name or not _CHANNEL_NAME_RE.match(name):
+                raw_name = event.get("name")
+                name = raw_name.strip().lower() if isinstance(raw_name, str) else ""
+                if not valid_channel_name(name):
                     continue
                 if name in room_settings["channels"]:
                     continue
                 if len(room_settings["channels"]) >= MAX_CHANNELS:
                     continue
+                mcp_bridge.reclaim_channel_name(name)
                 room_settings["channels"].append(name)
                 _save_settings()
                 await broadcast_settings()
 
             elif event.get("type") == "channel_rename":
-                old_name = (event.get("old_name") or "").strip().lower()
-                new_name = (event.get("new_name") or "").strip().lower()
+                raw_old = event.get("old_name")
+                raw_new = event.get("new_name")
+                old_name = raw_old.strip().lower() if isinstance(raw_old, str) else ""
+                new_name = raw_new.strip().lower() if isinstance(raw_new, str) else ""
                 if old_name == "general":
                     continue
-                if not new_name or not _CHANNEL_NAME_RE.match(new_name):
+                if not valid_channel_name(new_name):
                     continue
                 if old_name not in room_settings["channels"]:
                     continue
@@ -1649,6 +1657,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 room_settings["channels"][idx] = new_name
                 store.rename_channel(old_name, new_name)
                 _rename_activity_channel(old_name, new_name)
+                for channel_store in (summaries, jobs, schedules, session_store, router):
+                    if channel_store is not None:
+                        channel_store.rename_channel(old_name, new_name)
                 import mcp_bridge
                 mcp_bridge.migrate_cursors_rename(old_name, new_name)
                 _save_settings()
@@ -1666,7 +1677,8 @@ async def websocket_endpoint(websocket: WebSocket):
                         pass
 
             elif event.get("type") == "channel_delete":
-                name = (event.get("name") or "").strip().lower()
+                raw_name = event.get("name")
+                name = raw_name.strip().lower() if isinstance(raw_name, str) else ""
                 if name == "general":
                     continue
                 if name not in room_settings["channels"]:
@@ -1678,6 +1690,12 @@ async def websocket_endpoint(websocket: WebSocket):
                 mcp_bridge.migrate_cursors_delete(name)
                 _save_settings()
                 await broadcast_settings()
+                deleted_event = json.dumps({"type": "channel_deleted", "name": name})
+                for c in list(ws_clients):
+                    try:
+                        await c.send_text(deleted_event)
+                    except Exception:
+                        pass
 
     except WebSocketDisconnect:
         ws_clients.discard(websocket)
@@ -1775,7 +1793,7 @@ async def import_history(file: UploadFile = File(...)):
             status_code=400,
         )
     channel_list = list(room_settings.get("channels", ["general"]))
-    max_ch = room_settings.get("max_channels", 8)
+    max_ch = room_settings.get("max_channels", MAX_CHANNELS)
     report = _archive.import_archive(
         content, store, jobs, rules, summaries,
         channel_list, max_channels=max_ch,
@@ -1803,7 +1821,8 @@ async def import_history(file: UploadFile = File(...)):
 
 @app.get("/api/messages")
 async def get_messages(since_id: int = 0, limit: int = 50, channel: str = ""):
-    ch = channel if channel else None
+    import mcp_bridge
+    ch = mcp_bridge.resolve_channel(channel) if channel else None
     if since_id:
         return store.get_since(since_id, channel=ch)
     return store.get_recent(limit, channel=ch)
@@ -1829,7 +1848,8 @@ async def api_send(request: Request):
     text = body.get("text", "").strip()
     if not text:
         return JSONResponse({"error": "text is required"}, status_code=400)
-    channel = body.get("channel", "general")
+    import mcp_bridge
+    channel = mcp_bridge.resolve_channel(body.get("channel", "general"))
 
     msg = store.add(sender, text, channel=channel)
     return JSONResponse(msg)
@@ -1967,7 +1987,7 @@ async def create_schedule(request: Request):
     body = await request.json()
     prompt = body.get("prompt", "")
     targets = body.get("targets", [])
-    channel = body.get("channel", "general")
+    channel = mcp_bridge.resolve_channel(body.get("channel", "general"))
     spec = body.get("spec", "")
     one_shot = body.get("one_shot", False)
     send_at_date = body.get("send_at_date", "")  # "YYYY-MM-DD" for one-shot
@@ -2217,7 +2237,7 @@ async def trigger_agent_silent(request: Request):
     body = await request.json()
     agent_name = body.get("agent", "").strip()
     message = body.get("message", "").strip()
-    channel = body.get("channel", "general")
+    channel = mcp_bridge.resolve_channel(body.get("channel", "general"))
     source_msg_id = body.get("source_msg_id")
     if not agent_name or not message:
         return JSONResponse({"error": "agent and message required"}, status_code=400)
@@ -2255,7 +2275,7 @@ async def create_job(request: Request):
     if not title:
         return JSONResponse({"error": "title required"}, status_code=400)
     job_type = body.get("type", "job")
-    channel = body.get("channel", "general")
+    channel = mcp_bridge.resolve_channel(body.get("channel", "general"))
     created_by = body.get("created_by", "user")
     anchor_msg_id = body.get("anchor_msg_id")
     assignee = body.get("assignee", "")
@@ -2792,7 +2812,7 @@ async def get_session_templates():
 async def get_active_session(channel: str = "general"):
     if not session_engine:
         return JSONResponse(None)
-    session = session_engine.get_active(channel)
+    session = session_engine.get_active(mcp_bridge.resolve_channel(channel))
     return JSONResponse(session)
 
 
@@ -2810,7 +2830,7 @@ async def start_session(request: Request):
     body = await request.json()
     template_id = body.get("template_id", "")
     draft_message_id = body.get("draft_message_id")
-    channel = body.get("channel", "general")
+    channel = mcp_bridge.resolve_channel(body.get("channel", "general"))
     cast = body.get("cast", {})
     goal = body.get("goal", "")
     started_by = body.get("started_by", "user")
@@ -2885,7 +2905,7 @@ async def request_session_draft(request: Request):
     body = await request.json()
     agent_name = body.get("agent", "").strip()
     description = body.get("description", "").strip()
-    channel = body.get("channel", "general")
+    channel = mcp_bridge.resolve_channel(body.get("channel", "general"))
     sender = body.get("sender", "user")
     if not agent_name or not description:
         return JSONResponse({"error": "agent and description required"}, status_code=400)

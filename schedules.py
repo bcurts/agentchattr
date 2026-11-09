@@ -94,6 +94,16 @@ class ScheduleStore:
         self._callbacks: list = []
         self._load()
 
+    def rename_channel(self, old_name: str, new_name: str):
+        with self._lock:
+            changed = False
+            for schedule in self._schedules:
+                if schedule.get('channel') == old_name:
+                    schedule['channel'] = new_name
+                    changed = True
+            if changed:
+                self._save()
+
     def _load(self):
         if not self._path.exists():
             return

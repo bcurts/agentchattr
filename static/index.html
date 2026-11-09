@@ -10,14 +10,44 @@
     <link rel="stylesheet" href="/static/style.css?v=253">
     <link rel="stylesheet" href="/static/sessions.css?v=224">
     <link rel="stylesheet" href="/static/jobs.css?v=226">
+    <link rel="stylesheet" href="/static/workspace.css?v=1">
     <link rel="icon" href="/static/favicon.ico">
 </head>
 <body>
     <div id="app">
+        <aside id="channel-sidebar" aria-label="Conversations" data-i18n-aria-label="conversation.history">
+            <div class="sidebar-brand">
+                <img src="/static/logo.png" alt="" width="26" height="26">
+                <span>agentchattr</span>
+                <button class="icon-button" onclick="toggleConversationSidebar()" title="Collapse sidebar" data-i18n-title="conversation.collapse" aria-controls="channel-sidebar">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg>
+                </button>
+            </div>
+            <button id="channel-sidebar-add" class="new-conversation" onclick="showChannelCreateDialog()">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 3l5 5M10 14l3-1 9-9-3-3-9 9-1 4Z"/></svg>
+                <span data-i18n="conversation.new">New conversation</span>
+                <span class="new-conversation-shortcut" aria-hidden="true">+</span>
+            </button>
+            <label class="conversation-search-wrap">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg>
+                <input id="conversation-search" type="search" autocomplete="off" placeholder="Search conversations" data-i18n-placeholder="conversation.search" aria-label="Search conversations" data-i18n-aria-label="conversation.search">
+            </label>
+            <div class="channel-sidebar-header"><span data-i18n="conversation.history">Conversations</span><span id="conversation-count"></span></div>
+            <nav id="channel-sidebar-list" aria-label="Conversations" data-i18n-aria-label="conversation.history"></nav>
+            <div class="sidebar-footer"><span class="sidebar-footer-dot"></span><span data-i18n="conversation.workspace">Agent workspace</span></div>
+            <div id="channel-sidebar-top"></div>
+            <div class="channel-sidebar-grip" id="channel-sidebar-grip"></div>
+        </aside>
+        <button id="sidebar-backdrop" tabindex="-1" onclick="closeConversationSidebar()" aria-label="Close sidebar" data-i18n-aria-label="conversation.collapse"></button>
+        <div id="workspace">
         <header>
             <div class="header-left">
+                <button id="sidebar-toggle" class="icon-button" onclick="toggleConversationSidebar()" title="Show conversations" data-i18n-title="conversation.history" aria-controls="channel-sidebar" aria-expanded="true">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg>
+                </button>
                 <img src="/static/logo.png" alt="agentchattr" class="header-logo">
                 <h1 id="room-title">agentchattr</h1>
+                <div class="conversation-heading"><span id="conversation-title">Conversation</span><span class="conversation-heading-caption" data-i18n="conversation.workspace">Agent workspace</span></div>
                 <a class="discord-pill" href="https://discord.gg/qzfn5YTT9a" target="_blank" rel="noopener" title="Join the Discord" data-i18n-title="header.discord.title">
                     <svg width="14" height="14" viewBox="0 0 71 55" fill="currentColor"><path d="M60.1 4.9A58.5 58.5 0 0045.4.2a.2.2 0 00-.2.1 40.8 40.8 0 00-1.8 3.7 54 54 0 00-16.2 0A37.4 37.4 0 0025.4.3a.2.2 0 00-.2-.1A58.4 58.4 0 0010.5 4.9a.2.2 0 00-.1.1C1.5 18.7-.9 32.2.3 45.5v.2a58.9 58.9 0 0017.7 9a.2.2 0 00.3-.1 42.1 42.1 0 003.6-5.9.2.2 0 00-.1-.3 38.8 38.8 0 01-5.5-2.6.2.2 0 01 0-.4l1.1-.9a.2.2 0 01.2 0 42 42 0 0035.6 0 .2.2 0 01.2 0l1.1.9a.2.2 0 010 .4 36.4 36.4 0 01-5.5 2.6.2.2 0 00-.1.3 47.2 47.2 0 003.6 5.9.2.2 0 00.3.1A58.7 58.7 0 0070.4 45.7v-.2C72 30.1 68 16.7 60.2 5a.2.2 0 00-.1-.1zM23.7 37.3c-3.5 0-6.4-3.2-6.4-7.2s2.8-7.2 6.4-7.2 6.5 3.2 6.4 7.2c0 4-2.8 7.2-6.4 7.2zm23.6 0c-3.5 0-6.4-3.2-6.4-7.2s2.8-7.2 6.4-7.2 6.5 3.2 6.4 7.2c0 4-2.9 7.2-6.4 7.2z"/></svg>
                     Discord
@@ -117,13 +147,6 @@
                 </select>
             </div>
             <div class="settings-field">
-                <label for="setting-channel-sidebar" data-i18n="settings.channels">Channels</label>
-                <select id="setting-channel-sidebar" title="Show channels in a sidebar (Discord/Slack-style) instead of a top bar" data-i18n-title="settings.channels.title">
-                    <option value="top" data-i18n="settings.channels.top">Top bar</option>
-                    <option value="sidebar" data-i18n="settings.channels.sidebar">Sidebar</option>
-                </select>
-            </div>
-            <div class="settings-field">
                 <label for="setting-rules-refresh" data-i18n="settings.rulesRefresh">Rule refresh</label>
                 <select id="setting-rules-refresh" title="How often to re-send active rules to agents" data-i18n-title="settings.rulesRefresh.title">
                     <option value="0" data-i18n="settings.rulesRefresh.change">On rule changes</option>
@@ -180,20 +203,18 @@
         </div>
 
         <div id="content-area">
-            <aside id="channel-sidebar" class="hidden">
-                <div id="channel-sidebar-top"></div>
-                <div class="channel-sidebar-header">
-                    <span data-i18n="settings.channels">Channels</span>
-                    <button id="channel-sidebar-add" class="channel-sidebar-header-add" onclick="showChannelCreateDialog()" title="Add channel" data-i18n-title="channel.add.title">+</button>
-                </div>
-                <div id="channel-sidebar-list"></div>
-                <div class="channel-sidebar-grip" id="channel-sidebar-grip"></div>
-            </aside>
             <main id="timeline">
                 <div id="day-float" aria-hidden="true"><span></span></div>
                 <div id="loading-indicator">
                     <div class="loading-spinner"></div>
                     <span data-i18n="timeline.loading">Loading messages...</span>
+                </div>
+                <div id="conversation-empty" class="hidden">
+                    <div class="empty-mark"><img src="/static/logo.png" width="38" height="38" alt=""></div>
+                    <p class="empty-eyebrow" data-i18n="conversation.workspace">Agent workspace</p>
+                    <h2 data-i18n="conversation.welcome">What shall we work on?</h2>
+                    <p data-i18n="conversation.welcomeHint">Bring an idea, a question, or a task. Start a conversation below.</p>
+                    <button class="empty-start" onclick="document.getElementById('input').focus()" data-i18n="conversation.start">Start writing</button>
                 </div>
                 <div id="messages"></div>
                 <div id="typing-indicator" class="hidden">
@@ -256,6 +277,7 @@
         <div id="scroll-anchor" class="hidden" onclick="scrollToBottom()"><span class="unread-badge">0</span><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8l5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
 
         <footer>
+            <div class="composer-shell">
             <div id="schedules-bar" class="hidden">
                 <div class="schedules-bar-summary">
                     <svg class="schedules-icon" width="14" height="14" viewBox="0 0 16 16" fill="none">
@@ -278,7 +300,7 @@
             <div id="attachment-status" class="attachment-status" role="status"></div>
             <div id="input-row">
                 <span id="sender-label" class="sender-label">user</span>
-                <button type="button" onclick="document.getElementById('file-input').click()" data-i18n-title="attachment.add" title="Add files">📎</button>
+                <button class="composer-attach" type="button" onclick="document.getElementById('file-input').click()" data-i18n-title="attachment.add" data-i18n-aria-label="attachment.add" title="Add files"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
                 <input id="file-input" type="file" multiple hidden onchange="uploadFiles(Array.from(this.files)); this.value = ''">
                 <button id="session-launch-btn" onclick="showSessionLauncher()" title="Start a session" data-i18n-title="composer.startSession.title">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -299,7 +321,7 @@
                     </svg>
                 </button>
                 <div class="send-group">
-                    <button id="send" onclick="sendMessage()" data-i18n="common.send">Send</button>
+                    <button id="send" onclick="sendMessage()" title="Send" aria-label="Send" data-i18n-title="common.send" data-i18n-aria-label="common.send"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button>
                     <button id="schedule-btn" class="send-clock" onclick="toggleSchedulePopover(event)" title="Schedule message" data-i18n-title="composer.schedule.title">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                             <circle cx="12" cy="12" r="10"/>
@@ -353,10 +375,12 @@
                     </div>
                 </div>
             </div>
+            </div>
             <div class="input-hint">
                 <span data-i18n="composer.hint">Enter to send &middot; Shift+Enter for newline &middot; Paste/drop files &middot; Mic for voice &middot; Type / or @ for autocomplete</span>
             </div>
         </footer>
+        </div>
     </div>
 
     <div id="dropzone" class="hidden">
@@ -367,13 +391,14 @@
     <script src="/static/core.js?v=223"></script>
     <script src="/static/store.js?v=223"></script>
     <script src="/static/theme.js?v=1"></script>
-    <script src="/static/i18n.js?v=4"></script>
+    <script src="/static/i18n.js?v=5"></script>
     <script src="/static/sessions.js?v=224"></script>
     <script src="/static/attachments.js?v=1"></script>
     <script src="/static/jobs.js?v=226"></script>
     <script src="/static/channel-mentions.js?v=2"></script>
-    <script src="/static/channels.js?v=226"></script>
+    <script src="/static/channels.js?v=272"></script>
     <script src="/static/rules-panel.js?v=224"></script>
-    <script src="/static/chat.js?v=270"></script>
+    <script src="/static/chat.js?v=272"></script>
+    <script src="/static/workspace.js?v=1"></script>
 </body>
 </html>

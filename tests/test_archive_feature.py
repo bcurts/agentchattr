@@ -108,6 +108,20 @@ class ArchiveRoundTripTests(unittest.TestCase):
         self.source_store, self.source_jobs, self.source_rules, self.source_summaries = make_stores(self.root / "source")
         self.target_store, self.target_jobs, self.target_rules, self.target_summaries = make_stores(self.root / "target")
 
+    def test_chinese_channel_round_trip(self):
+        self.source_store.add('user', '讨论内容', channel='项目 讨论')
+        self.source_summaries.write('项目 讨论', '讨论摘要', 'user')
+        blob = archive.build_export(self.source_store, self.source_jobs,
+                                    self.source_rules, self.source_summaries,
+                                    app_version='test')
+        channels = ['general']
+        report = archive.import_archive(blob, self.target_store, self.target_jobs,
+                                        self.target_rules, self.target_summaries, channels)
+        self.assertTrue(report['ok'])
+        self.assertIn('项目 讨论', channels)
+        self.assertEqual(self.target_store.get_recent(channel='项目 讨论')[0]['text'], '讨论内容')
+        self.assertEqual(self.target_summaries.get('项目 讨论')['text'], '讨论摘要')
+
     def test_round_trip_preserves_identity_status_and_dedup(self):
         seed_history(self.source_store, self.source_jobs, self.source_rules, self.source_summaries)
 

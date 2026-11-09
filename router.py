@@ -23,6 +23,10 @@ class Router:
             }
         return self._channels[channel]
 
+    def rename_channel(self, old_name: str, new_name: str):
+        if old_name in self._channels:
+            self._channels[new_name] = self._channels.pop(old_name)
+
     def _build_pattern(self):
         # Sort longest-first so "gemini-2" is tried before "gemini"
         names = [re.escape(n) for n in sorted(self.agent_names, key=len, reverse=True)]

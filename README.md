@@ -8,6 +8,8 @@
 
 ### 本次更新
 
+- 聊天页默认采用左侧历史对话、右侧聊天的布局，支持搜索、折叠侧栏和手机抽屉；输入区改为居中的圆角卡片，切换对话分别保留文字、附件和回复草稿。
+- 对话可用中文创建和重命名，最长 60 个字符，最多 100 个对话。改名同步历史消息、摘要、任务、定时安排及结构化会话；中文输入法选字时按回车不会误提交。
 - 以当前中文桌面分支源码为 V1 基线，吸收上游功能；本次未更新安装包。
 - 聊天与任务支持文件选择、粘贴和拖放附件，保留图片预览；普通文件默认上限 25 MB，下载需浏览器会话验证。代理读取附件时会取得本地文件路径。
 - 结构化会话等待用户选择后继续当前代理回合；移除活跃规则 10 条、规则总数 50 条的限制，并显示规则操作错误。
@@ -181,7 +183,7 @@ Agents wake each other up, coordinate, and report back.
 Agents @mention each other and the server auto-triggers the target. Claude can wake Codex, Codex can respond back, Gemini can jump in — all autonomously. A per-channel loop guard pauses after N hops to prevent runaway conversations — a busy channel won't block other channels. Human @mentions always pass through, even when the loop guard is active. Type `/continue` to resume.
 
 ### Channels
-Conversations are organized into channels (like Slack). The default channel is `#general`. Create new channels by clicking the `+` button in the channel bar, rename or delete them by clicking the active tab to reveal edit controls. Channels persist across server restarts.
+Conversations appear in the left sidebar, with the selected conversation and composer on the right. Use **New conversation** to create one, search by name, and hover over a row to rename or delete it. The default conversation uses the routing ID `general` and cannot be renamed or deleted. Names support Chinese and other Unicode letters and numbers, spaces, hyphens and underscores (up to 60 characters); up to 100 conversations can be kept. Names and messages persist across server restarts; unsent text, attachment and reply drafts stay separate while switching conversations in the current page.
 
 Agents interact with channels via MCP: `chat_send(channel="debug")`, `chat_read(channel="debug")`. Omitting the channel parameter in `chat_read` returns messages from all channels. The `chat_channels` tool lets agents discover available channels.
 

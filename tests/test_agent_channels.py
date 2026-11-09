@@ -25,6 +25,11 @@ from fastapi import WebSocketDisconnect
 from registry import RuntimeRegistry
 from store import MessageStore
 from jobs import JobStore
+from schedules import ScheduleStore
+from session_store import SessionStore
+from summaries import SummaryStore
+from router import Router
+from channel_names import valid_channel_name
 
 
 class AgentChannelTests(unittest.TestCase):
@@ -49,8 +54,8 @@ class AgentChannelTests(unittest.TestCase):
             '_agent_last_channel': {}, '_last_active_channel': 'general',
             'ws_clients': set(), 'session_token': 'test-token', 'launcher_shutdown_token': '',
             'agent_hats': {}, 'rules': SimpleNamespace(list_all=lambda: []),
-            'jobs': SimpleNamespace(list_all=lambda: []),
-            'schedules': SimpleNamespace(list_all=lambda: []),
+            'jobs': SimpleNamespace(list_all=lambda: [], rename_channel=Mock()),
+            'schedules': SimpleNamespace(list_all=lambda: [], rename_channel=Mock()),
         }.items():
             self.stack.enter_context(patch.object(app, name, value))
         for name in ('broadcast', 'broadcast_typing', 'broadcast_status',
@@ -59,7 +64,7 @@ class AgentChannelTests(unittest.TestCase):
         # All bridge identity state and persistence are isolated. No cursor or role
         # files are read/written when the real migration/purge functions run.
         for name in ('_presence', '_activity', '_activity_ts', '_cursors', '_roles',
-                     '_last_read_channel', '_last_read_job_id', '_empty_read_count'):
+                     '_last_read_channel', '_last_read_job_id', '_empty_read_count', '_channel_aliases'):
             self.stack.enter_context(patch.object(mcp_bridge, name, {}))
         self.stack.enter_context(patch.object(mcp_bridge, '_renamed_from', set()))
         self.stack.enter_context(patch.object(mcp_bridge, 'registry', None))
@@ -95,6 +100,7 @@ class AgentChannelTests(unittest.TestCase):
         asyncio.run(app.websocket_endpoint(socket))
         self.assertEqual(socket.receive_text.await_count, len(events) + 1,
                          'WebSocket handler failed before processing all events')
+        return socket
 
     @staticmethod
     def request(body=None):
@@ -216,6 +222,70 @@ class AgentChannelTests(unittest.TestCase):
         self.assertEqual(app._last_active_channel, 'general')
         self.assertEqual(app._agent_channel_for('claude'), 'general')
         self.assertNotIn('review', app.room_settings['channels'])
+
+    def test_chinese_names_create_rename_and_restore_related_state(self):
+        summary = SummaryStore(str(self.root / 'summaries.json'))
+        summary.write('alpha', '历史摘要', 'codex')
+        for filename, records in (
+            ('jobs.json', [{'id': 1, 'channel': 'alpha'}]),
+            ('schedules.json', [{'id': 1, 'channel': 'alpha'}]),
+            ('sessions.json', [{'id': 1, 'channel': 'alpha', 'state': 'active'}]),
+        ):
+            (self.root / filename).write_text(json.dumps(records), encoding='utf-8')
+        job_store = JobStore(str(self.root / 'jobs.json'))
+        schedule_store = ScheduleStore(str(self.root / 'schedules.json'))
+        session_store = SessionStore(str(self.root / 'sessions.json'))
+        routing = Router(['codex'])
+        routing._get_ch('alpha')['paused'] = True
+        self.stack.enter_context(patch.object(app, 'summaries', summary))
+        self.stack.enter_context(patch.object(app, 'jobs', job_store))
+        self.stack.enter_context(patch.object(app, 'schedules', schedule_store))
+        self.stack.enter_context(patch.object(app, 'session_store', session_store))
+        self.stack.enter_context(patch.object(app, 'router', routing))
+        self.messages.add('user', '历史消息', channel='alpha')
+        self.socket_events({'type': 'channel_create', 'name': '  中文 讨论  '},
+                           {'type': 'channel_rename', 'old_name': 'alpha', 'new_name': '项目 一'})
+        self.assertIn('中文 讨论', app.room_settings['channels'])
+        self.assertIn('项目 一', app.room_settings['channels'])
+        self.assertEqual(self.messages.get_recent(channel='项目 一')[0]['text'], '历史消息')
+        self.assertEqual(SummaryStore(str(self.root / 'summaries.json')).get('项目 一')['text'], '历史摘要')
+        self.assertEqual(JobStore(str(self.root / 'jobs.json')).list_all(channel='项目 一')[0]['id'], 1)
+        self.assertEqual(ScheduleStore(str(self.root / 'schedules.json')).list_all()[0]['channel'], '项目 一')
+        self.assertEqual(SessionStore(str(self.root / 'sessions.json')).get_active('项目 一')['id'], 1)
+        self.assertTrue(routing.is_paused('项目 一'))
+
+    def test_invalid_names_do_not_create_channels_or_disconnect(self):
+        self.socket_events(*({'type': 'channel_create', 'name': name} for name in
+                             ['../路径', 'a/b', 'a\\b', '测试\n名字', 'a' * 61, 42]),
+                           {'type': 'channel_create', 'name': '有效 名称'})
+        self.assertEqual(app.room_settings['channels'], ['general', 'alpha', 'beta', '有效 名称'])
+        self.assertTrue(valid_channel_name('中文 项目_2'))
+        self.assertTrue(valid_channel_name('中' * 60))
+        self.assertFalse(valid_channel_name(' 中文'))
+
+    def test_mcp_inflight_and_remembered_channels_follow_rename_delete_and_reuse(self):
+        self.stack.enter_context(patch.object(mcp_bridge, 'store', self.messages))
+        self.messages.add('user', '原消息', channel='alpha')
+        mcp_bridge.chat_read(sender='codex', channel='alpha')
+        self.socket_events({'type': 'channel_rename', 'old_name': 'alpha', 'new_name': '项目 一'})
+        self.assertEqual(mcp_bridge._last_read_channel['codex'], '项目 一')
+        mcp_bridge.chat_send('codex', '省略频道')
+        mcp_bridge.chat_send('codex', '在途回复', channel='alpha')
+        self.assertEqual([m['text'] for m in self.messages.get_recent(channel='项目 一')],
+                         ['原消息', '省略频道', '在途回复'])
+        self.assertIn('原消息', mcp_bridge.chat_resync('codex', channel='alpha'))
+        self.socket_events({'type': 'channel_rename', 'old_name': '项目 一', 'new_name': '项目 二'})
+        self.assertEqual(mcp_bridge.resolve_channel('alpha'), '项目 二')
+        self.socket_events({'type': 'channel_create', 'name': 'alpha'})
+        self.assertEqual(mcp_bridge.resolve_channel('alpha'), 'alpha')
+        mcp_bridge.chat_send('codex', '新频道消息', channel='alpha')
+        self.assertEqual(self.messages.get_recent(channel='alpha')[0]['text'], '新频道消息')
+        socket = self.socket_events({'type': 'channel_delete', 'name': '项目 二'})
+        self.assertEqual(mcp_bridge._last_read_channel['codex'], 'general')
+        mcp_bridge.chat_send('codex', '删除后的回复', channel='项目 一')
+        self.assertEqual(self.messages.get_recent(channel='general')[-1]['text'], '删除后的回复')
+        events = [json.loads(call.args[0]) for call in socket.send_text.await_args_list]
+        self.assertIn({'type': 'channel_deleted', 'name': '项目 二'}, events)
 
     def test_stale_memory_never_routes_to_deleted_channel(self):
         self.register('claude')

@@ -99,6 +99,16 @@ class JobStore:
             result = [a for a in result if a.get("status") == status]
         return result
 
+    def rename_channel(self, old_name: str, new_name: str):
+        with self._lock:
+            changed = False
+            for job in self._jobs:
+                if job.get('channel') == old_name:
+                    job['channel'] = new_name
+                    changed = True
+            if changed:
+                self._save()
+
     def get(self, job_id: int) -> dict | None:
         with self._lock:
             for a in self._jobs:

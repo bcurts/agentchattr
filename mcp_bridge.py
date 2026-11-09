@@ -44,6 +44,38 @@ _empty_read_count: dict[str, int] = {}  # sender → consecutive empty reads
 _last_read_channel: dict[str, str] = {}
 _last_read_job_id: dict[str, int] = {}
 _last_read_lock = threading.Lock()
+_channel_aliases: dict[str, str] = {}
+_channel_alias_lock = threading.Lock()
+_MAX_CHANNEL_ALIASES = 256
+
+
+def resolve_channel(channel: str) -> str:
+    """Resolve in-flight references after a rename or deletion."""
+    with _channel_alias_lock:
+        return _channel_aliases.get(channel, channel)
+
+
+def reclaim_channel_name(name: str):
+    with _channel_alias_lock:
+        _channel_aliases.pop(name, None)
+
+
+def clear_channel_aliases():
+    with _channel_alias_lock:
+        _channel_aliases.clear()
+
+
+def _set_channel_alias(old_name: str, new_name: str):
+    with _channel_alias_lock:
+        # Flatten all earlier names; no chains or cycles can remain.
+        _channel_aliases.pop(new_name, None)
+        for alias, target in list(_channel_aliases.items()):
+            if target == old_name:
+                _channel_aliases[alias] = new_name
+        _channel_aliases.pop(old_name, None)
+        _channel_aliases[old_name] = new_name
+        while len(_channel_aliases) > _MAX_CHANNEL_ALIASES:
+            del _channel_aliases[next(iter(_channel_aliases))]
 PRESENCE_TIMEOUT = 10  # ~2 missed heartbeats (5s interval) = offline
 
 # Roles — per-instance, persisted to roles.json
@@ -258,6 +290,8 @@ def chat_send(
     # Final fallback if still nothing: original 'general' behavior.
     if not channel and not job_id:
         channel = "general"
+    if channel:
+        channel = resolve_channel(channel)
     # Block pending instances (identity not yet confirmed)
     if registry and registry.is_pending(sender):
         return "Error: identity not confirmed. Call chat_claim(sender=your_base_name) to get your identity."
@@ -394,6 +428,7 @@ def chat_propose_job(
     sender, err = _resolve_tool_identity(sender, ctx, field_name="sender", required=True)
     if err:
         return err
+    channel = resolve_channel(channel or 'general')
     if not title.strip():
         return "Error: title is required."
     title = title.strip()[:80]
@@ -575,6 +610,11 @@ def migrate_cursors_rename(old_name: str, new_name: str):
         for agent_cursors in _cursors.values():
             if old_name in agent_cursors:
                 agent_cursors[new_name] = agent_cursors.pop(old_name)
+    with _last_read_lock:
+        for agent, channel in list(_last_read_channel.items()):
+            if channel == old_name:
+                _last_read_channel[agent] = new_name
+    _set_channel_alias(old_name, new_name)
     _save_cursors()
 
 
@@ -583,6 +623,11 @@ def migrate_cursors_delete(channel: str):
     with _cursors_lock:
         for agent_cursors in _cursors.values():
             agent_cursors.pop(channel, None)
+    with _last_read_lock:
+        for agent, remembered in list(_last_read_channel.items()):
+            if remembered == channel:
+                _last_read_channel[agent] = 'general'
+    _set_channel_alias(channel, 'general')
     _save_cursors()
 
 
@@ -662,7 +707,7 @@ def chat_read(
             _notify_status_async()
         return json.dumps(out, ensure_ascii=False)
 
-    ch = channel if channel else None
+    ch = resolve_channel(channel) if channel else None
     # Remember the channel this agent just read so chat_send without an
     # explicit channel defaults here instead of falling back to "general".
     # Only record when a specific channel was requested — broad reads
@@ -733,7 +778,7 @@ def chat_resync(
     sender, err = _resolve_tool_identity(sender, ctx, field_name="sender", required=True)
     if err:
         return err
-    ch = channel if channel else None
+    ch = resolve_channel(channel) if channel else None
     msgs = store.get_recent(limit, channel=ch)
     _update_cursor(sender, msgs, ch)
     serialized = _serialize_messages(msgs)
@@ -968,7 +1013,7 @@ def chat_summary(
     if err:
         return err
     action = action.strip().lower()
-    channel = (channel or "general").strip()
+    channel = resolve_channel((channel or "general").strip())
 
     if action == "read":
         entry = summaries.get(channel)

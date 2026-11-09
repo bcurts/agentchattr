@@ -17,6 +17,8 @@ OUT_NAME = f"agentchattr-{VERSION}"
 INCLUDE_FILES = [
     "app.py",
     "agents.py",
+    "archive.py",
+    "channel_names.py",
     "config_loader.py",
     "desktop_launcher.py",
     "jobs.py",
@@ -47,6 +49,7 @@ INCLUDE_FILES = [
     "requirements-desktop.txt",
     "README.md",
     "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
     "VERSION",
 ]
 

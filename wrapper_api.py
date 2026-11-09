@@ -26,6 +26,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import urllib.parse
 from pathlib import Path
 
 ROOT = Path(__file__).parent
@@ -202,7 +203,7 @@ def main():
 
     # Read recent messages from chat server
     def read_messages(channel="general", since_id=0, limit=20):
-        params = f"limit={limit}&channel={channel}"
+        params = urllib.parse.urlencode({'limit': limit, 'channel': channel})
         if since_id:
             params = f"since_id={since_id}&{params}"
         req = urllib.request.Request(
