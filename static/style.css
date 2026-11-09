@@ -3192,7 +3192,8 @@ footer {
     display: none;
 }
 
-.mention-toggle {
+.mention-toggle,
+.mention-all-toggle {
     background: var(--bg-subtle);
     border: 1px solid var(--border);
     border-radius: 14px;
@@ -3203,6 +3204,20 @@ footer {
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s;
+}
+
+.mention-all-toggle {
+    flex-shrink: 0;
+}
+
+.mention-all-toggle:hover,
+.mention-all-toggle.active {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.mention-all-toggle.active {
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
 .mention-toggle:hover {
