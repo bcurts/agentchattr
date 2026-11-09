@@ -62,7 +62,7 @@
 
     // Returns true when this feature owns the mention's sound behavior.
     function notify(msg, live, name) {
-        if (mode === 'off' || !live || msg.type !== 'chat' || msg.id == null || !msg.sender
+        if (mode === 'off' || !live || !['chat', 'decision'].includes(msg.type) || msg.id == null || !msg.sender
             || msg.sender.toLowerCase() === String(name).toLowerCase()
             || !(document.hidden || !document.hasFocus()) || !mentions(msg.text, name)) return false;
         if (seen.has(msg.id)) return true;
@@ -83,12 +83,14 @@
                     resetTitle();
                 };
                 if (mode === 'sound') window.playNotificationSound(msg.sender);
+                return true;
             } catch (_) {
                 error = '(Browser could not show notifications)';
                 render();
             }
         } else render();
-        return true;
+        // Let the existing sound path handle blocked/failed notifications once.
+        return false;
     }
 
     window.MentionAlerts = { notify, mentions, preview, render };

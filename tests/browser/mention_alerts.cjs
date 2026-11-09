@@ -128,3 +128,28 @@ test('actual message dispatcher keeps history silent and avoids duplicate alert 
     assert.equal(s.alerts.length, 1);
     assert.deepEqual(s.sounds, ['Claude']);
 });
+
+test('decision prompts alert; blocked and failed notifications preserve one legacy sound', () => {
+    for (const mode of ['browser', 'sound']) {
+        for (const failure of ['denied', 'default', 'throw']) {
+            const s = setup(mode, failure === 'throw' ? 'granted' : failure);
+            if (failure === 'throw') {
+                const Broken = function () { throw Error('desktop unsupported'); };
+                Broken.permission = 'granted';
+                s.window.Notification = s.context.Notification = Broken;
+            }
+            const chat = fs.readFileSync(path.join(root, 'static/chat.js'), 'utf8');
+            const start = chat.indexOf('function handleServerEvent(event) {');
+            Object.assign(s.context, { historyLoading: false, Hub: { emit() {} }, soundEnabled: true,
+                username: 'Derek', appendMessage() {}, playNotificationSound: s.window.playNotificationSound,
+                event: { type: 'message', data: msg({ type: 'decision' }) } });
+            vm.runInContext(chat.slice(start, chat.indexOf('\nfunction ', start + 1)), s.context);
+            vm.runInContext('handleServerEvent(event); handleServerEvent(event)', s.context);
+            assert.equal(s.alerts.length, 0);
+            assert.deepEqual(s.sounds, ['Claude'], mode + ' ' + failure);
+        }
+    }
+    const s = setup('browser');
+    assert.equal(s.api.notify(msg({ type: 'decision' }), true, 'Derek'), true);
+    assert.equal(s.alerts.length, 1);
+});
