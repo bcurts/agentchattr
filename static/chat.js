@@ -2740,6 +2740,7 @@ function startReply(msgId, event) {
                 btn.classList.remove('active');
             }
         }
+        syncMentionAllToggle();
     }
 
     document.getElementById('input').focus();
@@ -3097,8 +3098,26 @@ window._onChannelSwitchMentions = function(oldChannel, newChannel) {
     for (const btn of document.querySelectorAll('.mention-toggle')) {
         btn.classList.toggle('active', activeMentions.has(btn.dataset.agent));
     }
+    syncMentionAllToggle();
     if (typeof updateSchedulePopoverState === 'function') updateSchedulePopoverState();
 };
+
+// Agents that currently have a tag button (pending instances are excluded).
+function availableMentionAgents() {
+    return Object.entries(agentConfig)
+        .filter(([, cfg]) => cfg.state !== 'pending')
+        .map(([name]) => name);
+}
+
+// The @all button is active only when every available agent is toggled on.
+function syncMentionAllToggle() {
+    const btn = document.getElementById('mention-all-toggle');
+    if (!btn) return;
+    const agents = availableMentionAgents();
+    const allOn = agents.length > 0 && agents.every(name => activeMentions.has(name));
+    btn.classList.toggle('active', allOn);
+    btn.setAttribute('aria-pressed', allOn ? 'true' : 'false');
+}
 
 function buildMentionToggles() {
     const container = document.getElementById('mention-toggles');
@@ -3107,6 +3126,33 @@ function buildMentionToggles() {
     // Prune stale mentions for agents no longer in config
     for (const name of activeMentions) {
         if (!(name in agentConfig)) activeMentions.delete(name);
+    }
+
+    // @all: selects every available agent, or deselects them all if they are
+    // already all selected. It is a shortcut for the individual toggles, not a
+    // separate "@all" mention, so it deliberately lacks the .mention-toggle /
+    // data-agent pair that other code treats as an agent.
+    if (availableMentionAgents().length > 0) {
+        const allBtn = document.createElement('button');
+        allBtn.id = 'mention-all-toggle';
+        allBtn.className = 'mention-all-toggle';
+        allBtn.type = 'button';
+        allBtn.textContent = '@all';
+        allBtn.title = 'Select or deselect all agents';
+        allBtn.onclick = () => {
+            const agents = availableMentionAgents();
+            const allOn = agents.every(name => activeMentions.has(name));
+            for (const name of agents) {
+                if (allOn) activeMentions.delete(name);
+                else activeMentions.add(name);
+            }
+            for (const btn of container.querySelectorAll('.mention-toggle')) {
+                btn.classList.toggle('active', activeMentions.has(btn.dataset.agent));
+            }
+            syncMentionAllToggle();
+            updateSchedulePopoverState();
+        };
+        container.appendChild(allBtn);
     }
 
     for (const [name, cfg] of Object.entries(agentConfig)) {
@@ -3129,10 +3175,12 @@ function buildMentionToggles() {
                 activeMentions.add(name);
                 btn.classList.add('active');
             }
+            syncMentionAllToggle();
             updateSchedulePopoverState();
         };
         container.appendChild(btn);
     }
+    syncMentionAllToggle();
     enableDragScroll(container);
 }
 
