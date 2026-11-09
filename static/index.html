@@ -123,6 +123,16 @@
             <div class="settings-field">
                 <div id="sound-settings"></div>
             </div>
+            <div class="settings-field mention-alerts-field">
+                <label for="setting-mention-alerts">Mention alerts</label>
+                <select id="setting-mention-alerts" aria-describedby="mention-alerts-help mention-alerts-status">
+                    <option value="off">Off</option>
+                    <option value="browser">Browser notifications</option>
+                    <option value="sound">Browser notifications + alert sound</option>
+                </select>
+                <small id="mention-alerts-help">Notifies when @you or @all is mentioned while this tab is in the background. Keep this page open.</small>
+                <small id="mention-alerts-status" role="status"></small>
+            </div>
             <div class="settings-divider"></div>
             <div class="settings-field">
                 <label>Project History</label>
@@ -377,6 +387,7 @@
     <script src="/static/jobs.js?v=226"></script>
     <script src="/static/channels.js?v=226"></script>
     <script src="/static/rules-panel.js?v=224"></script>
-    <script src="/static/chat.js?v=275"></script>
+    <script src="/static/mention-alerts.js?v=1"></script>
+    <script src="/static/chat.js?v=276"></script>
 </body>
 </html>

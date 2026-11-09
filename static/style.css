@@ -420,6 +420,9 @@ header h1 {
 .settings-field input { width: 120px; }
 .settings-field input[type="number"] { width: 60px; }
 .settings-field select { width: 130px; }
+.mention-alerts-field { max-width: 320px; }
+.mention-alerts-field select { width: 280px; max-width: 100%; }
+.mention-alerts-field small { color: var(--text-muted); line-height: 1.4; }
 
 .settings-field input:focus,
 .settings-field select:focus {
