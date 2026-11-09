@@ -459,8 +459,9 @@ function handleServerEvent(event) {
         }
     } else if (event.type === 'message') {
         if (document.getElementById(`message-${event.data.id}`)) return;
-        // Play notification sound for new messages from others (not joins, not when focused)
-        if (soundEnabled && !document.hasFocus() && event.data.type !== 'join' && event.data.type !== 'leave' && event.data.type !== 'summary' && event.data.sender && event.data.sender.toLowerCase() !== username.toLowerCase()) {
+        const mentionAlert = window.MentionAlerts.notify(event.data, soundEnabled, username);
+        // The mention preference owns sound for opted-in mention alerts.
+        if (!mentionAlert && soundEnabled && (document.hidden || !document.hasFocus()) && event.data.type !== 'join' && event.data.type !== 'leave' && event.data.type !== 'summary' && event.data.sender && event.data.sender.toLowerCase() !== username.toLowerCase()) {
             playNotificationSound(event.data.sender);
         }
         appendMessage(event.data);
@@ -1953,6 +1954,7 @@ function applySettings(data) {
 }
 
 function toggleSettings() {
+    window.MentionAlerts.render();
     const bar = document.getElementById('settings-bar');
     bar.classList.toggle('hidden');
     document.getElementById('settings-toggle').classList.toggle('active', !bar.classList.contains('hidden'));
