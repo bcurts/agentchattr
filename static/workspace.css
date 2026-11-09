@@ -84,9 +84,8 @@ main#timeline { padding: 30px max(24px, calc((100% - 900px) / 2)); height: 100%;
 #messages { gap: 21px; }
 .message { padding: 0; gap: 12px; }
 .chat-bubble { min-width: 100px; max-width: calc(100% - 48px); padding: 12px 17px; border-radius: 16px; font-size: 14px; line-height: 1.75; }
-.message.other .chat-bubble { background: transparent; border-color: transparent; padding-top: 2px; }
-.message.other:hover .chat-bubble { background: var(--bg-subtle); }
-.message.self .chat-bubble { background: var(--workspace-sidebar); border-color: transparent; border-radius: 18px; }
+/* Keep the sender-colored backgrounds, borders, and hover state from style.css. */
+.message.self .chat-bubble { border-radius: 18px; }
 .bubble-header { font-size: 11px; margin-bottom: 6px; }
 .avatar-wrap { margin-top: 2px; }
 .message.self .avatar-wrap { display: none; }
