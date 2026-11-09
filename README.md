@@ -20,6 +20,7 @@ On first launch, the script auto-creates a virtual environment, installs Python 
 <summary>All agent launchers (click to expand)</summary>
 
 - `start.bat` — starts the chat server only
+- `start_team.bat` — checks installed Codex, Claude, and Agy CLI versions against their official release endpoints, starts/reuses the server, and opens only missing team agents in separate terminals. Install and sign in to `codex`, `claude`, and `agy` first. Run `windows\start_team.bat --check` to check setup, updates, and running agents without starting sessions or installing dependencies. Update checks report availability without installing updates; network failures do not block startup. A Windows lock blocks overlapping launcher runs. Live process checks recognize wrappers and Codex/Claude CLI processes with explicit agentchattr MCP arguments; unrelated Desktop, IDE, and standalone CLI sessions do not block team startup. Agy membership is detected through its wrapper because its settings-file injection adds no CLI arguments. Existing duplicates are left running. Server startup errors are saved in `team-server.log`; wrappers handle MCP registration and @mentions. Agy is the display label; its routing identity remains `antigravity`.
 - `start_claude.bat` — starts Claude
 - `start_codex.bat` — starts Codex
 - `start_gemini.bat` — starts Gemini
