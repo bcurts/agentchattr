@@ -5,6 +5,7 @@
     --workspace-hover: #2b2b2f;
     --workspace-selected: #353539;
     --workspace-line: #343438;
+    --conversation-width: clamp(900px, 86%, 2400px);
 }
 html[data-theme="light"] {
     --workspace-surface: #ffffff;
@@ -80,7 +81,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 #session-bar, #pins-panel, #settings-bar { flex-shrink: 0; }
 #settings-bar { max-height: 38vh; overflow-y: auto; box-shadow: none; border-block: 1px solid var(--workspace-line); }
 #content-area { position: relative; }
-main#timeline { padding: 30px max(24px, calc((100% - 900px) / 2)); height: 100%; background: var(--workspace-surface); scrollbar-width: thin; }
+#conversation-column { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
+main#timeline { padding: 30px 24px; height: auto; min-height: 0; background: var(--workspace-surface); scrollbar-width: thin; }
+/* Resolve the shared fluid width against the space left after the side panels. */
+#messages, #loading-indicator, #typing-indicator, .composer-shell, .input-hint { width: var(--conversation-width); max-width: 100%; margin-inline: auto; }
 #messages { gap: 21px; }
 .message { padding: 0; gap: 12px; }
 .chat-bubble { min-width: 100px; max-width: calc(100% - 48px); padding: 12px 17px; border-radius: 16px; font-size: 14px; line-height: 1.75; }
@@ -100,8 +104,8 @@ main#timeline { padding: 30px max(24px, calc((100% - 900px) / 2)); height: 100%;
 #conversation-empty > p:not(.empty-eyebrow) { max-width: 410px; color: var(--text-dim); font-size: 13px; line-height: 1.9; }
 .empty-start { background: var(--workspace-sidebar); color: var(--text); border: 1px solid var(--workspace-line); border-radius: 9px; padding: 9px 18px; margin-top: 23px; font: inherit; font-size: 12px; cursor: pointer; }
 .empty-start:hover { background: var(--workspace-hover); }
-#workspace > footer { background: var(--workspace-surface); box-shadow: none; padding: 16px 28px 13px; }
-.composer-shell { position: relative; max-width: 852px; margin: 0 auto; padding: 12px 14px 10px; border: 1px solid var(--workspace-line); border-radius: 22px; background: var(--bg-header); box-shadow: 0 4px 20px rgba(0,0,0,.045); transition: border-color .15s, box-shadow .15s; }
+#conversation-column > footer { background: var(--workspace-surface); box-shadow: none; padding: 16px 24px 13px; }
+.composer-shell { position: relative; padding: 12px 14px 10px; border: 1px solid var(--workspace-line); border-radius: 22px; background: var(--bg-header); box-shadow: 0 4px 20px rgba(0,0,0,.045); transition: border-color .15s, box-shadow .15s; }
 .composer-shell:focus-within { border-color: color-mix(in srgb, var(--text-dim) 60%, var(--workspace-line)); box-shadow: 0 4px 24px rgba(0,0,0,.06); }
 #mention-toggles-row { margin-bottom: 7px; min-height: 25px; gap: 8px; }
 #mention-toggles { gap: 5px; }
@@ -122,7 +126,7 @@ main#timeline { padding: 30px max(24px, calc((100% - 900px) / 2)); height: 100%;
 .send-group .send-clock:hover { background: var(--workspace-hover); }
 .send-group.inactive #send { background: var(--workspace-hover); color: var(--text-dim); }
 .send-group.inactive .send-clock { background: transparent; color: var(--text-dim); }
-.input-hint { max-width: 852px; margin: 9px auto 0; text-align: center; font-size: 10px; line-height: 1.6; color: var(--text-dim); opacity: .8; }
+.input-hint { margin-top: 9px; text-align: center; font-size: 10px; line-height: 1.6; color: var(--text-dim); opacity: .8; }
 #attachments { gap: 8px; }
 .attachment-status:empty { display: none; }
 #slash-menu, #mention-menu { bottom: calc(100% + 8px); max-width: calc(100vw - 40px); }
@@ -143,7 +147,7 @@ body.sidebar-collapsed #channel-sidebar { margin-left: calc(-1 * var(--channel-s
     #conversation-title { max-width: 45vw; font-size: 14px; }
     .conversation-heading-caption { display: none; }
     main#timeline { padding: 20px 16px; }
-    #workspace > footer { padding: 10px 12px 9px; }
+    #conversation-column > footer { padding: 10px 16px 9px; }
     .composer-shell { padding: 9px 11px; border-radius: 18px; }
     .input-hint { font-size: 9px; }
     .chat-bubble { min-width: 0; max-width: calc(100% - 40px); padding: 10px 12px; }

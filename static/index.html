@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="/static/style.css?v=253">
     <link rel="stylesheet" href="/static/sessions.css?v=224">
     <link rel="stylesheet" href="/static/jobs.css?v=226">
-    <link rel="stylesheet" href="/static/workspace.css?v=2">
+    <link rel="stylesheet" href="/static/workspace.css?v=3">
     <link rel="icon" href="/static/favicon.ico">
 </head>
 <body>
@@ -203,6 +203,7 @@
         </div>
 
         <div id="content-area">
+            <div id="conversation-column">
             <main id="timeline">
                 <div id="day-float" aria-hidden="true"><span></span></div>
                 <div id="loading-indicator">
@@ -221,59 +222,6 @@
                     <span class="typing-name"></span> <span data-i18n="timeline.thinking">is thinking...</span>
                 </div>
             </main>
-            <aside id="jobs-panel" class="hidden">
-                <div class="jobs-grip" id="jobs-grip"></div>
-                <div id="jobs-list-view">
-                    <div class="jobs-header">
-                        <span data-i18n="jobs.title">Jobs</span>
-                        <button class="jobs-create-btn" onclick="showCreateJob()" title="Create Job" data-i18n-title="jobs.create.title">+</button>
-                    </div>
-                    <div id="jobs-list"></div>
-                </div>
-                <div id="jobs-conversation-view" class="hidden">
-                    <div class="jobs-conv-header">
-                        <button class="jobs-back-btn" onclick="jobsBack()" title="Back" data-i18n-title="common.back">&larr;</button>
-                        <span class="jobs-conv-title" id="jobs-conv-title"></span>
-                        <div class="jobs-status-toggles" id="jobs-status-toggles">
-                            <button class="job-toggle open" data-status="open" onclick="toggleJobStatus('open')" title="To Do" data-i18n="common.todo" data-i18n-title="common.todo">TO DO</button>
-                            <button class="job-toggle done" data-status="done" onclick="toggleJobStatus('done')" title="Active" data-i18n="common.active" data-i18n-title="common.active">ACTIVE</button>
-                            <button class="job-toggle archived" data-status="archived" onclick="toggleJobStatus('archived')" title="Closed" data-i18n="common.closed" data-i18n-title="common.closed">CLOSED</button>
-                        </div>
-                    </div>
-                    <div class="jobs-conv-messages" id="jobs-conv-messages"></div>
-                    <div class="jobs-conv-input">
-                        <div id="job-mention-menu" class="mention-menu hidden"></div>
-                        <div id="job-attachments" class="job-attachments"></div>
-                        <div id="job-attachment-status" class="attachment-status" role="status"></div>
-                        <div class="job-reply-target-row hidden" id="job-reply-target-row">
-                            <button class="job-reply-target-btn" id="job-reply-target-btn" type="button" onclick="cycleJobReplyTarget()" title="Reply target" data-i18n-title="jobs.replyTarget.title">
-                                <span class="job-reply-target-prefix" data-i18n="jobs.replyTargetPrefix">To</span>
-                                <span class="job-reply-target-dot" id="job-reply-target-dot"></span>
-                                <span class="job-reply-target-name" id="job-reply-target-name"></span>
-                            </button>
-                            <button class="job-reply-target-clear hidden" id="job-reply-target-clear" type="button" onclick="clearJobReplyTarget(event)" title="Clear reply target" aria-label="Clear reply target" data-i18n-title="jobs.clearReplyTarget.title" data-i18n-aria-label="jobs.clearReplyTarget.title">&times;</button>
-                        </div>
-                        <div class="job-input-row">
-                            <textarea id="jobs-conv-input-text" placeholder="Message..." rows="1" data-i18n-placeholder="jobs.message.placeholder"></textarea>
-                            <button type="button" onclick="document.getElementById('job-file-input').click()" data-i18n-title="attachment.add" title="Add files">📎</button>
-                            <input id="job-file-input" type="file" multiple hidden onchange="uploadFiles(Array.from(this.files), true); this.value = ''">
-                            <button id="job-send" onclick="sendJobMessage()" data-i18n="common.send">Send</button>
-                        </div>
-                    </div>
-                </div>
-            </aside>
-            <aside id="rules-panel" class="hidden">
-                <div class="rules-grip" id="rules-grip"></div>
-                <div class="rules-header">
-                    <span data-i18n="rules.title">Rules</span>
-                    <span class="rules-counter" id="rules-counter"></span>
-                    <button class="rules-remind-btn" onclick="remindAgents()" data-i18n="rules.remind">Remind agents</button>
-                    <button class="jobs-create-btn" onclick="showCreateRule()" title="Add Rule" data-i18n-title="rules.add.title">+</button>
-                </div>
-                <div id="rules-list"></div>
-            </aside>
-        </div>
-
         <div id="scroll-anchor" class="hidden" onclick="scrollToBottom()"><span class="unread-badge">0</span><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8l5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
 
         <footer>
@@ -380,6 +328,59 @@
                 <span data-i18n="composer.hint">Enter to send &middot; Shift+Enter for newline &middot; Paste/drop files &middot; Mic for voice &middot; Type / or @ for autocomplete</span>
             </div>
         </footer>
+            </div>
+            <aside id="jobs-panel" class="hidden">
+                <div class="jobs-grip" id="jobs-grip"></div>
+                <div id="jobs-list-view">
+                    <div class="jobs-header">
+                        <span data-i18n="jobs.title">Jobs</span>
+                        <button class="jobs-create-btn" onclick="showCreateJob()" title="Create Job" data-i18n-title="jobs.create.title">+</button>
+                    </div>
+                    <div id="jobs-list"></div>
+                </div>
+                <div id="jobs-conversation-view" class="hidden">
+                    <div class="jobs-conv-header">
+                        <button class="jobs-back-btn" onclick="jobsBack()" title="Back" data-i18n-title="common.back">&larr;</button>
+                        <span class="jobs-conv-title" id="jobs-conv-title"></span>
+                        <div class="jobs-status-toggles" id="jobs-status-toggles">
+                            <button class="job-toggle open" data-status="open" onclick="toggleJobStatus('open')" title="To Do" data-i18n="common.todo" data-i18n-title="common.todo">TO DO</button>
+                            <button class="job-toggle done" data-status="done" onclick="toggleJobStatus('done')" title="Active" data-i18n="common.active" data-i18n-title="common.active">ACTIVE</button>
+                            <button class="job-toggle archived" data-status="archived" onclick="toggleJobStatus('archived')" title="Closed" data-i18n="common.closed" data-i18n-title="common.closed">CLOSED</button>
+                        </div>
+                    </div>
+                    <div class="jobs-conv-messages" id="jobs-conv-messages"></div>
+                    <div class="jobs-conv-input">
+                        <div id="job-mention-menu" class="mention-menu hidden"></div>
+                        <div id="job-attachments" class="job-attachments"></div>
+                        <div id="job-attachment-status" class="attachment-status" role="status"></div>
+                        <div class="job-reply-target-row hidden" id="job-reply-target-row">
+                            <button class="job-reply-target-btn" id="job-reply-target-btn" type="button" onclick="cycleJobReplyTarget()" title="Reply target" data-i18n-title="jobs.replyTarget.title">
+                                <span class="job-reply-target-prefix" data-i18n="jobs.replyTargetPrefix">To</span>
+                                <span class="job-reply-target-dot" id="job-reply-target-dot"></span>
+                                <span class="job-reply-target-name" id="job-reply-target-name"></span>
+                            </button>
+                            <button class="job-reply-target-clear hidden" id="job-reply-target-clear" type="button" onclick="clearJobReplyTarget(event)" title="Clear reply target" aria-label="Clear reply target" data-i18n-title="jobs.clearReplyTarget.title" data-i18n-aria-label="jobs.clearReplyTarget.title">&times;</button>
+                        </div>
+                        <div class="job-input-row">
+                            <textarea id="jobs-conv-input-text" placeholder="Message..." rows="1" data-i18n-placeholder="jobs.message.placeholder"></textarea>
+                            <button type="button" onclick="document.getElementById('job-file-input').click()" data-i18n-title="attachment.add" title="Add files">📎</button>
+                            <input id="job-file-input" type="file" multiple hidden onchange="uploadFiles(Array.from(this.files), true); this.value = ''">
+                            <button id="job-send" onclick="sendJobMessage()" data-i18n="common.send">Send</button>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+            <aside id="rules-panel" class="hidden">
+                <div class="rules-grip" id="rules-grip"></div>
+                <div class="rules-header">
+                    <span data-i18n="rules.title">Rules</span>
+                    <span class="rules-counter" id="rules-counter"></span>
+                    <button class="rules-remind-btn" onclick="remindAgents()" data-i18n="rules.remind">Remind agents</button>
+                    <button class="jobs-create-btn" onclick="showCreateRule()" title="Add Rule" data-i18n-title="rules.add.title">+</button>
+                </div>
+                <div id="rules-list"></div>
+            </aside>
+        </div>
         </div>
     </div>
 
@@ -398,7 +399,7 @@
     <script src="/static/channel-mentions.js?v=2"></script>
     <script src="/static/channels.js?v=272"></script>
     <script src="/static/rules-panel.js?v=224"></script>
-    <script src="/static/chat.js?v=272"></script>
+    <script src="/static/chat.js?v=273"></script>
     <script src="/static/workspace.js?v=1"></script>
 </body>
 </html>

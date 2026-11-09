@@ -2847,10 +2847,7 @@ function setupScroll() {
     // Reposition scroll-anchor when window resizes or sidebars toggle
     window.addEventListener('resize', repositionScrollAnchor);
     window.addEventListener('resize', dayFloatRefresh);
-    const contentArea = document.querySelector('.content-area');
-    if (contentArea) {
-        new ResizeObserver(repositionScrollAnchor).observe(contentArea);
-    }
+    new ResizeObserver(repositionScrollAnchor).observe(timeline);
 
     // Support button label collapses via CSS overflow (grid column shrinks naturally).
     // No JS measurement needed.
