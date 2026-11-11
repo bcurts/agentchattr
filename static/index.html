@@ -64,6 +64,11 @@
                 <input type="text" id="setting-username" placeholder="your name" maxlength="20">
             </div>
             <div class="settings-field">
+                <label for="setting-user-color">Your color</label>
+                <input type="color" id="setting-user-color" value="#a78bfa" title="Color of your name, mentions and messages (this browser only)">
+                <button type="button" class="settings-btn" id="setting-user-color-reset" title="Back to the default color">Reset</button>
+            </div>
+            <div class="settings-field">
                 <label for="setting-subtitle">This server</label>
                 <input type="text" id="setting-subtitle" placeholder="e.g. urbly" maxlength="40" title="Shown next to agentchattr, to tell this server apart from others">
             </div>
@@ -122,6 +127,15 @@
             <div class="settings-divider"></div>
             <div class="settings-field">
                 <div id="sound-settings"></div>
+            </div>
+            <div class="settings-field mention-alerts-field">
+                <label for="setting-mention-alerts">Mention alerts</label>
+                <select id="setting-mention-alerts" aria-describedby="mention-alerts-status">
+                    <option value="off">Off</option>
+                    <option value="browser">Browser notifications</option>
+                    <option value="sound">Browser notifications + alert sound</option>
+                </select>
+                <small id="mention-alerts-status" role="status"></small>
             </div>
             <div class="settings-divider"></div>
             <div class="settings-field">
@@ -377,6 +391,7 @@
     <script src="/static/jobs.js?v=226"></script>
     <script src="/static/channels.js?v=226"></script>
     <script src="/static/rules-panel.js?v=224"></script>
-    <script src="/static/chat.js?v=275"></script>
+    <script src="/static/mention-alerts.js?v=1"></script>
+    <script src="/static/chat.js?v=276"></script>
 </body>
 </html>

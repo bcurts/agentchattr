@@ -78,9 +78,41 @@ const SOUND_OPTIONS = [
     { value: 'none', label: 'None' },
 ];
 const DEFAULT_SOUND = 'soft-chime';
-const CROSS_CHANNEL_SOUND = 'pluck';
 let soundPrefs = JSON.parse(localStorage.getItem('agentchattr-sounds') || '{}');
 const soundCache = {};
+
+// --- Human (you) visual + sound prefs, per browser ---
+const DEFAULT_USER_COLOR = '#a78bfa';
+function applyUserColor() {
+    let c = '';
+    try { c = localStorage.getItem('agentchattr-user-color') || ''; } catch (e) {}
+    if (/^#[0-9a-fA-F]{6}$/.test(c)) document.documentElement.style.setProperty('--user-color', c);
+    else document.documentElement.style.removeProperty('--user-color');
+    const input = document.getElementById('setting-user-color');
+    if (input) input.value = /^#[0-9a-fA-F]{6}$/.test(c) ? c : DEFAULT_USER_COLOR;
+}
+function setupUserColorSetting() {
+    const input = document.getElementById('setting-user-color');
+    const reset = document.getElementById('setting-user-color-reset');
+    if (!input || !reset) return;
+    input.addEventListener('input', () => {
+        try { localStorage.setItem('agentchattr-user-color', input.value); } catch (e) {}
+        applyUserColor();
+    });
+    reset.addEventListener('click', () => {
+        try { localStorage.removeItem('agentchattr-user-color'); } catch (e) {}
+        applyUserColor();
+    });
+    applyUserColor();
+}
+
+// Audio is only for messages that @mention you directly (never your own messages, never @all).
+function mentionsUser(text) {
+    if (!username || typeof text !== 'string') return false;
+    const escaped = username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp('(^|[^\\p{L}\\p{N}_@-])@' + escaped + '(?![\\p{L}\\p{N}_-])', 'iu').test(text);
+}
+window.mentionsUser = mentionsUser;
 
 function playNotificationSound(sender) {
     const key = sender.toLowerCase();
@@ -94,38 +126,25 @@ function playNotificationSound(sender) {
     audio.play().catch(() => {});  // ignore autoplay policy errors
 }
 
-function playCrossChannelSound() {
-    const soundName = soundPrefs['cross-channel'] || CROSS_CHANNEL_SOUND;
-    if (soundName === 'none') return;
-    if (!soundCache[soundName]) {
-        soundCache[soundName] = new Audio(`/static/sounds/${soundName}.mp3`);
-    }
-    const audio = soundCache[soundName];
-    audio.currentTime = 0;
-    audio.play().catch(() => {});
-}
-window.playCrossChannelSound = playCrossChannelSound;
-
 function buildSoundSettings() {
     const container = document.getElementById('sound-settings');
     if (!container) return;
     container.innerHTML = '';
 
-    // Default sound + cross-channel sound + per-agent rows
-    const agents = ['default', 'cross-channel', ...Object.keys(agentConfig)];
+    // Default sound + per-agent rows
+    const agents = ['default', ...Object.keys(agentConfig)];
     for (const name of agents) {
         const row = document.createElement('div');
         row.className = 'sound-row';
         const label = document.createElement('span');
         label.className = 'sound-label';
         label.textContent = name === 'default' ? 'Default sound'
-            : name === 'cross-channel' ? 'Background alerts'
             : (agentConfig[name]?.label || name);
         const select = document.createElement('select');
         select.className = 'sound-select';
         select.dataset.agent = name;
         const currentVal = soundPrefs[name]
-            || (name === 'default' ? DEFAULT_SOUND : name === 'cross-channel' ? CROSS_CHANNEL_SOUND : '');
+            || (name === 'default' ? DEFAULT_SOUND : '');
         for (const opt of SOUND_OPTIONS) {
             const o = document.createElement('option');
             o.value = opt.value;
@@ -133,8 +152,8 @@ function buildSoundSettings() {
             if (currentVal === opt.value) o.selected = true;
             select.appendChild(o);
         }
-        // Add "Use default" option for per-agent rows (not default or cross-channel)
-        if (name !== 'default' && name !== 'cross-channel') {
+        // Add "Use default" option for per-agent rows (not the default row)
+        if (name !== 'default') {
             const o = document.createElement('option');
             o.value = '';
             o.textContent = 'Use default';
@@ -243,6 +262,7 @@ function init() {
     setupPaste();
     setupScroll();
     setupSettingsKeys();
+    setupUserColorSetting();
     setupKeyboardShortcuts();
     RulesPanel.init();
     Jobs.init();
@@ -459,8 +479,9 @@ function handleServerEvent(event) {
         }
     } else if (event.type === 'message') {
         if (document.getElementById(`message-${event.data.id}`)) return;
-        // Play notification sound for new messages from others (not joins, not when focused)
-        if (soundEnabled && !document.hasFocus() && event.data.type !== 'join' && event.data.type !== 'leave' && event.data.type !== 'summary' && event.data.sender && event.data.sender.toLowerCase() !== username.toLowerCase()) {
+        const mentionAlert = window.MentionAlerts.notify(event.data, soundEnabled, username);
+        // The mention preference owns sound for opted-in mention alerts.
+        if (!mentionAlert && soundEnabled && mentionsUser(event.data.text) && (document.hidden || !document.hasFocus()) && event.data.type !== 'join' && event.data.type !== 'leave' && event.data.type !== 'summary' && event.data.sender && event.data.sender.toLowerCase() !== username.toLowerCase()) {
             playNotificationSound(event.data.sender);
         }
         appendMessage(event.data);
@@ -991,9 +1012,9 @@ function appendMessage(msg, options = {}) {
         if (!options.history && soundEnabled && msg.type !== 'join' && msg.type !== 'leave') {
             channelUnread[msgChannel] = (channelUnread[msgChannel] || 0) + 1;
             renderChannelTabs();
-            // Play soft pluck for cross-channel chat messages from others (only when focused)
-            if (document.hasFocus() && msg.type === 'chat' && msg.sender && msg.sender.toLowerCase() !== username.toLowerCase()) {
-                playCrossChannelSound();
+            // A mention of you in another channel plays the normal mention sound, even while this page is focused
+            if (document.hasFocus() && msg.type === 'chat' && msg.sender && msg.sender.toLowerCase() !== username.toLowerCase() && mentionsUser(msg.text)) {
+                playNotificationSound(msg.sender);
             }
         }
     }
@@ -1953,6 +1974,7 @@ function applySettings(data) {
 }
 
 function toggleSettings() {
+    window.MentionAlerts.render();
     const bar = document.getElementById('settings-bar');
     bar.classList.toggle('hidden');
     document.getElementById('settings-toggle').classList.toggle('active', !bar.classList.contains('hidden'));
@@ -2740,6 +2762,7 @@ function startReply(msgId, event) {
                 btn.classList.remove('active');
             }
         }
+        syncMentionAllToggle();
     }
 
     document.getElementById('input').focus();
@@ -3097,8 +3120,26 @@ window._onChannelSwitchMentions = function(oldChannel, newChannel) {
     for (const btn of document.querySelectorAll('.mention-toggle')) {
         btn.classList.toggle('active', activeMentions.has(btn.dataset.agent));
     }
+    syncMentionAllToggle();
     if (typeof updateSchedulePopoverState === 'function') updateSchedulePopoverState();
 };
+
+// Agents that currently have a tag button (pending instances are excluded).
+function availableMentionAgents() {
+    return Object.entries(agentConfig)
+        .filter(([, cfg]) => cfg.state !== 'pending')
+        .map(([name]) => name);
+}
+
+// The @all button is active only when every available agent is toggled on.
+function syncMentionAllToggle() {
+    const btn = document.getElementById('mention-all-toggle');
+    if (!btn) return;
+    const agents = availableMentionAgents();
+    const allOn = agents.length > 0 && agents.every(name => activeMentions.has(name));
+    btn.classList.toggle('active', allOn);
+    btn.setAttribute('aria-pressed', allOn ? 'true' : 'false');
+}
 
 function buildMentionToggles() {
     const container = document.getElementById('mention-toggles');
@@ -3107,6 +3148,33 @@ function buildMentionToggles() {
     // Prune stale mentions for agents no longer in config
     for (const name of activeMentions) {
         if (!(name in agentConfig)) activeMentions.delete(name);
+    }
+
+    // @all: selects every available agent, or deselects them all if they are
+    // already all selected. It is a shortcut for the individual toggles, not a
+    // separate "@all" mention, so it deliberately lacks the .mention-toggle /
+    // data-agent pair that other code treats as an agent.
+    if (availableMentionAgents().length > 0) {
+        const allBtn = document.createElement('button');
+        allBtn.id = 'mention-all-toggle';
+        allBtn.className = 'mention-all-toggle';
+        allBtn.type = 'button';
+        allBtn.textContent = '@all';
+        allBtn.title = 'Select or deselect all agents';
+        allBtn.onclick = () => {
+            const agents = availableMentionAgents();
+            const allOn = agents.every(name => activeMentions.has(name));
+            for (const name of agents) {
+                if (allOn) activeMentions.delete(name);
+                else activeMentions.add(name);
+            }
+            for (const btn of container.querySelectorAll('.mention-toggle')) {
+                btn.classList.toggle('active', activeMentions.has(btn.dataset.agent));
+            }
+            syncMentionAllToggle();
+            updateSchedulePopoverState();
+        };
+        container.appendChild(allBtn);
     }
 
     for (const [name, cfg] of Object.entries(agentConfig)) {
@@ -3129,10 +3197,12 @@ function buildMentionToggles() {
                 activeMentions.add(name);
                 btn.classList.add('active');
             }
+            syncMentionAllToggle();
             updateSchedulePopoverState();
         };
         container.appendChild(btn);
     }
+    syncMentionAllToggle();
     enableDragScroll(container);
 }
 
