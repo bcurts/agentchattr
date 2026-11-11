@@ -4498,6 +4498,25 @@ function openHelp() {
 
     document.addEventListener('keydown', _helpKeyHandler);
     window.addEventListener('resize', _helpResizeHandler);
+    _showHelpVersion();
+}
+
+// Build string (local date-time) in the corner of the help overlay.
+var _buildVersion = null;
+function _showHelpVersion() {
+    var render = function(v) {
+        var host = document.getElementById('help-guide');
+        if (!host || !v || host.querySelector('.hg-version')) return;
+        var el = document.createElement('div');
+        el.className = 'hg-version';
+        el.textContent = 'Version ' + v;
+        host.appendChild(el);
+    };
+    if (_buildVersion) { render(_buildVersion); return; }
+    fetch('/api/build').then(function(r) { return r.json(); }).then(function(d) {
+        _buildVersion = d.build || '';
+        render(_buildVersion);
+    }).catch(function() {});
 }
 
 function closeHelp() {

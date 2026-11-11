@@ -4147,6 +4147,15 @@ a.file-attachment:hover { border-color: var(--accent); }
     border-bottom: 1px solid var(--border, #2a2a3e);
     z-index: 1;
 }
+.hg-version {
+    position: fixed;
+    right: 12px;
+    bottom: 8px;
+    font-size: 11px;
+    color: var(--text-dim, #6a6a80);
+    z-index: 2;
+    pointer-events: none;
+}
 .hg-modal-title {
     font-size: 13px;
     font-weight: 600;

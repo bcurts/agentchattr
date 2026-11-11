@@ -2620,6 +2620,33 @@ def _read_local_version() -> str:
         return ""
 
 
+def _compute_build_version() -> str:
+    """Build string shown in Help: local date-time of the running code's last commit.
+
+    Falls back to this server's start time (also local) when git isn't available.
+    """
+    import subprocess
+    from datetime import datetime
+    try:
+        out = subprocess.run(
+            ["git", "log", "-1", "--format=%ct"],
+            cwd=Path(__file__).parent, capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+        if out.isdigit():
+            return datetime.fromtimestamp(int(out)).strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        pass
+    return datetime.now().strftime("%Y-%m-%d %H:%M")
+
+
+BUILD_VERSION = _compute_build_version()
+
+
+@app.get("/api/build")
+async def get_build():
+    return {"build": BUILD_VERSION}
+
+
 def _detect_install_kind() -> str:
     """Detect how this copy was installed: official_git, fork, or unknown."""
     import subprocess
