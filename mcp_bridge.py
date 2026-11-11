@@ -29,6 +29,8 @@ agents = None         # set by run.py — AgentManager instance
 _presence: dict[str, float] = {}
 _activity: dict[str, bool] = {}   # True = screen changed on last poll
 _activity_ts: dict[str, float] = {}  # timestamp of last active=True heartbeat
+_needs_input_ts: dict[str, float] = {}  # name -> last needs_input=True heartbeat
+NEEDS_INPUT_TIMEOUT = 10  # auto-clear if the wrapper stops reporting
 ACTIVITY_TIMEOUT = 8  # auto-expire activity after 8s without a fresh active=True
 _presence_lock = threading.Lock()   # guards both _presence and _activity
 _renamed_from: set[str] = set()    # old names from renames — suppress leave messages
@@ -506,6 +508,8 @@ def migrate_identity(old_name: str, new_name: str):
             _activity[new_name] = _activity.pop(old_name)
         if old_name in _activity_ts:
             _activity_ts[new_name] = _activity_ts.pop(old_name)
+        if old_name in _needs_input_ts:
+            _needs_input_ts[new_name] = _needs_input_ts.pop(old_name)
         _renamed_from.add(old_name)  # suppress leave message for old name
     with _cursors_lock:
         if old_name in _cursors:
@@ -527,6 +531,7 @@ def purge_identity(name: str):
         _presence.pop(name, None)
         _activity.pop(name, None)
         _activity_ts.pop(name, None)
+        _needs_input_ts.pop(name, None)
     with _cursors_lock:
         _cursors.pop(name, None)
     with _last_read_lock:
@@ -764,6 +769,21 @@ def set_active(name: str, active: bool):
         _activity[name] = active
         if active:
             _activity_ts[name] = __import__("time").time()
+
+
+def set_needs_input(name: str, needs: bool):
+    with _presence_lock:
+        if needs:
+            _needs_input_ts[name] = __import__("time").time()
+        else:
+            _needs_input_ts.pop(name, None)
+
+
+def is_needs_input(name: str) -> bool:
+    import time as _time
+    with _presence_lock:
+        ts = _needs_input_ts.get(name)
+        return ts is not None and _time.time() - ts <= NEEDS_INPUT_TIMEOUT
 
 
 def is_active(name: str) -> bool:

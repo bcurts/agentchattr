@@ -9,6 +9,8 @@ import subprocess
 import sys
 import time
 
+import screen_state
+
 if sys.platform != "win32":
     raise ImportError("wrapper_windows only works on Windows")
 
@@ -274,6 +276,10 @@ def get_activity_checker(pid_holder, agent_name="unknown", trigger_flag=None):
     IDLE_COOLDOWN = 5       # need 5 consecutive idle polls (5s) before going idle
     _consecutive_idle = [0]
     _is_active = [False]
+    # Agent TUIs show "(12s · esc to interrupt)" while a turn runs, even when the
+    # only screen change is a spinner/timer (< MIN_CHANGED_CELLS). Only the live
+    # bottom of the screen counts, so quoted history can't pin us active.
+    _needs_input = [False]
 
     def check():
         # External trigger: queue watcher injected a message → force active
@@ -287,12 +293,14 @@ def get_activity_checker(pid_holder, agent_name="unknown", trigger_flag=None):
         # Get buffer dimensions
         csbi = _CONSOLE_SCREEN_BUFFER_INFO()
         if not kernel32.GetConsoleScreenBufferInfo(handle, ctypes.byref(csbi)):
+            _needs_input[0] = False
             return _is_active[0]
 
         rect = csbi.srWindow
         width = rect.Right - rect.Left + 1
         height = rect.Bottom - rect.Top + 1
         if width <= 0 or height <= 0:
+            _needs_input[0] = False
             return _is_active[0]
 
         # Read visible window
@@ -306,6 +314,7 @@ def get_activity_checker(pid_holder, agent_name="unknown", trigger_flag=None):
             ctypes.byref(read_rect),
         )
         if not ok:
+            _needs_input[0] = False
             return _is_active[0]
 
         # Extract visible characters only (skip attributes)
@@ -324,6 +333,23 @@ def get_activity_checker(pid_holder, agent_name="unknown", trigger_flag=None):
                         n_changed += 1
         significant = n_changed >= MIN_CHANGED_CELLS
         last_chars[0] = char_data
+        done_marker = False
+        try:
+            text = char_data.decode("utf-16-le", "ignore")
+            rows = [text[i:i + width] for i in range(0, len(text), width)]
+            _needs_input[0] = screen_state.needs_user_input(rows)
+            done_marker = screen_state.agent_idle_by_marker(rows)
+            if not significant:
+                significant = screen_state.has_busy_marker(rows)
+        except Exception:
+            _needs_input[0] = False
+
+        # A visible "Worked for 2m 14s"-style summary (and no live busy status) means the
+        # agent finished: go idle now instead of waiting out the cooldown. A queue trigger still wins.
+        if done_marker and not triggered:
+            _consecutive_idle[0] = IDLE_COOLDOWN
+            _is_active[0] = False
+            return False
 
         # Hysteresis: active immediately on significant change or trigger,
         # idle only after IDLE_COOLDOWN consecutive quiet polls
@@ -337,6 +363,7 @@ def get_activity_checker(pid_holder, agent_name="unknown", trigger_flag=None):
 
         return _is_active[0]
 
+    check.needs_input = lambda: _needs_input[0]
     return check
 
 

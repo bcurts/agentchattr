@@ -22,6 +22,15 @@ class ActivityTests(unittest.TestCase):
         with patch("wrapper_unix.subprocess.run", side_effect=results):
             return [checker() for _ in frames]
 
+    def test_done_summary_overrides_changed_screen(self):
+        done = screen(body="Result.\n\n─ Worked for 2m 14s ─────────")
+        working = screen(body="Result.\n\n• Working (3s • esc to interrupt)")
+        # screen changes between polls, but a finished-turn summary means idle
+        self.assertEqual(self.activity([screen(), working, done]), [False, True, False])
+        # still reports work when a live busy status is on screen alongside an old summary
+        both = screen(body="─ Worked for 1m 3s ─\n\n• Working (4s • esc to interrupt)")
+        self.assertEqual(self.activity([screen(), both]), [False, True])
+
     def test_idle_particles_do_not_count_as_work(self):
         self.assertEqual(self.activity([screen(), screen(frame=1), screen()]),
                          [False, False, False])

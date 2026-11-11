@@ -20,6 +20,8 @@ import sys
 import time
 import uuid
 
+import screen_state
+
 TMUX_COMMAND_TIMEOUT = 5.0
 
 
@@ -159,6 +161,7 @@ def _without_codex_input_animation(output: bytes) -> bytes:
 def get_activity_checker(session_name, trigger_flag=None, *, provider=""):
     """Return a callable that detects tmux pane output by hashing content."""
     last_hash = [None]
+    _needs_input = [False]
 
     def check():
         # External trigger: queue watcher injected a message
@@ -171,15 +174,21 @@ def get_activity_checker(session_name, trigger_flag=None, *, provider=""):
                 capture_output=True, timeout=2,
             )
             output = result.stdout
+            screen_text = output.decode("utf-8", "ignore")
+            _needs_input[0] = screen_state.needs_user_input(screen_text)
+            done_marker = screen_state.agent_idle_by_marker(screen_text)
             if provider == "codex":
                 output = _without_codex_input_animation(output)
             h = hash(output)
             changed = last_hash[0] is not None and h != last_hash[0]
             last_hash[0] = h
-            return changed
+            # A visible "Worked for 2m 14s"-style summary (no live busy status) means finished.
+            return changed and not done_marker
         except Exception:
+            _needs_input[0] = False
             return False
 
+    check.needs_input = lambda: _needs_input[0]
     return check
 
 

@@ -4556,3 +4556,19 @@ a.file-attachment:hover { border-color: var(--accent); }
     50% { box-shadow: 0 0 8px 2px var(--accent); }
 }
 .help-pulse { animation: helpPulse 1s ease 3; }
+
+/* Needs-input state: pill flashes when the CLI is waiting on the user (e.g. a permission prompt) */
+.status-pill.needs-input {
+    border-color: var(--agent-color, #fbbf24);
+    animation: needs-input-flash 1s ease-in-out infinite;
+}
+@keyframes needs-input-flash {
+    0%, 100% { box-shadow: 0 0 0 0 transparent; background-color: transparent; }
+    50% {
+        box-shadow: 0 0 10px 2px var(--agent-color, #fbbf24);
+        background-color: color-mix(in srgb, var(--agent-color, #fbbf24) 30%, transparent);
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .status-pill.needs-input { animation: none; box-shadow: 0 0 8px 2px var(--agent-color, #fbbf24); }
+}

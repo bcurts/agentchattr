@@ -347,6 +347,7 @@ def configure(cfg: dict, session_token: str = ""):
     _posted_leave: set[str] = set()  # agents we've already posted a leave for — debounce
 
     _known_active = set()
+    _known_needs: set[str] = set()
 
     def _background_checks():
         import time as _time
@@ -469,6 +470,13 @@ def configure(cfg: dict, session_token: str = ""):
                         mcp_bridge._activity[n] = False
                     if stale_active:
                         currently_active -= set(stale_active)
+
+                currently_needs = {n for n in currently_online if mcp_bridge.is_needs_input(n)}
+                if currently_needs != _known_needs:
+                    _known_needs.clear()
+                    _known_needs.update(currently_needs)
+                    if _event_loop:
+                        asyncio.run_coroutine_threadsafe(broadcast_status(), _event_loop)
 
                 # Broadcast status on any change (online set or activity set)
                 if currently_active != _known_active or _known_online != currently_online:
@@ -2332,6 +2340,11 @@ async def heartbeat(agent_name: str, request: Request):
             was_active = mcp_bridge._activity.get(current_name, False)
             mcp_bridge.set_active(current_name, active_val)
             _activity_changed = was_active != active_val
+        if "needs_input" in body:
+            needs_val = bool(body["needs_input"])
+            if mcp_bridge.is_needs_input(current_name) != needs_val:
+                _activity_changed = True
+            mcp_bridge.set_needs_input(current_name, needs_val)
     except Exception:
         pass  # No body = plain heartbeat
     # Immediately broadcast on activity state change (don't wait for background checker)
