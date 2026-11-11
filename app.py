@@ -391,7 +391,7 @@ def configure(cfg: dict, session_token: str = ""):
 
                 # Crash timeout: if a wrapper hasn't heartbeated for 60s,
                 # it's dead — deregister it to free the slot.
-                _CRASH_TIMEOUT = 15
+                _CRASH_TIMEOUT = registry.HEARTBEAT_TIMEOUT
                 registered = set(registry.get_all_names())
                 for name in registered:
                     with mcp_bridge._presence_lock:
@@ -2205,6 +2205,8 @@ async def register_agent(request: Request):
         return JSONResponse({"error": f"unknown base: {base}"}, status_code=400)
     # Touch presence so the instance doesn't immediately time out
     import mcp_bridge
+    for expired_name in result.pop("_expired", []):
+        mcp_bridge.purge_identity(expired_name)
     with mcp_bridge._presence_lock:
         mcp_bridge._presence[result["name"]] = __import__("time").time()
     # If slot 1 was renamed (e.g. "claude" → "claude-1"), migrate state

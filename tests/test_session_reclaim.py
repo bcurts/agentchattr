@@ -58,9 +58,7 @@ class SessionReclaimTests(unittest.TestCase):
         first = self.reg.register("codex")
         old_tok = first["token"]
         self.reg.deregister("codex", reclaimable=True)
-        # The overnight gap is far longer than the 30s name-reservation grace, so the
-        # fresh morning relaunch reclaims the canonical 'codex' name (not 'codex-2').
-        self.reg._reserved.clear()
+        # Immediate relaunch reuses the primary slot without a reservation delay.
         second = self.reg.register("codex")     # fresh relaunch, new token, same name
         new_tok = second["token"]
         self.assertEqual(second["name"], "codex")
@@ -120,77 +118,50 @@ class SessionReclaimTests(unittest.TestCase):
         old_tok = first["token"]
         self.reg.claim("claude", "claude-music")     # custom identity, base=claude slot=1
         self.reg.deregister("claude-music", reclaimable=True)          # crash-timeout / shutdown -> reclaimable
-        self.reg._reserved.clear()                   # overnight gap >> 30s name-reservation grace
         fresh = self.reg.register("claude")          # fresh relaunch of the base
-        self.assertEqual(fresh["name"], "claude")
+        self.assertEqual(fresh["name"], "claude-music")
         self.assertIsNone(self.reg.resolve_token(old_tok),
                           "old custom-name token must not reactivate once slot-1 is freshly registered")
         active_slot1 = [n for n, d in self.reg.get_all().items()
                         if d["base"] == "claude" and d["slot"] == 1 and d["state"] == "active"]
-        self.assertEqual(active_slot1, ["claude"],
+        self.assertEqual(active_slot1, ["claude-music"],
                          f"exactly one active base=claude slot=1 expected, got {active_slot1}")
 
-    def test_claim_cannot_revive_identity_whose_slot_is_now_live(self):
-        """chat_claim must not recover a reclaimable identity whose (base, slot) is live.
+    def test_claim_cannot_revive_superseded_identity(self):
+        old = self.reg.register("claude")
+        self.reg.register("claude")
+        self.reg.deregister("claude", reclaimable=True)
+        fresh = self.reg.register("claude")
+        claimed = self.reg.claim("claude")
+        self.assertEqual(claimed["identity_id"], fresh["identity_id"])
+        self.assertIsNone(self.reg.resolve_token(old["token"]))
+        self.assertEqual(sorted(self.reg.get_all_names()), ["claude", "claude-2"])
 
-        Same fresh-wins invariant as register/resolve_token, but at the claim path
-        (_restore_reclaimable_locked). Repro via rename-back: two claude instances, the
-        slot-1 deregisters (→ reclaimable as 'claude-1'), the survivor is renamed back to
-        the canonical 'claude' (slot 1). A later claim('claude-1') must NOT revive the old
-        slot-1 identity on top of the live 'claude' — that would be two active slot-1s.
-        """
-        self.reg.register("claude")                  # claude (slot 1)
-        self.reg.register("claude")                  # -> claude-1 (slot 1) + claude-2 (slot 2)
-        self.reg.deregister("claude-1", reclaimable=True)              # slot-1 leaves -> reclaimable; claude-2 renamed back to 'claude'
-        self.assertIn("claude", self.reg.get_all_names(), "survivor should be renamed back to canonical 'claude'")
-        self.reg.claim("claude-1")                   # stale wrapper tries to recover its old slot-1 identity
-        active_slot1 = [n for n, d in self.reg.get_all().items()
-                        if d["base"] == "claude" and d["slot"] == 1 and d["state"] == "active"]
-        self.assertEqual(active_slot1, ["claude"],
-                         f"claim must not create a second active slot-1; got {active_slot1}")
-
-    def test_live_slot1_token_survives_restart_despite_stale_reclaimable(self):
-        """Rename-back + re-register must not strand the current live token on restart.
-
-        6-step repro: register claude (A); register claude (A->'claude-1', B->'claude-2');
-        deregister 'claude-1' (A reclaimable@'claude-1', B renamed back to 'claude');
-        register claude (B->'claude-1', C->'claude-2') — stale A still sits at
-        reclaimable['claude-1']. On restart both instances['claude-1']=B and
-        reclaimable['claude-1']=A were persisted; loading the reclaimable section over
-        the instances section by the same key let stale A overwrite live B, killing B's
-        token and reviving A. The current 'claude-1' wrapper is B; B's token must survive.
-        """
-        a = self.reg.register("claude")              # A = 'claude'
-        tok_a = a["token"]
-        b = self.reg.register("claude")              # A -> 'claude-1', B = 'claude-2'
-        tok_b = b["token"]
-        self.reg.deregister("claude-1", reclaimable=True)              # A reclaimable@'claude-1'; B renamed back to 'claude'
-        self.reg.register("claude")                  # B -> 'claude-1', C = 'claude-2'; stale A lingers
-        reg2 = RuntimeRegistry(data_dir=self.tmp)    # server restart
-        reg2.seed({
-            "claude": {"label": "Claude", "color": "#ff6a00"},
-            "codex": {"label": "Codex", "color": "#00B67D"},
-        })
-        rb = reg2.resolve_token(tok_b)
-        self.assertIsNotNone(rb, "current live 'claude-1' (B) token must survive restart")
-        self.assertEqual(rb["name"], "claude-1")
-        self.assertIsNone(reg2.resolve_token(tok_a),
-                          "older stale token (A) must not revive over the live identity")
+    def test_live_tokens_survive_restart_despite_stale_reclaimable(self):
+        old = self.reg.register("claude")
+        survivor = self.reg.register("claude")
+        self.reg.deregister("claude", reclaimable=True)
+        fresh = self.reg.register("claude")
+        reg2 = RuntimeRegistry(data_dir=self.tmp)
+        reg2.seed({"claude": {"label": "Claude", "color": "#ff6a00"}})
+        self.assertIsNone(reg2.resolve_token(old["token"]))
+        self.assertEqual(reg2.resolve_token(survivor["token"])["name"], "claude-2")
+        self.assertEqual(reg2.resolve_token(fresh["token"])["name"], "claude")
 
     def test_claim_into_live_slot_keeps_current_token_alive_after_restart(self):
         """Same invariant via the claim rename path.
 
-        A stale reclaimable at 'claude-1' (base=claude, slot=1) remains while a live
+        A stale reclaimable at 'claude' (base=claude, slot=1) remains while a live
         instance is claimed into the canonical 'claude' (also base=claude, slot=1). The
         current identity's token must survive a restart even if the stale wrapper
         reconnects first and tries to grab the slot.
         """
         a = self.reg.register("claude")              # A = 'claude'
         tok_a = a["token"]
-        b = self.reg.register("claude")              # A -> 'claude-1', B = 'claude-2'
+        b = self.reg.register("claude")              # B = 'claude-2'; A keeps 'claude'
         tok_b = b["token"]
         self.reg.register("claude")                  # C = 'claude-3'
-        self.reg.deregister("claude-1", reclaimable=True)              # A reclaimable@'claude-1' (base=claude, slot=1)
+        self.reg.deregister("claude", reclaimable=True)              # A reclaimable at slot 1
         claimed = self.reg.claim("claude-2", "claude")   # B claims canonical 'claude' (base=claude, slot=1)
         self.assertEqual(claimed["name"], "claude")
         reg2 = RuntimeRegistry(data_dir=self.tmp)    # server restart
@@ -212,10 +183,10 @@ class SessionReclaimTests(unittest.TestCase):
         """
         a = self.reg.register("claude")              # A = 'claude'
         tok_a = a["token"]
-        b = self.reg.register("claude")              # A -> 'claude-1', B = 'claude-2'
+        b = self.reg.register("claude")              # B = 'claude-2'; A keeps 'claude'
         tok_b = b["token"]
         self.reg.register("claude")                  # C = 'claude-3'
-        self.reg.deregister("claude-1", reclaimable=True)              # A reclaimable@'claude-1' (base=claude, slot=1)
+        self.reg.deregister("claude", reclaimable=True)              # A reclaimable at slot 1
         renamed = self.reg.rename("claude-2", "claude")  # B renamed onto canonical 'claude' (base=claude, slot=1)
         self.assertEqual(renamed["name"], "claude")
         reg2 = RuntimeRegistry(data_dir=self.tmp)    # server restart
