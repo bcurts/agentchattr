@@ -1080,7 +1080,10 @@ window.appendMessage = appendMessage;
 
 function updateScrollAnchor() {
     const anchor = document.getElementById('scroll-anchor');
-    if (autoScroll) {
+    // Only offer the down arrow when more than one screenful of content is below the viewport.
+    const tl = document.getElementById('timeline');
+    const moreThanScreenBelow = tl && (tl.scrollHeight - tl.scrollTop - tl.clientHeight) > tl.clientHeight;
+    if (autoScroll || !moreThanScreenBelow) {
         anchor.classList.add('hidden');
     } else {
         anchor.classList.remove('hidden');
