@@ -32,9 +32,18 @@ def _parse_args():
     return parser.parse_args()
 
 
+def _log_level() -> int:
+    """Console log level. Quiet (WARNING) by default; set AGENTCHATTR_LOG_LEVEL=info|debug to see more."""
+    import os
+    name = os.environ.get("AGENTCHATTR_LOG_LEVEL", "warning").strip().upper()
+    levels = {"DEBUG": logging.DEBUG, "INFO": logging.INFO, "WARNING": logging.WARNING,
+              "ERROR": logging.ERROR, "CRITICAL": logging.CRITICAL}
+    return levels.get(name, logging.WARNING)
+
+
 def main():
     logging.basicConfig(
-        level=logging.INFO,
+        level=_log_level(),
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
         datefmt="%H:%M:%S",
     )
@@ -58,7 +67,7 @@ def main():
     session_token = secrets.token_hex(32)
 
     # Configure the FastAPI app (creates shared store)
-    from app import app, configure, set_event_loop, store as _store_ref
+    from app import app, configure, set_event_loop, set_shutdown_hook, store as _store_ref
     configure(config, session_token=session_token)
 
     # Share stores with the MCP bridge
@@ -157,9 +166,17 @@ def main():
     print(f"  MCP SSE:  http://{host}:{sse_port}/sse   (Gemini)")
     print(f"  Data:    {data_dir}")
     print(f"  Agents auto-trigger on @mention")
+    if config.get("server", {}).get("auto_shutdown", True):
+        print(f"  Auto-shutdown when the browser is closed and no agents are connected")
     print(f"\n  Session token: {session_token}\n")
 
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    server = uvicorn.Server(uvicorn.Config(app, host=host, port=port, log_level=logging.getLevelName(_log_level()).lower(), access_log=_log_level() <= logging.INFO))
+
+    def _request_shutdown():
+        server.should_exit = True
+
+    set_shutdown_hook(_request_shutdown)
+    server.run()
 
 
 if __name__ == "__main__":

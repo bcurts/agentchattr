@@ -348,6 +348,9 @@ def configure(cfg: dict, session_token: str = ""):
 
     _known_active = set()
 
+    import idle_shutdown
+    _idle = idle_shutdown.from_config(cfg)
+
     def _background_checks():
         import time as _time
         import mcp_bridge
@@ -478,6 +481,15 @@ def configure(cfg: dict, session_token: str = ""):
                         asyncio.run_coroutine_threadsafe(broadcast_status(), _event_loop)
                 _known_online.clear()
                 _known_online.update(currently_online)
+
+                # Idle auto-shutdown: no browser tabs and no agents connected.
+                if _idle and _shutdown_hook:
+                    agents_connected = len(set(registry.get_all_names()) | currently_online)
+                    if _idle.check(len(ws_clients), agents_connected, now):
+                        log.info("Idle auto-shutdown: no browser or agents connected for %ss",
+                                 int(_idle.grace_seconds))
+                        _shutdown_hook()
+                        return
             except Exception:
                 pass
 
@@ -548,6 +560,14 @@ def _migrate_agent_last_channel(old_name: str, new_name: str):
 def set_event_loop(loop):
     global _event_loop
     _event_loop = loop
+
+
+_shutdown_hook = None  # set by run.py; called once when the room goes idle
+
+
+def set_shutdown_hook(fn):
+    global _shutdown_hook
+    _shutdown_hook = fn
 
 
 def _on_store_message(msg: dict):

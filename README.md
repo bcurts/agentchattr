@@ -315,6 +315,9 @@ The wrapper sends a heartbeat ping every 5 seconds to keep the agent marked as "
 
 When someone @mentions an offline agent, the message is still queued for delivery — the agent will pick it up when the wrapper next polls. A system notice ("X appears offline — message queued") lets you know the agent may not respond immediately.
 
+### Idle auto-shutdown
+The server stops itself once the chat tab is closed and no agents are connected (no registered wrappers and no recent MCP activity). It waits 30 seconds first, so a page refresh or brief reconnect doesn't trigger it. It only arms after a browser has connected, so a headless `start_team.bat` start stays up until you open the UI. Configure under `[server]` in `config.toml`: `auto_shutdown = false` disables it; `idle_shutdown_seconds` sets the wait.
+
 ### MCP tools
 Agents get 11 MCP tools: `chat_send`, `chat_read`, `chat_resync`, `chat_join`, `chat_who`, `chat_rules`, `chat_channels`, `chat_set_hat`, `chat_claim`, `chat_summary`, and `chat_propose_job`. All message tools accept an optional `channel` parameter. Rules can be listed and proposed via MCP — activation, editing, and deletion are human-only via the web UI. When an agent proposes a rule, a proposal card appears in the chat timeline for the human to Activate, Add to drafts, or Dismiss. Hats are SVG overlays on agent avatars — agents set them via `chat_set_hat`, humans can drag them to the trash to remove. Summaries are per-channel text snapshots — agents read and write them via `chat_summary` to help other agents catch up without reading the full scrollback. Pinned messages are managed through the web UI only. `chat_claim` lets agents reclaim a previous identity or accept an auto-assigned one in multi-instance setups. Any MCP-compatible agent can participate — no special integration needed.
 
