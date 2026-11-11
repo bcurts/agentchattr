@@ -2679,9 +2679,12 @@ function setupScroll() {
     const resizeObserver = new ResizeObserver(() => {
         if (autoScroll && !historyLoading) {
             scrollToBottom();
+        } else {
+            updateScrollAnchor();  // content grew/shrank while scrolled up: re-check the one-screen threshold
         }
     });
     resizeObserver.observe(messages);
+    resizeObserver.observe(timeline);  // viewport height changes also move the one-screen threshold
 
     // Reposition scroll-anchor when window resizes or sidebars toggle
     window.addEventListener('resize', repositionScrollAnchor);
