@@ -419,7 +419,11 @@ header h1 {
 
 .settings-field input { width: 120px; }
 .settings-field input[type="number"] { width: 60px; }
+.settings-field input[type="color"] { width: 36px; height: 26px; padding: 0; border: 1px solid var(--border, #2a2a3e); background: none; cursor: pointer; }
 .settings-field select { width: 130px; }
+.mention-alerts-field { max-width: 320px; }
+.mention-alerts-field select { width: 280px; max-width: 100%; }
+.mention-alerts-field small { color: var(--text-muted); line-height: 1.4; }
 
 .settings-field input:focus,
 .settings-field select:focus {
@@ -3192,7 +3196,8 @@ footer {
     display: none;
 }
 
-.mention-toggle {
+.mention-toggle,
+.mention-all-toggle {
     background: var(--bg-subtle);
     border: 1px solid var(--border);
     border-radius: 14px;
@@ -3203,6 +3208,20 @@ footer {
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s;
+}
+
+.mention-all-toggle {
+    flex-shrink: 0;
+}
+
+.mention-all-toggle:hover,
+.mention-all-toggle.active {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.mention-all-toggle.active {
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
 .mention-toggle:hover {
