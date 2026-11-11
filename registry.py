@@ -29,20 +29,22 @@ class Instance:
     epoch: int = 1
     state: str = "pending"   # "pending" | "active"
     registered_at: float = field(default_factory=time.time)
+    last_seen: float = field(default_factory=time.time)
 
 
 class RuntimeRegistry:
-    GRACE_PERIOD = 30  # seconds — name reserved after deregister
+    HEARTBEAT_TIMEOUT = 15
 
     def __init__(self, data_dir: str = "./data"):
         self._lock = threading.Lock()
+        self._persistence_lock = threading.Lock()
         self._bases: dict[str, dict] = {}          # base name → config template
         self._instances: dict[str, Instance] = {}   # canonical name → Instance
-        self._reserved: dict[str, float] = {}       # name → deregister timestamp
         self._renames: dict[str, str] = {}           # old name → new name (for heartbeat redirect)
         self._reclaimable: dict[str, Instance] = {}  # name → deregistered Instance, recoverable on reconnect
         self._on_change_cbs: list = []
         self._data_dir = Path(data_dir)
+        self._profiles: dict[str, dict[str, dict]] = {}
         self._load_renames()
         self._load_instances()
 
@@ -53,6 +55,20 @@ class RuntimeRegistry:
         with self._lock:
             for name, cfg in agents_config.items():
                 self._bases[name] = dict(cfg)
+            # Migrate the old automatic slot-1 suffix, including sleeping wrappers.
+            for old_name, inst in list(self._reclaimable.items()):
+                if inst.slot == 1 and old_name == f"{inst.base}-1":
+                    if inst.base in self._reclaimable:
+                        continue
+                    del self._reclaimable[old_name]
+                    inst.name = inst.base
+                    default_label = self._bases.get(inst.base, {}).get("label", inst.base.capitalize())
+                    if inst.label == f"{default_label} 1":
+                        inst.label = default_label
+                    self._reclaimable[inst.name] = inst
+                    self._renames.pop(inst.name, None)
+                    self._renames[old_name] = inst.name
+                self._remember_profile_locked(inst)
 
     def on_change(self, cb):
         """Register a callback fired after any registry mutation."""
@@ -82,11 +98,12 @@ class RuntimeRegistry:
         """Persist renames to disk. Must be called outside the lock."""
         try:
             self._data_dir.mkdir(parents=True, exist_ok=True)
-            tmp = self._renames_path().with_suffix(".tmp")
-            with self._lock:
-                data = dict(self._renames)
-            tmp.write_text(json.dumps(data), "utf-8")
-            tmp.replace(self._renames_path())
+            with self._persistence_lock:
+                tmp = self._renames_path().with_suffix(".tmp")
+                with self._lock:
+                    data = dict(self._renames)
+                tmp.write_text(json.dumps(data), "utf-8")
+                tmp.replace(self._renames_path())
         except Exception:
             pass
 
@@ -103,14 +120,18 @@ class RuntimeRegistry:
         """
         try:
             self._data_dir.mkdir(parents=True, exist_ok=True)
-            with self._lock:
-                data = {
-                    "instances": {n: _inst_full(i) for n, i in self._instances.items()},
-                    "reclaimable": {n: _inst_full(i) for n, i in self._reclaimable.items()},
-                }
-            tmp = self._instances_path().with_suffix(".tmp")
-            tmp.write_text(json.dumps(data), "utf-8")
-            tmp.replace(self._instances_path())
+            with self._persistence_lock:
+                with self._lock:
+                    for inst in self._instances.values():
+                        self._remember_profile_locked(inst)
+                    data = json.dumps({
+                        "instances": {n: _inst_full(i) for n, i in self._instances.items()},
+                        "reclaimable": {n: _inst_full(i) for n, i in self._reclaimable.items()},
+                        "profiles": self._profiles,
+                    })
+                tmp = self._instances_path().with_suffix(".tmp")
+                tmp.write_text(data, "utf-8")
+                tmp.replace(self._instances_path())
         except Exception:
             pass
 
@@ -122,6 +143,17 @@ class RuntimeRegistry:
             data = json.loads(p.read_text("utf-8"))
         except Exception:
             return
+        saved_profiles = data.get("profiles", {})
+        if not isinstance(saved_profiles, dict):
+            saved_profiles = {}
+        for base, profiles in saved_profiles.items():
+            if not isinstance(profiles, dict):
+                continue
+            self._profiles[base] = {
+                slot: profile for slot, profile in profiles.items()
+                if isinstance(profile, dict)
+                and all(isinstance(profile.get(k), str) for k in ("name", "label", "color"))
+            }
         # On startup nobody is proven alive: a persisted "active" instance may be a
         # dead pre-restart wrapper. Load everything as reclaimable — a wrapper that is
         # genuinely still alive reactivates its token on its next call (resolve_token),
@@ -160,7 +192,7 @@ class RuntimeRegistry:
         if any(li.base == inst.base and li.slot == inst.slot for li in self._instances.values()):
             return
         self._reclaimable.pop(cand, None)
-        self._reserved.pop(cand, None)
+        inst.last_seen = time.time()
         self._instances[cand] = inst
 
     def _evict_reclaimable_collisions_locked(self):
@@ -171,9 +203,8 @@ class RuntimeRegistry:
         did, `_save_instances` would write both records and `_load_instances` could let
         the stale one overwrite the live one (same dict key) on restart — reviving a dead
         token and stranding the live one. Call this after any mutation that creates or
-        moves a live instance (register incl. slot-1 rename, deregister rename-back,
-        claim, rename), while holding self._lock. Keeps _instances and _reclaimable
-        disjoint so the persisted snapshot is always unambiguous.
+        moves a live instance (register, claim, rename), while holding self._lock.
+        Keeps _instances and _reclaimable disjoint so persistence is unambiguous.
         """
         live_names = set(self._instances.keys())
         live_coords = {(i.base, i.slot) for i in self._instances.values()}
@@ -186,43 +217,26 @@ class RuntimeRegistry:
     def register(self, base: str, label: str | None = None) -> dict | None:
         """Register a new instance of `base`. Returns slot info or None if unknown base.
 
-        When a 2nd instance registers, slot 1 is renamed from 'base' to 'base-1'
-        to prevent identity ambiguity. The rename info is returned as '_renamed_slot1'.
+        Primary names never change just because another instance joins or leaves.
+        Fresh registrations rotate tokens while retaining saved display preferences.
         """
         with self._lock:
             if base not in self._bases:
                 return None
 
-            self._expire_reserved()
+            expired = []
+            now = time.time()
+            for old_name, old in list(self._instances.items()):
+                if old.base == base and now - old.last_seen > self.HEARTBEAT_TIMEOUT:
+                    self._remember_profile_locked(old)
+                    self._reclaimable[old_name] = self._instances.pop(old_name)
+                    expired.append(old_name)
 
             # Find next free slot
             taken = {i.slot for i in self._instances.values() if i.base == base}
-            reserved = set()
-            for rn in self._reserved:
-                rb, rs = self._parse_name(rn)
-                if rb == base:
-                    reserved.add(rs)
-
             slot = 1
-            while slot in taken or slot in reserved:
+            while slot in taken:
                 slot += 1
-
-            # When a 2nd instance registers, rename slot-1 from "base" to "base-1"
-            # so that no instance shares a name with the base family.  This prevents
-            # a second instance from sending messages as "base" (identity theft).
-            renamed_slot1 = None
-            if slot >= 2 and base in self._instances:
-                slot1 = self._instances[base]
-                if slot1.base == base and slot1.slot == 1:
-                    new_s1_name = f"{base}-1"
-                    del self._instances[base]
-                    slot1.name = new_s1_name
-                    base_cfg = self._bases[base]
-                    slot1.label = f"{base_cfg.get('label', base.capitalize())} 1"
-                    # Color stays the same (slot 1 = base color)
-                    self._instances[new_s1_name] = slot1
-                    self._renames[base] = new_s1_name
-                    renamed_slot1 = {"old": base, "new": new_s1_name}
 
             name = base if slot == 1 else f"{base}-{slot}"
             base_cfg = self._bases[base]
@@ -235,19 +249,30 @@ class RuntimeRegistry:
             else:
                 lbl = f"{base_cfg.get('label', base.capitalize())} {slot}"
 
+            profile = self._profiles.get(base, {}).get(str(slot))
+            if profile:
+                saved_name = profile["name"]
+                if saved_name == f"{base}-1" and slot == 1:
+                    saved_name = base
+                if saved_name not in self._instances and not self._conflicts_with_other_family(saved_name, base):
+                    name = saved_name
+                    lbl = label or profile["label"]
+                    color = profile["color"]
+            self._renames.pop(name, None)
+
             # Fresh registrations are immediately authoritative. Identity
             # recovery/reclaim still uses chat_claim, but normal startup should
             # not block on a manual confirmation step.
             state = "active"
             inst = Instance(name=name, base=base, slot=slot, label=lbl, color=color, state=state)
             self._instances[name] = inst
-            # Fresh registration (plus any slot-1 rename above) supersedes reclaimable
+            # Fresh registration supersedes reclaimable
             # identities sharing those names/(base, slot) coordinates — including custom
             # aliases that don't match `name`. Enforces fresh-wins by coordinate, not name.
             self._evict_reclaimable_collisions_locked()
             result = _inst_dict(inst, include_token=True)
-            if renamed_slot1:
-                result["_renamed_slot1"] = renamed_slot1
+            if expired:
+                result["_expired"] = expired
 
         self._notify()
         self._save_renames()
@@ -255,7 +280,7 @@ class RuntimeRegistry:
         return result
 
     def deregister(self, name: str, reclaimable: bool = False) -> dict | None:
-        """Remove an instance. Name is reserved for GRACE_PERIOD seconds.
+        """Remove a session, keeping its display profile available for immediate reuse.
 
         `reclaimable` decides whether the token survives:
           - True  — sleep / crash-timeout path: keep the instance (and its token)
@@ -267,60 +292,34 @@ class RuntimeRegistry:
             silently reviving a dead session — reclaim is only wanted for sleep,
             not for closing the server or an agent.
 
-        Returns result dict with 'ok' and optional '_renamed_back' info,
-        or None if instance not found.
+        Returns {'ok': True}, or None if the instance was not found.
         """
         with self._lock:
             if name not in self._instances:
                 return None
             inst_removed = self._instances[name]
-            base = inst_removed.base
+            self._remember_profile_locked(inst_removed)
             del self._instances[name]
-            self._reserved[name] = time.time()
             if reclaimable:
                 self._reclaimable[name] = inst_removed  # token recoverable on reconnect (sleep)
 
-            # If family drops to 1 instance with a numbered name, rename back to base
-            renamed_back = None
-            family = [i for i in self._instances.values() if i.base == base]
-            if len(family) == 1:
-                remaining = family[0]
-                r_base, r_slot = self._parse_name(remaining.name)
-                if r_base == base and remaining.name != base:
-                    old_name = remaining.name
-                    del self._instances[old_name]
-                    remaining.name = base
-                    remaining.slot = 1
-                    base_cfg = self._bases.get(base, {})
-                    remaining.label = base_cfg.get("label", base.capitalize())
-                    remaining.color = _derive_color(base_cfg.get("color", "#888"), 1)
-                    self._instances[base] = remaining
-                    self._renames[old_name] = base
-                    renamed_back = {"old": old_name, "new": base}
-
-            # A rename-back may have moved a live instance onto a (base, slot) that the
-            # just-deregistered identity still occupies in _reclaimable — drop such stale
-            # collisions so they can't outlive the live identity across a restart.
             self._evict_reclaimable_collisions_locked()
 
         self._notify()
         self._save_renames()
         self._save_instances()
-        result = {"ok": True}
-        if renamed_back:
-            result["_renamed_back"] = renamed_back
-        return result
+        return {"ok": True}
 
     # --- Identity Claim ---
 
     def claim(self, sender: str, target_name: str | None = None) -> dict | str:
         """Claim an identity. Returns instance dict on success, error string on failure.
 
-        Family-based matching: sender can be a base family name (e.g. 'claude')
-        and the server assigns the next unclaimed instance of that family.
+        Exact names take priority, including the primary base name. If there is
+        no exact instance, a base family can recover its first available instance.
 
-        - sender='claude', no target: assign first unclaimed claude instance
-        - sender='claude', target='claude-music': assign unclaimed instance AND rename
+        - sender='claude', no target: confirm the primary claude instance
+        - sender='claude', target='claude-music': rename the primary instance
         - sender='claude-2' (exact match): confirm that specific instance
         """
         error = None
@@ -328,12 +327,11 @@ class RuntimeRegistry:
         with self._lock:
             # Recover a reclaimable identity (e.g. deregistered by crash-timeout during sleep)
             self._restore_reclaimable_locked(sender, target_name)
-            inst = None
+            inst = self._instances.get(sender)
 
-            # If sender is a base family name, use family-based matching
-            # (don't exact-match the slot-1 instance — that causes both
-            # callers to claim the same identity)
-            if sender in self._bases:
+            # Authenticated tools pass the exact current name. Only use family
+            # fallback when no exact instance exists.
+            if inst is None and sender in self._bases:
                 # Find first unclaimed (pending) instance in this family
                 for candidate in self._instances.values():
                     if candidate.base == sender and candidate.state == "pending":
@@ -345,9 +343,6 @@ class RuntimeRegistry:
                         if candidate.base == sender:
                             inst = candidate
                             break
-            else:
-                # Exact match for specific instance names (e.g. 'claude-2')
-                inst = self._instances.get(sender)
 
             if not inst:
                 error = f"No available {sender} instance. Is a wrapper registered?"
@@ -378,7 +373,6 @@ class RuntimeRegistry:
                             error = f"Slot {t_slot} already occupied in {inst.base} family"
                     if not error:
                         # Swap identity to target name
-                        self._reserved.pop(target_name, None)
                         old_name = inst.name
                         del self._instances[old_name]
                         inst.name = target_name
@@ -621,6 +615,8 @@ class RuntimeRegistry:
             seen = set()
             current = name
             while current in self._renames and current not in seen:
+                if current in self._instances:
+                    break
                 seen.add(current)
                 current = self._renames[current]
             return current
@@ -647,6 +643,7 @@ class RuntimeRegistry:
         with self._lock:
             for inst in self._instances.values():
                 if inst.token == token:
+                    inst.last_seen = time.time()
                     return _inst_dict(inst)
             for name, inst in list(self._reclaimable.items()):
                 if inst.token != token or name in self._instances:
@@ -660,9 +657,9 @@ class RuntimeRegistry:
                     changed = True
                     continue
                 inst.state = "active"
+                inst.last_seen = time.time()
                 self._instances[name] = inst
                 del self._reclaimable[name]
-                self._reserved.pop(name, None)
                 result = _inst_dict(inst)
                 reactivated = True
                 changed = True
@@ -680,6 +677,12 @@ class RuntimeRegistry:
                     if i.state == "pending"]
 
     # --- Internal ---
+
+    def _remember_profile_locked(self, inst: Instance):
+        """Display preferences outlive sessions; tokens are never part of profiles."""
+        self._profiles.setdefault(inst.base, {})[str(inst.slot)] = {
+            "name": inst.name, "label": inst.label, "color": inst.color,
+        }
 
     def _conflicts_with_other_family(self, name: str, own_base: str) -> str | None:
         """Check if `name` stomps on another family's namespace.
@@ -717,13 +720,6 @@ class RuntimeRegistry:
             for k in stale:
                 del self._renames[k]
         self._save_renames()
-
-    def _expire_reserved(self):
-        """Remove expired reservations. Must hold lock."""
-        now = time.time()
-        self._reserved = {n: t for n, t in self._reserved.items()
-                          if now - t < self.GRACE_PERIOD}
-
 
 # --- Module-level helpers ---
 

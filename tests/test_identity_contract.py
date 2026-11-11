@@ -60,7 +60,7 @@ class RuntimeRegistryTests(unittest.TestCase):
 
             resolved_first = registry.resolve_token(first["token"])
             self.assertIsNotNone(resolved_first)
-            self.assertEqual(resolved_first["name"], "claude-1")
+            self.assertEqual(resolved_first["name"], "claude")
             self.assertEqual(resolved_first["identity_id"], first["identity_id"])
             self.assertEqual(resolved_first["epoch"], 1)
 
@@ -172,6 +172,22 @@ class AppAuthEndpointTests(unittest.TestCase):
 
         self.assertEqual(resp.status_code, 200)
         self.assertIsNone(self.registry.get_instance(inst["name"]))
+
+    def test_register_replaces_expired_session_and_purges_old_runtime_state(self):
+        inst = self.registry.register("claude")
+        mcp_bridge._activity["claude"] = True
+        with mock.patch("registry.time.time", return_value=inst["registered_at"] + 16):
+            response = asyncio.run(app.register_agent(FakeRequest(body={"base": "claude"})))
+        fresh = json.loads(response.body)
+        self.assertEqual(fresh["name"], "claude")
+        self.assertNotIn("_expired", fresh)
+        self.assertNotIn("claude", mcp_bridge._activity)
+        self.assertIn("claude", mcp_bridge._presence)
+        stale_close = asyncio.run(app.deregister_agent(
+            "claude", FakeRequest(headers={"authorization": f"Bearer {inst['token']}"})
+        ))
+        self.assertEqual(stale_close.status_code, 409)
+        self.assertIsNotNone(self.registry.resolve_token(fresh["token"]))
 
 
 class WrapperLaunchTests(unittest.TestCase):
