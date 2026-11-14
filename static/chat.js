@@ -3603,7 +3603,10 @@ function buildMentionToggles() {
         container.appendChild(allBtn);
     }
 
-    for (const [name, cfg] of Object.entries(agentConfig)) {
+    // Alphabetical by display label (same order as the top status pills); @all stays first.
+    const byLabel = ([an, ac], [bn, bc]) =>
+        (ac.label || an).localeCompare(bc.label || bn, undefined, { sensitivity: 'base' });
+    for (const [name, cfg] of Object.entries(agentConfig).sort(byLabel)) {
         if (cfg.state === 'pending') continue;  // skip pending instances
         const btn = document.createElement('button');
         btn.className = 'mention-toggle';
