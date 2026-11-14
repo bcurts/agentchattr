@@ -263,7 +263,8 @@ header h1 {
     transition: background 0.3s;
 }
 
-.status-pill.available .status-dot { background: var(--online); }
+.status-pill.available .status-dot { background: var(--agent-color, var(--online)); }
+.status-pill .status-label { color: var(--agent-color, inherit); }
 .status-pill.offline .status-dot { background: #555; }
 
 .status-pill.offline {
@@ -304,7 +305,7 @@ header h1 {
     border-color: transparent;
 }
 
-.status-pill.working .status-dot { background: var(--online); }
+.status-pill.working .status-dot { background: var(--agent-color, var(--online)); }
 
 .status-pill.working::before {
     content: '';
