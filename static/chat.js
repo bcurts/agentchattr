@@ -485,6 +485,12 @@ function sanitizeLinkHrefs(html) {
 }
 
 function renderMarkdown(text) {
+    // Keep code untouched while protecting and escaping paths in regular text.
+    const codeSlots = [];
+    text = text.replace(/(```[\s\S]*?```|`[^`\n]+`)/g, function(match) {
+        codeSlots.push(match);
+        return '\x00C' + (codeSlots.length - 1) + '\x00';
+    });
     // Protect Windows paths from escape replacement (e.g. \tests → tab, \new → newline)
     const pathSlots = [];
     text = text.replace(/[A-Z]:[\\\/][\w\-.\\ \/]+/g, (m) => {
@@ -493,27 +499,13 @@ function renderMarkdown(text) {
     });
     // Unescape literal \n and \t that agents sometimes send as escaped text
     text = text.replace(/\\\\n/g, '\n').replace(/\\n/g, '\n').replace(/\\t/g, '\t');
-    // Escape < and > outside of code blocks/inline code so raw HTML
-    // can't break layout or cause XSS, while preserving angle brackets
-    // inside backtick-delimited code where users expect them to render.
-    // Protect fenced code blocks and inline code by replacing them with placeholders
-    var codeSlots = [];
-    text = text.replace(/(```[\s\S]*?```|`[^`\n]+`)/g, function(match) {
-        codeSlots.push(match);
-        return '\x00C' + (codeSlots.length - 1) + '\x00';
-    });
     // Escape angle brackets in non-code text only
     text = text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    // Restore code blocks (angle brackets inside them stay unescaped)
-    text = text.replace(/\x00C(\d+)\x00/g, function(_, i) { return codeSlots[parseInt(i)]; });
-    // Restore paths
-    text = text.replace(/\x00P(\d+)\x00(&lt;|&gt;)?/g, (_, i, angle) => {
-        let path = pathSlots[parseInt(i)];
-        // A path ending in a backslash immediately before an escaped angle bracket
-        // would make Markdown treat the entity's ampersand as a backslash escape.
-        if (angle && path.endsWith('\\')) path += '\\';
-        return path + (angle || '');
-    });
+    // Markdown consumes backslashes before punctuation, including the ampersand
+    // in &lt;. Escape every path backslash so it survives parsing literally.
+    text = text.replace(/\x00P(\d+)\x00/g, (_, i) => pathSlots[parseInt(i)].replace(/\\/g, '\\\\'));
+    // Code has its own Markdown escaping rules; restore it without changes.
+    text = text.replace(/\x00C(\d+)\x00/g, (_, i) => codeSlots[parseInt(i)]);
     // Parse markdown, then color @mentions, URLs, and file paths in the output
     let html = sanitizeLinkHrefs(marked.parse(text));
     // Remove wrapping <p> tags for single-line messages to keep them inline
