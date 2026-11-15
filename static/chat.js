@@ -507,7 +507,13 @@ function renderMarkdown(text) {
     // Restore code blocks (angle brackets inside them stay unescaped)
     text = text.replace(/\x00C(\d+)\x00/g, function(_, i) { return codeSlots[parseInt(i)]; });
     // Restore paths
-    text = text.replace(/\x00P(\d+)\x00/g, (_, i) => pathSlots[parseInt(i)]);
+    text = text.replace(/\x00P(\d+)\x00(&lt;|&gt;)?/g, (_, i, angle) => {
+        let path = pathSlots[parseInt(i)];
+        // A path ending in a backslash immediately before an escaped angle bracket
+        // would make Markdown treat the entity's ampersand as a backslash escape.
+        if (angle && path.endsWith('\\')) path += '\\';
+        return path + (angle || '');
+    });
     // Parse markdown, then color @mentions, URLs, and file paths in the output
     let html = sanitizeLinkHrefs(marked.parse(text));
     // Remove wrapping <p> tags for single-line messages to keep them inline
