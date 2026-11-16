@@ -139,6 +139,19 @@ class MessageStore:
         with self._lock:
             return sum(1 for m in self._messages if m.get("channel", "general") == channel)
 
+    def channel_activity(self) -> dict[str, float]:
+        """Epoch timestamp of the newest message in each channel that has any."""
+        latest: dict[str, float] = {}
+        with self._lock:
+            for m in self._messages:
+                ts = m.get("timestamp")
+                if not isinstance(ts, (int, float)):
+                    continue
+                ch = m.get("channel", "general")
+                if ts > latest.get(ch, 0):
+                    latest[ch] = ts
+        return latest
+
     def get_since(self, since_id: int = 0, channel: str | None = None) -> list[dict]:
         with self._lock:
             msgs = [m for m in self._messages if m["id"] > since_id]

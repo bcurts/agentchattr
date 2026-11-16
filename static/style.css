@@ -1415,7 +1415,8 @@ main#timeline {
     align-items: center;
 }
 .channel-tab-actions button:hover { background: var(--white-08); }
-.channel-tab-actions .ch-edit-btn:hover { color: var(--text); }
+.channel-tab-actions .ch-edit-btn:hover,
+.channel-tab-actions .ch-archive-btn:hover { color: var(--text); }
 .channel-tab-actions .ch-delete-btn:hover { color: var(--error-color); }
 
 /* Add button — sits after tabs */
@@ -1705,6 +1706,32 @@ main#timeline {
     opacity: 1;
     background: var(--white-10);
 }
+
+/* Collapsible "Inactive" / "Archived" groups under the active channels. */
+.channel-group-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    padding: 4px 8px;
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    cursor: pointer;
+    text-align: left;
+}
+
+.channel-group-header:hover { color: var(--text); }
+.channel-group-chevron { display: inline-block; transition: transform 0.12s; }
+.channel-group-header[aria-expanded="true"] .channel-group-chevron { transform: rotate(90deg); }
+.channel-group-count { margin-left: auto; font-weight: 600; opacity: 0.7; }
+.channel-sidebar-row.dimmed .channel-sidebar-row-label,
+.channel-tab.dimmed .channel-tab-label { opacity: 0.6; }
 
 .channel-sidebar-grip {
     position: absolute;

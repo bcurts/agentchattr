@@ -20,6 +20,71 @@ function sortedChannelList() {
 }
 
 // ---------------------------------------------------------------------------
+// Groups: active / inactive (idle for N hours) / archived (manual)
+// ---------------------------------------------------------------------------
+
+const GROUPS_OPEN_KEY = 'agentchattr-channel-groups-open';
+const _ARCHIVE_ICON = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M2 3.5h12v3H2zM3 6.5V13h10V6.5M6.5 9h3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const _RESTORE_ICON = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M2 3.5h12v3H2zM3 6.5V13h10V6.5M8 11.5V8.5M6.5 10L8 8.5 9.5 10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+let _channelActivity = {};   // channel -> newest message time (epoch seconds)
+let _archivedChannels = [];
+let _inactiveHours = 24;     // 0 = never mark channels inactive
+let _groupSignature = '';
+
+// "general" is always active. Archived wins over inactive. A channel with no
+// messages yet counts as active so a brand-new channel doesn't vanish.
+function channelGroup(name) {
+    if (name === 'general') return 'active';
+    if (_archivedChannels.includes(name)) return 'archived';
+    const last = _channelActivity[name];
+    if (_inactiveHours > 0 && last && Date.now() / 1000 - last > _inactiveHours * 3600) return 'inactive';
+    return 'active';
+}
+
+function _groupedChannels() {
+    const groups = { active: [], inactive: [], archived: [] };
+    for (const name of sortedChannelList()) groups[channelGroup(name)].push(name);
+    return groups;
+}
+
+function _computeGroupSignature() {
+    const g = _groupedChannels();
+    return `${g.active.join(',')}|${g.inactive.join(',')}|${g.archived.join(',')}`;
+}
+
+// Called by chat.js whenever a settings payload arrives.
+function setChannelPrefs(prefs) {
+    if (Array.isArray(prefs.archived)) _archivedChannels = prefs.archived;
+    if (Number.isFinite(prefs.inactiveHours)) _inactiveHours = prefs.inactiveHours;
+    if (prefs.activity && typeof prefs.activity === 'object') _channelActivity = { ...prefs.activity };
+}
+
+// Called for each message; a new message pulls an idle channel back to active.
+function noteChannelActivity(channel, timestamp) {
+    if (!Number.isFinite(timestamp) || timestamp <= (_channelActivity[channel] || 0)) return;
+    _channelActivity[channel] = timestamp;
+    if (_groupSignature && _computeGroupSignature() !== _groupSignature) renderChannelTabs();
+}
+
+function _openGroups() {
+    try { return JSON.parse(localStorage.getItem(GROUPS_OPEN_KEY)) || {}; } catch { return {}; }
+}
+
+function _toggleGroup(group) {
+    const open = _openGroups();
+    open[group] = !open[group];
+    try { localStorage.setItem(GROUPS_OPEN_KEY, JSON.stringify(open)); } catch { /* optional */ }
+    renderChannelSidebar();
+}
+
+function _sendArchive(name, archived) {
+    if (name === 'general') return;
+    window.ws.send(JSON.stringify({ type: 'channel_archive', name, archived }));
+    if (archived && window.activeChannel === name) switchChannel('general');
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -49,10 +114,14 @@ function renderChannelTabs() {
     const scrollLeft = container.scrollLeft;
     container.innerHTML = '';
 
+    _groupSignature = _computeGroupSignature();
     for (const name of sortedChannelList()) {
+        const group = channelGroup(name);
         const tab = document.createElement('button');
-        tab.className = 'channel-tab' + (name === window.activeChannel ? ' active' : '');
+        tab.className = 'channel-tab' + (name === window.activeChannel ? ' active' : '')
+            + (group !== 'active' ? ' dimmed' : '');
         tab.dataset.channel = name;
+        if (group !== 'active') tab.title = group === 'archived' ? 'Archived' : 'Inactive';
 
         const label = document.createElement('span');
         label.className = 'channel-tab-label';
@@ -78,6 +147,13 @@ function renderChannelTabs() {
             editBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M11.5 2.5l2 2L5 13H3v-2L11.5 2.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>';
             editBtn.onclick = (e) => { e.stopPropagation(); showChannelRenameDialog(name); };
             actions.appendChild(editBtn);
+
+            const archiveBtn = document.createElement('button');
+            archiveBtn.className = 'ch-archive-btn';
+            archiveBtn.title = group === 'archived' ? 'Restore' : 'Archive';
+            archiveBtn.innerHTML = group === 'archived' ? _RESTORE_ICON : _ARCHIVE_ICON;
+            archiveBtn.onclick = (e) => { e.stopPropagation(); _sendArchive(name, group !== 'archived'); };
+            actions.appendChild(archiveBtn);
 
             const delBtn = document.createElement('button');
             delBtn.className = 'ch-delete-btn';
@@ -125,53 +201,89 @@ function renderChannelSidebar() {
     const existingCreate = list.querySelector('.channel-inline-create');
     list.innerHTML = '';
 
-    for (const name of sortedChannelList()) {
-        const row = document.createElement('button');
-        row.className = 'channel-sidebar-row' + (name === window.activeChannel ? ' active' : '');
-        row.dataset.channel = name;
+    _groupSignature = _computeGroupSignature();
+    const groups = _groupedChannels();
+    for (const name of groups.active) list.appendChild(_buildSidebarRow(name, 'active'));
 
-        const label = document.createElement('span');
-        label.className = 'channel-sidebar-row-label';
-        label.textContent = '# ' + name;
-        row.appendChild(label);
+    // Inactive and Archived are collapsible groups, closed by default. A group
+    // holding the channel you're viewing stays open so it never disappears.
+    const open = _openGroups();
+    for (const [group, title] of [['inactive', 'Inactive'], ['archived', 'Archived']]) {
+        const names = groups[group];
+        if (!names.length) continue;
+        const expanded = !!open[group] || names.includes(window.activeChannel);
 
-        const unread = window.channelUnread[name] || 0;
-        if (unread > 0 && name !== window.activeChannel) {
-            const dot = document.createElement('span');
-            dot.className = 'channel-sidebar-row-unread';
-            dot.textContent = unread > 99 ? '99+' : unread;
-            row.appendChild(dot);
-        }
+        const header = document.createElement('button');
+        header.className = 'channel-group-header';
+        header.setAttribute('aria-expanded', String(expanded));
+        header.innerHTML = '<span class="channel-group-chevron" aria-hidden="true">&#9656;</span>';
+        const text = document.createElement('span');
+        text.textContent = title;
+        header.appendChild(text);
+        const count = document.createElement('span');
+        count.className = 'channel-group-count';
+        count.textContent = String(names.length);
+        header.appendChild(count);
+        header.onclick = () => _toggleGroup(group);
+        list.appendChild(header);
 
-        if (name !== 'general') {
-            const actions = document.createElement('span');
-            actions.className = 'channel-sidebar-row-actions';
-
-            const editBtn = document.createElement('button');
-            editBtn.title = 'Rename';
-            editBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M11.5 2.5l2 2L5 13H3v-2L11.5 2.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>';
-            editBtn.onclick = (e) => { e.stopPropagation(); _showSidebarRenameDialog(name); };
-            actions.appendChild(editBtn);
-
-            const delBtn = document.createElement('button');
-            delBtn.title = 'Delete';
-            delBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 4h10M6 4V3h4v1M5 4v8.5h6V4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-            delBtn.onclick = (e) => { e.stopPropagation(); _sidebarConfirmDelete(name, row, label); };
-            actions.appendChild(delBtn);
-
-            row.appendChild(actions);
-        }
-
-        row.onclick = (e) => {
-            if (e.target.closest('.channel-sidebar-row-actions')) return;
-            if (name !== window.activeChannel) switchChannel(name);
-        };
-
-        list.appendChild(row);
+        if (expanded) for (const name of names) list.appendChild(_buildSidebarRow(name, group));
     }
 
     if (existingCreate) list.appendChild(existingCreate);
+}
 
+function _buildSidebarRow(name, group) {
+    const row = document.createElement('button');
+    row.className = 'channel-sidebar-row' + (name === window.activeChannel ? ' active' : '')
+        + (group !== 'active' ? ' dimmed' : '');
+    row.dataset.channel = name;
+
+    const label = document.createElement('span');
+    label.className = 'channel-sidebar-row-label';
+    label.textContent = '# ' + name;
+    row.appendChild(label);
+
+    const unread = window.channelUnread[name] || 0;
+    if (unread > 0 && name !== window.activeChannel) {
+        const dot = document.createElement('span');
+        dot.className = 'channel-sidebar-row-unread';
+        dot.textContent = unread > 99 ? '99+' : unread;
+        row.appendChild(dot);
+    }
+
+    if (name !== 'general') {
+        const actions = document.createElement('span');
+        actions.className = 'channel-sidebar-row-actions';
+
+        const editBtn = document.createElement('button');
+        editBtn.title = 'Rename';
+        editBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M11.5 2.5l2 2L5 13H3v-2L11.5 2.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>';
+        editBtn.onclick = (e) => { e.stopPropagation(); _showSidebarRenameDialog(name); };
+        actions.appendChild(editBtn);
+
+        // Archive sits between Rename and Delete; archived channels get Restore instead.
+        const archiveBtn = document.createElement('button');
+        archiveBtn.title = group === 'archived' ? 'Restore' : 'Archive';
+        archiveBtn.innerHTML = group === 'archived' ? _RESTORE_ICON : _ARCHIVE_ICON;
+        archiveBtn.onclick = (e) => { e.stopPropagation(); _sendArchive(name, group !== 'archived'); };
+        actions.appendChild(archiveBtn);
+
+        const delBtn = document.createElement('button');
+        delBtn.title = 'Delete';
+        delBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 4h10M6 4V3h4v1M5 4v8.5h6V4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        delBtn.onclick = (e) => { e.stopPropagation(); _sidebarConfirmDelete(name, row, label); };
+        actions.appendChild(delBtn);
+
+        row.appendChild(actions);
+    }
+
+    row.onclick = (e) => {
+        if (e.target.closest('.channel-sidebar-row-actions')) return;
+        if (name !== window.activeChannel) switchChannel(name);
+    };
+
+    return row;
 }
 
 function _showSidebarRenameDialog(oldName) {
@@ -676,6 +788,12 @@ function _channelsInit() {
 
     requestAnimationFrame(_syncClearChatWidth);
     window.addEventListener('resize', _syncClearChatWidth);
+
+    // Channels go idle with the clock, not with an event, so re-check each minute
+    // and redraw only when a channel actually changed group.
+    setInterval(() => {
+        if (_groupSignature && _computeGroupSignature() !== _groupSignature) renderChannelTabs();
+    }, 60000);
 }
 
 // ---------------------------------------------------------------------------
@@ -689,5 +807,8 @@ window.renderChannelTabs = renderChannelTabs;
 window.deleteChannel = deleteChannel;
 window.showChannelRenameDialog = showChannelRenameDialog;
 window.renderChannelSidebar = renderChannelSidebar;
+window.setChannelPrefs = setChannelPrefs;
+window.noteChannelActivity = noteChannelActivity;
+window.channelGroup = channelGroup;
 window.setChannelSidebarMode = setChannelSidebarMode;
 window.Channels = { init: _channelsInit };
