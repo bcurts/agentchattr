@@ -1184,6 +1184,7 @@ function appendMessage(msg, options = {}) {
     el.dataset.id = msg.id;
     const msgChannel = msg.channel || 'general';
     el.dataset.channel = msgChannel;
+    if (window.noteChannelActivity) window.noteChannelActivity(msgChannel, msg.timestamp);
 
     if (msg.type === 'join' || msg.type === 'leave') {
         el.classList.add('join-msg');
@@ -2332,6 +2333,17 @@ function applySettings(data) {
     if (Array.isArray(data.custom_roles)) {
         window.customRoles = data.custom_roles;
     }
+    if (data.inactive_hours !== undefined) {
+        const hoursInput = document.getElementById('setting-inactive-hours');
+        if (hoursInput) hoursInput.value = String(data.inactive_hours);
+    }
+    if (window.setChannelPrefs) {
+        window.setChannelPrefs({
+            archived: data.archived_channels,
+            inactiveHours: data.inactive_hours,
+            activity: data.channel_activity,
+        });
+    }
     if (data.channels && Array.isArray(data.channels)) {
         channelList = data.channels;
         // If active channel was deleted, switch to general
@@ -2456,6 +2468,7 @@ function saveSettings() {
     const newHistory = histVal === 'all' ? 'all' : (parseInt(histVal) || 50);
     const newContrast = document.getElementById('setting-contrast').value;
     const newRulesRefresh = document.getElementById('setting-rules-refresh').value;
+    const inactiveHours = document.getElementById('setting-inactive-hours')?.value;
 
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
@@ -2468,6 +2481,7 @@ function saveSettings() {
                 history_limit: newHistory,
                 contrast: newContrast,
                 rules_refresh_interval: parseInt(newRulesRefresh) || 0,
+                ...(inactiveHours !== undefined ? { inactive_hours: parseInt(inactiveHours, 10) } : {}),
             }
         }));
     }
@@ -2490,7 +2504,7 @@ function setupSettingsKeys() {
     }
 
     // Auto-save on change for selects, escape to close
-    for (const id of ['setting-font', 'setting-history', 'setting-contrast', 'setting-rules-refresh']) {
+    for (const id of ['setting-font', 'setting-history', 'setting-contrast', 'setting-rules-refresh', 'setting-inactive-hours']) {
         const el = document.getElementById(id);
         el.addEventListener('change', () => {
             // Apply contrast immediately (don't wait for server round-trip)

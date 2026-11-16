@@ -237,6 +237,19 @@
                     <option value="sidebar">Sidebar</option>
                 </select>
             </div>
+            <div class="settings-field" title="Channels with no new messages for this long move to the Inactive group in the channel list. Synced across browsers.">
+                <label for="setting-inactive-hours">Inactive after</label>
+                <select id="setting-inactive-hours" title="Idle time before a channel is listed as inactive">
+                    <option value="0">Never</option>
+                    <option value="1">1 hour</option>
+                    <option value="6">6 hours</option>
+                    <option value="12">12 hours</option>
+                    <option value="24" selected>24 hours</option>
+                    <option value="72">3 days</option>
+                    <option value="168">7 days</option>
+                    <option value="720">30 days</option>
+                </select>
+            </div>
             <div class="settings-field" title="How often active rules are re-sent to agents: on rule changes only, or every N triggers.">
                 <label for="setting-rules-refresh">Rule refresh</label>
                 <select id="setting-rules-refresh" title="How often to re-send active rules to agents">

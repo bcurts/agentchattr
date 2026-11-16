@@ -58,6 +58,10 @@ room_settings: dict = {
     "username": "user",
     "font": "sans",
     "channels": ["general"],
+    # Manually archived channels (hidden in a collapsed "Archived" group) and the
+    # idle threshold, in hours, after which a channel moves to "Inactive" (0 = off).
+    "archived_channels": [],
+    "inactive_hours": 24,
     "history_limit": 50,
     "contrast": "normal",
     "custom_roles": [],
@@ -244,6 +248,35 @@ def _load_settings():
         room_settings["channels"] = ["general"]
     elif "general" not in room_settings["channels"]:
         room_settings["channels"].insert(0, "general")
+    _normalise_channel_prefs()
+
+
+def _clean_inactive_hours(value) -> int | None:
+    """0 turns the Inactive group off; otherwise 1 hour to one year. None = invalid."""
+    try:
+        hours = int(value)
+    except (TypeError, ValueError):
+        return None
+    return max(0, min(hours, 24 * 365))
+
+
+def _normalise_channel_prefs():
+    """Keep archive/inactive settings valid: only real, non-general channels can be archived."""
+    channels = room_settings.get("channels", [])
+    archived = room_settings.get("archived_channels")
+    if not isinstance(archived, list):
+        archived = []
+    room_settings["archived_channels"] = [
+        c for i, c in enumerate(archived)
+        if isinstance(c, str) and c != "general" and c in channels and c not in archived[:i]
+    ]
+    hours = _clean_inactive_hours(room_settings.get("inactive_hours", 24))
+    room_settings["inactive_hours"] = 24 if hours is None else hours
+
+
+def _settings_payload() -> dict:
+    """Settings as sent to clients: persisted values plus live per-channel activity."""
+    return {**room_settings, "channel_activity": store.channel_activity()}
 
 
 def _save_settings():
@@ -1084,7 +1117,7 @@ async def broadcast_todo_update(msg_id: int, status: str | None):
 
 
 async def broadcast_settings():
-    data = json.dumps({"type": "settings", "data": room_settings})
+    data = json.dumps({"type": "settings", "data": _settings_payload()})
     dead = set()
     for client in list(ws_clients):
         try:
@@ -1194,7 +1227,7 @@ async def websocket_endpoint(websocket: WebSocket):
     ws_clients.add(websocket)
 
     # Send settings
-    await websocket.send_text(json.dumps({"type": "settings", "data": room_settings}))
+    await websocket.send_text(json.dumps({"type": "settings", "data": _settings_payload()}))
 
     # Send registered instances (used for pills/mentions)
     agent_cfg = registry.get_agent_config() if registry else {}
@@ -1474,6 +1507,10 @@ async def websocket_endpoint(websocket: WebSocket):
                             room_settings["history_limit"] = max(1, min(val_int, 10000))
                         except (ValueError, TypeError):
                             pass
+                if "inactive_hours" in new:
+                    hours = _clean_inactive_hours(new["inactive_hours"])
+                    if hours is not None:
+                        room_settings["inactive_hours"] = hours
                 if "custom_roles" in new and isinstance(new["custom_roles"], list):
                     room_settings["custom_roles"] = [
                         str(r).strip()[:20] for r in new["custom_roles"]
@@ -1577,6 +1614,10 @@ async def websocket_endpoint(websocket: WebSocket):
                     continue
                 idx = room_settings["channels"].index(old_name)
                 room_settings["channels"][idx] = new_name
+                room_settings["archived_channels"] = [
+                    new_name if c == old_name else c
+                    for c in room_settings.get("archived_channels", [])
+                ]
                 store.rename_channel(old_name, new_name)
                 import mcp_bridge
                 mcp_bridge.migrate_cursors_rename(old_name, new_name)
@@ -1601,9 +1642,25 @@ async def websocket_endpoint(websocket: WebSocket):
                 if name not in room_settings["channels"]:
                     continue
                 room_settings["channels"].remove(name)
+                room_settings["archived_channels"] = [
+                    c for c in room_settings.get("archived_channels", []) if c != name
+                ]
                 store.delete_channel(name)
                 import mcp_bridge
                 mcp_bridge.migrate_cursors_delete(name)
+                _save_settings()
+                await broadcast_settings()
+
+            elif event.get("type") == "channel_archive":
+                # Archive (or restore) a channel: it moves to the collapsed "Archived"
+                # group. Messages, agents and cursors are untouched, unlike delete.
+                name = (event.get("name") or "").strip().lower()
+                if name == "general" or name not in room_settings["channels"]:
+                    continue
+                archived = [c for c in room_settings.get("archived_channels", []) if c != name]
+                if event.get("archived", True):
+                    archived.append(name)
+                room_settings["archived_channels"] = archived
                 _save_settings()
                 await broadcast_settings()
 
