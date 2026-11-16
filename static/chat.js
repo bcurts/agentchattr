@@ -2335,7 +2335,18 @@ function applySettings(data) {
     }
     if (data.inactive_hours !== undefined) {
         const hoursInput = document.getElementById('setting-inactive-hours');
-        if (hoursInput) hoursInput.value = String(data.inactive_hours);
+        if (hoursInput) {
+            const value = String(data.inactive_hours);
+            // A saved value outside the day choices (e.g. an older hours setting) still shows.
+            if (![...hoursInput.options].some(o => o.value === value)) {
+                const extra = document.createElement('option');
+                extra.value = value;
+                extra.textContent = data.inactive_hours % 24 === 0
+                    ? `${data.inactive_hours / 24} days` : `${data.inactive_hours} hours`;
+                hoursInput.appendChild(extra);
+            }
+            hoursInput.value = value;
+        }
     }
     if (window.setChannelPrefs) {
         window.setChannelPrefs({
