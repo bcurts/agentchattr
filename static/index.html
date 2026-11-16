@@ -237,18 +237,15 @@
                     <option value="sidebar">Sidebar</option>
                 </select>
             </div>
-            <div class="settings-field" title="Channels with no new messages for this long move to the Inactive group in the channel list. Synced across browsers.">
-                <label for="setting-inactive-hours">Inactive after</label>
-                <select id="setting-inactive-hours" title="Idle time before a channel is listed as inactive">
-                    <option value="0">Never</option>
-                    <option value="24" selected>1 day</option>
-                    <option value="48">2 days</option>
-                    <option value="72">3 days</option>
-                    <option value="120">5 days</option>
-                    <option value="168">7 days</option>
-                    <option value="336">14 days</option>
-                    <option value="720">30 days</option>
-                </select>
+            <div class="settings-field" title="Days without a new message before a channel moves to the Inactive group in the channel list. 0 = never. Synced across browsers.">
+                <label for="setting-inactive-days">Inactive after (days)</label>
+                <div class="sched-num-wrap">
+                    <input type="number" id="setting-inactive-days" class="sched-pop-num" min="0" max="365" step="1" value="1" title="Days idle before a channel is listed as inactive (0 = never)">
+                    <div class="sched-num-btns">
+                        <button type="button" onclick="stepNumInput('setting-inactive-days',1)" tabindex="-1">&#9650;</button>
+                        <button type="button" onclick="stepNumInput('setting-inactive-days',-1)" tabindex="-1">&#9660;</button>
+                    </div>
+                </div>
             </div>
             <div class="settings-field" title="How often active rules are re-sent to agents: on rule changes only, or every N triggers.">
                 <label for="setting-rules-refresh">Rule refresh</label>

@@ -60,6 +60,7 @@ function persistMentions(changedChannel) {
 }
 loadChannelMentions();
 let channelList = ['general'];
+let _savedInactiveHours = null;   // last idle threshold (hours) received from the server
 let channelUnread = {};  // { channelName: count }
 let agentHats = {};  // { agent_name: svg_string }
 window.customRoles = [];  // saved custom roles from settings
@@ -2334,18 +2335,11 @@ function applySettings(data) {
         window.customRoles = data.custom_roles;
     }
     if (data.inactive_hours !== undefined) {
-        const hoursInput = document.getElementById('setting-inactive-hours');
-        if (hoursInput) {
-            const value = String(data.inactive_hours);
-            // A saved value outside the day choices (e.g. an older hours setting) still shows.
-            if (![...hoursInput.options].some(o => o.value === value)) {
-                const extra = document.createElement('option');
-                extra.value = value;
-                extra.textContent = data.inactive_hours % 24 === 0
-                    ? `${data.inactive_hours / 24} days` : `${data.inactive_hours} hours`;
-                hoursInput.appendChild(extra);
-            }
-            hoursInput.value = value;
+        // Stored in hours; shown in whole days (a part-day value rounds up, never to 0 = never).
+        _savedInactiveHours = data.inactive_hours;
+        const daysInput = document.getElementById('setting-inactive-days');
+        if (daysInput && document.activeElement !== daysInput) {
+            daysInput.value = data.inactive_hours > 0 ? Math.max(1, Math.round(data.inactive_hours / 24)) : 0;
         }
     }
     if (window.setChannelPrefs) {
@@ -2479,7 +2473,12 @@ function saveSettings() {
     const newHistory = histVal === 'all' ? 'all' : (parseInt(histVal) || 50);
     const newContrast = document.getElementById('setting-contrast').value;
     const newRulesRefresh = document.getElementById('setting-rules-refresh').value;
-    const inactiveHours = document.getElementById('setting-inactive-hours')?.value;
+    // Only send the idle threshold when the person changed it, so saving another
+    // setting never rewrites a stored part-day value as whole days.
+    const inactiveDays = parseInt(document.getElementById('setting-inactive-days')?.value, 10);
+    const savedDays = _savedInactiveHours > 0 ? Math.max(1, Math.round(_savedInactiveHours / 24)) : 0;
+    const inactiveHours = Number.isFinite(inactiveDays) && inactiveDays !== savedDays
+        ? Math.max(0, Math.min(inactiveDays, 365)) * 24 : undefined;
 
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
@@ -2492,7 +2491,7 @@ function saveSettings() {
                 history_limit: newHistory,
                 contrast: newContrast,
                 rules_refresh_interval: parseInt(newRulesRefresh) || 0,
-                ...(inactiveHours !== undefined ? { inactive_hours: parseInt(inactiveHours, 10) } : {}),
+                ...(inactiveHours !== undefined ? { inactive_hours: inactiveHours } : {}),
             }
         }));
     }
@@ -2500,7 +2499,7 @@ function saveSettings() {
 
 function setupSettingsKeys() {
     // Auto-save on blur/Enter for text/number fields
-    for (const id of ['setting-username', 'setting-subtitle', 'setting-hops']) {
+    for (const id of ['setting-username', 'setting-subtitle', 'setting-hops', 'setting-inactive-days']) {
         const el = document.getElementById(id);
         el.addEventListener('blur', () => saveSettings());
         el.addEventListener('keydown', (e) => {
@@ -2515,7 +2514,10 @@ function setupSettingsKeys() {
     }
 
     // Auto-save on change for selects, escape to close
-    for (const id of ['setting-font', 'setting-history', 'setting-contrast', 'setting-rules-refresh', 'setting-inactive-hours']) {
+    // The spinner arrows (stepNumInput) fire `change` without a blur, so save then too.
+    document.getElementById('setting-inactive-days')?.addEventListener('change', () => saveSettings());
+
+    for (const id of ['setting-font', 'setting-history', 'setting-contrast', 'setting-rules-refresh']) {
         const el = document.getElementById(id);
         el.addEventListener('change', () => {
             // Apply contrast immediately (don't wait for server round-trip)
