@@ -418,6 +418,7 @@ command = "claude"          # CLI command (must be on PATH)
 cwd = ".."                  # working directory for agent
 color = "#a78bfa"           # status pill + @mention color
 label = "Claude"            # display name
+expertise = "frontend repo" # optional: shown by chat_who so agents know who to ask
 
 [agents.codex]
 command = "codex"
