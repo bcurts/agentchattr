@@ -17,7 +17,7 @@ usage() {
   cat <<EOF
 ac up [agent ...]           start server + agents (default: every agent with an expertise)
 ac down [agent ...|all]     stop agents (all also stops the server)
-ac restart <agent ...>      restart agents (rebuilds persona prompt)
+ac restart <agent ...>      restart agents, resuming their conversation (FRESH=1 ac restart x: new session)
 ac ls                       show server + agent status
 ac attach <agent>           open the agent's real Claude Code terminal (detach: Ctrl+B then D)
 ac logs <agent|server>      tail wrapper/server log
@@ -54,6 +54,12 @@ build_prompt() {
 cli_sessions() { tmux ls -F '#{session_name}' 2>/dev/null | grep -E "^agentchattr-$1(-[0-9]+)?$" || true; }
 agent_running() { tmux has-session -t "acw-$1" 2>/dev/null && [ -n "$(cli_sessions "$1")" ]; }
 
+# newest Claude Code session named ac-<agent> (give each agent args = ["--name", "ac-<agent>", ...])
+last_session() {
+  grep -l "\"customTitle\":\"ac-$1\"" "$HOME"/.claude/projects/*/*.jsonl 2>/dev/null \
+    | xargs ls -t 2>/dev/null | head -1 | xargs -I{} basename {} .jsonl
+}
+
 start_agent() {
   local a="$1"
   if agent_running "$a"; then echo "$a: already running"; return; fi
@@ -61,7 +67,10 @@ start_agent() {
   mkdir -p "$DATA/logs"
   # wrapper lives in its own tmux session so it survives the shell that started it;
   # its nested `tmux attach` fails and it just keeps polling the queue
-  tmux new-session -d -s "acw-$a" -c "$AC_HOME" "$PY wrapper.py $a 2>&1 | tee $DATA/logs/$a.log"
+  local resume=""
+  [ "${FRESH:-0}" = 1 ] || resume="$(last_session "$a")"
+  [ -n "$resume" ] && echo "$a: resuming session $resume"
+  tmux new-session -d -s "acw-$a" -c "$AC_HOME" "$PY wrapper.py $a ${resume:+--resume $resume} 2>&1 | tee $DATA/logs/$a.log"
   for _ in $(seq 1 20); do agent_running "$a" && { echo "$a: started"; return; }; sleep 0.5; done
   echo "$a: failed to start, see: ac logs $a" >&2
 }

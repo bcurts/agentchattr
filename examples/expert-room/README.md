@@ -52,5 +52,6 @@ The first start of an agent in a folder Claude Code hasn't seen asks "trust this
 ## Tips
 - Interns = the CLI's own subagents inside each expert; they stay out of the chat.
 - Channels: `#general` (you + lead), one per active cross-repo feature, `#reviews`, `#incidents`. Single-repo tasks: use a job.
+- `ac restart` resumes each expert's last Claude Code session (found by its `--name`), so restarts keep context; `FRESH=1 ac restart x` starts clean.
 - Idle experts cost nothing; each wake-up is a model turn. Start only the experts you need today.
 - If you add `--dangerously-skip-permissions`, remember any agent can wake any other: keep the deny list tight and give ops-style agents read-only tools (`--disallowedTools Edit Write`).
