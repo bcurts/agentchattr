@@ -379,7 +379,10 @@ def _build_provider_launch(
         token=token, mcp_cfg=mcp_cfg, project_dir=project_dir,
     )
 
-    launch_args = [*mcp_args, *extra_args]
+    cfg_args = agent_cfg.get("args", [])
+    if not isinstance(cfg_args, list) or not all(isinstance(a, str) for a in cfg_args):
+        raise ValueError(f"[agents.{agent}] args must be a list of strings")
+    launch_args = [*mcp_args, *cfg_args, *extra_args]
     launch_env = dict(env)
 
     return launch_args, launch_env, inject_env, settings_path
