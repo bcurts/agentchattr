@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# ac — run an expert room: agentchattr server + one CLI agent per expert, each in a detached tmux session.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+AC_HOME="${AC_HOME:-$(cd "$HERE/../.." && pwd)}"   # agentchattr checkout
+HUB="${HUB:-$HERE}"                                   # folder with experts/ and features/
+PY="$AC_HOME/.venv/bin/python"
+DATA="$AC_HOME/data"
+URL="http://127.0.0.1:8300"
+
+# experts = agents in config.toml that declare an `expertise`
+experts() { "$PY" -c 'import sys; sys.path.insert(0, sys.argv[1]); from config_loader import load_config; print(" ".join(n for n, c in load_config().get("agents", {}).items() if isinstance(c, dict) and c.get("expertise")))' "$AC_HOME"; }
+ALL="$(experts 2>/dev/null || true)"
+
+usage() {
+  cat <<EOF
+ac up [agent ...]           start server + agents (default: every agent with an expertise)
+ac down [agent ...|all]     stop agents (all also stops the server)
+ac restart <agent ...>      restart agents (rebuilds persona prompt)
+ac ls                       show server + agent status
+ac attach <agent>           open the agent's real Claude Code terminal (detach: Ctrl+B then D)
+ac logs <agent|server>      tail wrapper/server log
+ac open                     open the web chat
+agents: $ALL
+EOF
+}
+
+ensure_venv() {
+  [ -x "$PY" ] && return
+  echo "creating venv..."
+  python3 -m venv "$AC_HOME/.venv"
+  "$PY" -m pip install -q -r "$AC_HOME/requirements.txt"
+}
+
+server_up() { lsof -iTCP:8300 -sTCP:LISTEN >/dev/null 2>&1; }
+
+start_server() {
+  server_up && return
+  mkdir -p "$DATA/logs"
+  tmux new-session -d -s ac-server -c "$AC_HOME" "$PY run.py 2>&1 | tee -a $DATA/logs/server.log"
+  for _ in $(seq 1 40); do server_up && { echo "server: $URL"; return; }; sleep 0.5; done
+  echo "server did not start; see: ac logs server" >&2; exit 1
+}
+
+build_prompt() {
+  local a="$1"
+  [ -f "$HUB/experts/$a.md" ] || { echo "no persona: $HUB/experts/$a.md" >&2; exit 1; }
+  mkdir -p "$DATA/prompts"
+  { sed "s/{name}/$a/g" "$HUB/experts/_protocol.md"; echo; cat "$HUB/experts/$a.md"; } > "$DATA/prompts/$a.md"
+}
+
+agent_running() { tmux has-session -t "agentchattr-$1" 2>/dev/null && tmux has-session -t "acw-$1" 2>/dev/null; }
+
+start_agent() {
+  local a="$1"
+  if agent_running "$a"; then echo "$a: already running"; return; fi
+  build_prompt "$a"
+  mkdir -p "$DATA/logs"
+  # wrapper lives in its own tmux session so it survives the shell that started it;
+  # its nested `tmux attach` fails and it just keeps polling the queue
+  tmux new-session -d -s "acw-$a" -c "$AC_HOME" "$PY wrapper.py $a 2>&1 | tee $DATA/logs/$a.log"
+  for _ in $(seq 1 20); do agent_running "$a" && { echo "$a: started"; return; }; sleep 0.5; done
+  echo "$a: failed to start, see: ac logs $a" >&2
+}
+
+stop_agent() {
+  local a="$1"
+  tmux kill-session -t "acw-$a" 2>/dev/null || true
+  tmux kill-session -t "agentchattr-$a" 2>/dev/null || true
+  echo "$a: stopped"
+}
+
+cmd="${1:-help}"; shift || true
+case "$cmd" in
+  up)
+    command -v tmux >/dev/null || { echo "tmux missing: brew install tmux" >&2; exit 1; }
+    ensure_venv; start_server
+    ALL="${ALL:-$(experts)}"
+    for a in ${@:-$ALL}; do start_agent "$a"; done
+    echo "chat: $URL" ;;
+  down)
+    if [ "${1:-all}" = all ]; then
+      for a in $ALL; do agent_running "$a" && stop_agent "$a"; done
+      tmux kill-session -t ac-server 2>/dev/null || true; echo "server: stopped"
+    else for a in "$@"; do stop_agent "$a"; done; fi ;;
+  restart) for a in "$@"; do stop_agent "$a"; start_agent "$a"; done ;;
+  ls)
+    server_up && echo "server  up   $URL" || echo "server  down"
+    for a in $ALL; do agent_running "$a" && echo "$a  up" || echo "$a  -"; done | column -t ;;
+  attach) tmux attach -t "agentchattr-${1:?agent}" ;;
+  logs)   tail -n 60 -f "$DATA/logs/${1:?agent or server}.log" ;;
+  open)   open "$URL" ;;
+  *) usage ;;
+esac
