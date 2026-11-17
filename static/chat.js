@@ -5051,12 +5051,8 @@ function _helpKeyHandler(e) {
 window.toggleHelp = toggleHelp;
 window.closeHelp = closeHelp;
 
-// Auto-show on first visit
-function initHelpTour() {
-    if (!localStorage.getItem('help_seen')) {
-        setTimeout(openHelp, 2500);
-    }
-}
+// Help guide no longer auto-opens (e.g. after a restart/wipe); open via the Help button.
+function initHelpTour() {}
 
 // --- Start ---
 
