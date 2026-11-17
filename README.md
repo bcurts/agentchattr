@@ -423,6 +423,7 @@ cwd = ".."                  # working directory for agent
 color = "#a78bfa"           # status pill + @mention color
 label = "Claude"            # display name
 args = ["--model", "opus"] # optional: extra CLI flags on every launch
+expertise = "frontend repo" # optional: shown by chat_who so agents know who to ask
 
 [agents.codex]
 command = "codex"

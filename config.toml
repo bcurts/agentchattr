@@ -8,6 +8,8 @@ data_dir = "./data"
 # "command" is the CLI command (must be on PATH).
 # "args" (optional) is a list of extra CLI flags passed on every launch, e.g.
 #   args = ["--model", "opus", "--append-system-prompt-file", "/path/persona.md"]
+# "expertise" (optional) tells other agents what this one owns; chat_who lists it, e.g.
+#   expertise = "payments-api repo: billing, refunds, Stripe webhooks"
 
 [agents.claude]
 command = "claude"
