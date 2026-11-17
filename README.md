@@ -422,6 +422,7 @@ command = "claude"          # CLI command (must be on PATH)
 cwd = ".."                  # working directory for agent
 color = "#a78bfa"           # status pill + @mention color
 label = "Claude"            # display name
+args = ["--model", "opus"] # optional: extra CLI flags on every launch
 
 [agents.codex]
 command = "codex"
