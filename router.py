@@ -2,6 +2,15 @@
 
 import re
 
+_SLASH_RE = re.compile(r"(?:^|\s)//([a-z][\w:-]*)(.*)$", re.IGNORECASE | re.DOTALL)
+
+
+def slash_passthrough(text: str) -> str:
+    """`@agent //goal fix X` -> "/goal fix X": a slash command to paste verbatim
+    into the agent's CLI. Returns "" when the message has no //command."""
+    m = _SLASH_RE.search(text or "")
+    return f"/{m.group(1)}{m.group(2).rstrip()}" if m else ""
+
 
 class Router:
     def __init__(self, agent_names: list[str], default_mention: str = "both",

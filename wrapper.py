@@ -536,14 +536,16 @@ def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = Fals
                     role = _fetch_role(server_port, current_name)
                     if not role and current_name != agent_name:
                         role = _fetch_role(server_port, agent_name)
-                    if role:
+                    # A slash command must reach the CLI verbatim: no role/rules/hints appended
+                    raw_slash = prompt.startswith("/")
+                    if role and not raw_slash:
                         prompt += f"\n\nROLE: {role}"
 
                     # Smart rules injection: first trigger, epoch change, or periodic refresh
                     _token = get_token_fn() if get_token_fn else ""
                     rules_data = _fetch_active_rules(server_port, _token)
                     trigger_count += 1
-                    if rules_data:
+                    if rules_data and not raw_slash:
                         # Use server-side refresh_interval (live from settings UI)
                         ri = rules_data.get("refresh_interval", refresh_interval)
                         need_inject = (
@@ -558,7 +560,7 @@ def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = Fals
                             last_rules_epoch = rules_data["epoch"]
                             _report_rule_sync(server_port, current_name, rules_data["epoch"], _token)
 
-                    if first_mention and is_multi_instance:
+                    if first_mention and is_multi_instance and not raw_slash:
                         prompt += _IDENTITY_HINT
                         first_mention = False
                     # Flatten to single line — multi-line text triggers paste
