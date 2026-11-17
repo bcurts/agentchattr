@@ -19,7 +19,7 @@ from rules import RuleStore
 from summaries import SummaryStore
 from jobs import JobStore
 from schedules import ScheduleStore, parse_schedule_spec
-from router import Router
+from router import Router, slash_passthrough
 from agents import AgentTrigger
 from registry import RuntimeRegistry
 from session_store import SessionStore, validate_session_template
@@ -877,6 +877,9 @@ async def _handle_new_message(msg: dict):
     # Build a readable message string for the wake prompt
     chat_msg = f"{sender}: {text}" if text else ""
     custom_prompt = text if is_hidden_session_request else ""
+    # Humans only: an agent must not be able to run slash commands in another agent's CLI
+    if not custom_prompt and sender not in known_agents:
+        custom_prompt = slash_passthrough(text)
 
     # Session turn guard: if a session is active on this channel and the sender
     # is an agent, only allow triggering the agent whose turn it is.
