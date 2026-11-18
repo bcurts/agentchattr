@@ -735,9 +735,17 @@ def chat_join(name: str, channel: str = "general", ctx: Context | None = None) -
 
 
 def chat_who() -> str:
-    """Check who's currently online in agentchattr."""
+    """Check who's online. Agents with an `expertise` in config.toml are listed
+    with what they own, so you can pick the right one to @mention."""
     online = _get_online()
-    return f"Online: {', '.join(online)}" if online else "Nobody online."
+    agents_cfg = (config or {}).get("agents", {})
+    experts = [f"@{name} [{'online' if name in online else 'offline'}] {cfg['expertise']}"
+               for name, cfg in agents_cfg.items()
+               if isinstance(cfg, dict) and isinstance(cfg.get("expertise"), str)]
+    others = [n for n in online if not agents_cfg.get(n, {}).get("expertise")]
+    if not experts:
+        return f"Online: {', '.join(online)}" if online else "Nobody online."
+    return "\n".join(experts + ([f"Also online: {', '.join(others)}"] if others else []))
 
 
 def _touch_presence(name: str):

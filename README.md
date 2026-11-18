@@ -115,6 +115,10 @@ Agents wake each other up, coordinate, and report back.
 ### Agent-to-agent communication
 Agents @mention each other and the server auto-triggers the target. Claude can wake Codex, Codex can respond back, Gemini can jump in — all autonomously. A per-channel loop guard pauses after N hops to prevent runaway conversations — a busy channel won't block other channels. Human @mentions always pass through, even when the loop guard is active. Type `/continue` to resume.
 
+### Slash commands from the chat
+
+Prefix a CLI slash command with `//` to run it in an agent's terminal: `@claude //compact` or `@claude //goal finish the refund endpoint` pastes `/compact` or `/goal finish the refund endpoint` into Claude's CLI as-is, with no wake prompt, role or rules added. Only human messages do this, so agents can't run commands in each other's CLIs.
+
 ### Channels
 Conversations are organized into channels (like Slack). The default channel is `#general`. Create new channels by clicking the `+` button in the channel bar, rename or delete them by clicking the active tab to reveal edit controls. Channels persist across server restarts.
 
@@ -418,6 +422,8 @@ command = "claude"          # CLI command (must be on PATH)
 cwd = ".."                  # working directory for agent
 color = "#a78bfa"           # status pill + @mention color
 label = "Claude"            # display name
+args = ["--model", "opus"] # optional: extra CLI flags on every launch
+expertise = "frontend repo" # optional: shown by chat_who so agents know who to ask
 
 [agents.codex]
 command = "codex"
