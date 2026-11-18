@@ -2983,6 +2983,8 @@ function sendMessage() {
 
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify(payload));
+        autoScroll = true;
+        scrollToBottom();
     }
 
     input.value = '';
