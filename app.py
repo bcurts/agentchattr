@@ -1879,6 +1879,12 @@ async def get_status():
     return status
 
 
+@app.get("/api/browser-clients")
+async def get_browser_clients():
+    """Number of open chat pages (WebSocket clients); lets launchers avoid opening a duplicate tab."""
+    return {"count": len(ws_clients)}
+
+
 @app.get("/api/settings")
 async def get_settings():
     return room_settings
