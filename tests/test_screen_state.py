@@ -175,7 +175,9 @@ class CaptureFailureTests(unittest.TestCase):
         import subprocess
         from unittest.mock import patch
         from wrapper_unix import get_activity_checker
-        checker = get_activity_checker("t")
+        from pathlib import Path
+        from pattern_loader import PatternStore
+        checker = get_activity_checker("t", pattern_store=PatternStore('', Path(__file__).parent / 'fixtures/screen_patterns'))
         ok = subprocess.CompletedProcess([], 0, stdout=b"Apply changes? [y/n]\n")
         with patch("wrapper_unix.subprocess.run", side_effect=[ok, RuntimeError("tmux gone")]):
             checker()

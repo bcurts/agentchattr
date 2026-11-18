@@ -20,7 +20,7 @@ import sys
 import time
 import uuid
 
-import screen_state
+from pattern_loader import PatternStore
 
 TMUX_COMMAND_TIMEOUT = 5.0
 
@@ -158,16 +158,19 @@ def _without_codex_input_animation(output: bytes) -> bytes:
     return "\n".join(lines).encode("utf-8")
 
 
-def get_activity_checker(session_name, trigger_flag=None, *, provider=""):
+def get_activity_checker(session_name, trigger_flag=None, *, provider="", agent_name=None, pattern_store=None):
     """Return a callable that detects tmux pane output by hashing content."""
     last_hash = [None]
     _needs_input = [False]
+    _is_active = [False]
+    patterns = pattern_store or PatternStore(agent_name or provider)
 
     def check():
         # External trigger: queue watcher injected a message
+        triggered = False
         if trigger_flag is not None and trigger_flag[0]:
             trigger_flag[0] = False
-            return True
+            triggered = True
         try:
             result = subprocess.run(
                 ["tmux", "capture-pane", "-t", session_name, "-p"],
@@ -175,9 +178,12 @@ def get_activity_checker(session_name, trigger_flag=None, *, provider=""):
             )
             output = result.stdout
             screen_text = output.decode("utf-8", "ignore")
-            _needs_input[0] = screen_state.needs_user_input(screen_text)
-            done_marker = screen_state.agent_idle_by_marker(screen_text)
-            busy_marker = screen_state.has_busy_marker(screen_text)
+            state, _match = patterns.classify(screen_text)
+            if state == 'unavailable':
+                return _is_active[0]
+            _needs_input[0] = state == 'needs_input'
+            done_marker = state == 'idle'
+            busy_marker = state == 'working'
             if provider == "codex":
                 output = _without_codex_input_animation(output)
             h = hash(output)
@@ -185,10 +191,11 @@ def get_activity_checker(session_name, trigger_flag=None, *, provider=""):
             last_hash[0] = h
             # A visible "Worked for 2m 14s"-style summary (no live busy status) means finished.
             # A live busy status (e.g. "1 background terminal running") counts as working even when quiet.
-            return (changed or busy_marker) and not done_marker
+            _is_active[0] = (triggered or changed or busy_marker) and (not done_marker or triggered) and not _needs_input[0]
+            return _is_active[0]
         except Exception:
             _needs_input[0] = False
-            return False
+            return triggered
 
     check.needs_input = lambda: _needs_input[0]
     return check

@@ -1,3 +1,4 @@
 fastapi>=0.110
 uvicorn[standard]>=0.29
 mcp>=1.0,<2.0  # v2 removes mcp.server.fastmcp (issue #85)
+regex>=2025.11.3  # time-limited matching for editable screen patterns

@@ -1,0 +1,2 @@
+# Add agent-specific expressions here.
+^[^\w(:]*[^\W\d_][\w …\.\-]{0,40}?\s*\((?=[^)\n]*(?:esc|ctrl\+c) to (?:interrupt|cancel))(?=[^)\n]*\d+\s*[smh]\b)[^)\n]*[·•,][^)\n]*\)(?:\s*[·•|].*)?\s*$

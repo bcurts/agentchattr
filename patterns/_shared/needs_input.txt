@@ -1,0 +1,8 @@
+# One Python regular expression per line; matching is case-insensitive.
+[\[(]y/n[\])]\??\s*$
+^[\s│|]*(?:press )?enter to confirm
+^[\s│|]*(?:press )?enter to (?:submit|select)\s*[|·•,]\s*esc to cancel[\s│|]*$
+^[\s│|╭╰─❯>›•●]*1\.\s+yes,?\s+proceed(?:\s*\((?:y|enter)\))?[\s│|╮╯─]*$
+^[\s│|╭╰─❯>›•●]*[12]\.\s+allow(?:\s+for\s+this\s+session)?(?:\s*\((?:y|a|enter)\))?[\s│|╮╯─]*$
+^[\s│|╭╰─❯>›•●]*(?:[12]\.\s+(?:yes,?\s+)?allow\b[^\n]{0,60}?\bfor\s+this\s+session(?:\s*\([^)\n]{1,20}\))?|1\.\s+allow\b(?:\s+once)?\s+2\.\s+(?:yes,?\s+)?allow\b[^\n]{0,60}?\bfor\s+this\s+session(?:\s+3\.\s+(?:deny|no|don['’]t allow)\b[^\n]{0,30}?)?)[\s│|╮╯─]*$
+^[\s│|╭╰─❯>›•●]*2\.\s+yes,?\s+and\s+don['’]t\s+ask\s+again(?:\s+for\s+commands\s+that\s+start\s+with\s+`[^`\n]+`)?(?:\s*\([a-z]\))?[\s│|╮╯─]*$

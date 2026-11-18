@@ -9,7 +9,7 @@ import subprocess
 import sys
 import time
 
-import screen_state
+from pattern_loader import PatternStore
 
 if sys.platform != "win32":
     raise ImportError("wrapper_windows only works on Windows")
@@ -280,6 +280,7 @@ def get_activity_checker(pid_holder, agent_name="unknown", trigger_flag=None):
     # only screen change is a spinner/timer (< MIN_CHANGED_CELLS). Only the live
     # bottom of the screen counts, so quoted history can't pin us active.
     _needs_input = [False]
+    patterns = PatternStore(agent_name)
 
     def check():
         # External trigger: queue watcher injected a message → force active
@@ -337,15 +338,22 @@ def get_activity_checker(pid_holder, agent_name="unknown", trigger_flag=None):
         try:
             text = char_data.decode("utf-16-le", "ignore")
             rows = [text[i:i + width] for i in range(0, len(text), width)]
-            _needs_input[0] = screen_state.needs_user_input(rows)
-            done_marker = screen_state.agent_idle_by_marker(rows)
-            if not significant:
-                significant = screen_state.has_busy_marker(rows)
+            state, _match = patterns.classify(rows)
+            if state == 'unavailable':
+                return _is_active[0]
+            _needs_input[0] = state == 'needs_input'
+            done_marker = state == 'idle'
+            if state == 'working':
+                significant = True
         except Exception:
             _needs_input[0] = False
 
         # A visible "Worked for 2m 14s"-style summary (and no live busy status) means the
         # agent finished: go idle now instead of waiting out the cooldown. A queue trigger still wins.
+        if _needs_input[0]:
+            _consecutive_idle[0] = 0
+            _is_active[0] = False
+            return False
         if done_marker and not triggered:
             _consecutive_idle[0] = IDLE_COOLDOWN
             _is_active[0] = False

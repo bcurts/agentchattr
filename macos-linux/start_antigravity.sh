@@ -45,6 +45,12 @@ ensure_venv() {
             exit 1
         }
     fi
+    .venv/bin/python -c 'import regex' >/dev/null 2>&1 || {
+        .venv/bin/python -m pip install -q -r requirements.txt || {
+            echo 'Error: failed to install Python dependencies.'
+            exit 1
+        }
+    }
 }
 
 is_server_running() {

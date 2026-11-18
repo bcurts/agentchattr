@@ -2,6 +2,8 @@
 import subprocess
 import unittest
 from unittest.mock import patch
+from pathlib import Path
+from pattern_loader import PatternStore
 
 from wrapper_unix import get_activity_checker
 
@@ -17,7 +19,7 @@ def screen(body="Finished.", frame=0, prompt="Ask Codex to do anything"):
 
 class ActivityTests(unittest.TestCase):
     def activity(self, frames, provider="codex"):
-        checker = get_activity_checker("test", provider=provider)
+        checker = get_activity_checker("test", provider=provider, pattern_store=PatternStore(provider, Path(__file__).parent / 'fixtures/screen_patterns'))
         results = [subprocess.CompletedProcess([], 0, stdout=frame) for frame in frames]
         with patch("wrapper_unix.subprocess.run", side_effect=results):
             return [checker() for _ in frames]
@@ -62,7 +64,7 @@ class ActivityTests(unittest.TestCase):
 
     def test_trigger_reports_activity_even_on_unchanged_screen(self):
         trigger = [False]
-        checker = get_activity_checker("test", trigger_flag=trigger, provider="codex")
+        checker = get_activity_checker("test", trigger_flag=trigger, provider="codex", pattern_store=PatternStore('codex', Path(__file__).parent / 'fixtures/screen_patterns'))
         result = subprocess.CompletedProcess([], 0, stdout=screen())
         with patch("wrapper_unix.subprocess.run", return_value=result):
             self.assertFalse(checker())
@@ -70,3 +72,14 @@ class ActivityTests(unittest.TestCase):
             self.assertTrue(checker())
             self.assertFalse(trigger[0])
             self.assertFalse(checker())
+
+    def test_transient_classifier_timeout_retains_previous_state(self):
+        class Store:
+            def __init__(self): self.states = iter(['working', 'unavailable', 'needs_input'])
+            def classify(self, _): return next(self.states), None
+        checker = get_activity_checker('test', provider='codex', pattern_store=Store())
+        result = subprocess.CompletedProcess([], 0, stdout=screen())
+        with patch('wrapper_unix.subprocess.run', return_value=result):
+            self.assertTrue(checker()); self.assertFalse(checker.needs_input())
+            self.assertTrue(checker()); self.assertFalse(checker.needs_input())
+            self.assertFalse(checker()); self.assertTrue(checker.needs_input())

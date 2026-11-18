@@ -10,7 +10,7 @@ if not exist ".venv\Scripts\python.exe" (
         exit /b 1
     )
 )
-".venv\Scripts\python.exe" -c "import fastapi, uvicorn, mcp" >nul 2>nul
+".venv\Scripts\python.exe" -c "import fastapi, uvicorn, mcp, regex" >nul 2>nul
 if errorlevel 1 (
     echo Installing dependencies from requirements.txt...
     ".venv\Scripts\python.exe" -m pip install -r requirements.txt
