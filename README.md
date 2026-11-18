@@ -169,18 +169,23 @@ Status pills indicate agent activity and requests for attention based on the vis
 
 ### Editing screen-state patterns
 
-Patterns live in `patterns/<agent>/working.txt`, `idle.txt`, and `needs_input.txt`. The matching files in `patterns/_shared/` apply to every agent. Instance suffixes such as `codex-2` use the base agent's directory. Unknown agents use shared patterns. Each nonblank, non-comment line is a case-insensitive Python regular expression matched against one recent physical screen row; lines beginning with `#` are comments (use `\#` for a literal leading hash). Use `^` and `$` when the entire row should match. Examples:
+Patterns live in `patterns/<agent>/working.txt`, `idle.txt`, and `needs_input.txt`; `_shared` applies to every agent. Numbered instances use the base agent's directory. One rule per line, case-insensitive; blank lines and lines starting with `#` are ignored. Plain text matches a whole normalized screen row. `*` matches up to 60 characters on the same row; write `\*` for a literal asterisk and `\#` for a literal leading hash. Use `starts:`, `ends:` or, sparingly, `contains:` for partial rows. Examples:
 
 ```text
-# Match a complete status line, ignoring case
-^Working \(\d+s · esc to interrupt\)$
+# A whole row
+1. Yes, proceed
+2. Yes, allow * for this session
+starts: Press Enter to confirm
+ends: [y/n]
 ```
+
+The matcher strips terminal border and selection symbols, common trailing key hints, and repeated whitespace before comparing readable rules. Quotes and prose remain significant. Complex patterns that cannot be expressed safely as readable lines can use `re:` followed by a Python regular expression; these match the original row and keep the same timeout limits. Some bundled rules retain `re:` to preserve their existing precise behavior.
 
 Only the last 12 rows are searched for working, eight for idle, and 20 for attention. Attention takes priority over working, and working over idle. The question-plus-option rule is kept in code. A background terminal count by itself does not establish that an agent is working. Screen changes and injected messages remain fallbacks, and the Windows quiet debounce still applies.
 
 The service validates file syntax at startup. Each wrapper selects patterns by its CLI executable (falling back to the configured identity), loads its shared and agent-specific files at startup, and checks for changes every five seconds. An invalid, missing or oversized runtime set produces a warning and leaves the last-known-good set active; on initial failure, bundled defaults are used. Runtime matching has a 25ms per-search limit and a 250ms total budget per screen. A timeout preserves the previous state and logs a warning; three consecutive timed-out checks report needing attention. Pattern files are trusted local configuration. The `regex` dependency supplies the match timeout; after upgrading, install updated dependencies with `python -m pip install -r requirements.txt` if not using a provided launcher.
 
-To preview a captured screen without changing live status, run `python pattern_loader.py --agent codex < screen.txt`. It reports the matched state and file/line. CI checks the editable files for regex syntax only; classification tests use separate fixed fixtures, so a valid new line doesn't require test updates. A valid but overly broad pattern can still cause false positives, so use the preview before relying on it.
+To preview a captured screen without changing live status, run `python pattern_loader.py --agent codex < screen.txt`. It prints normalized rows and reports the matched rule and state with file/line. CI checks the editable files for syntax only; classification tests use separate fixed fixtures, so a valid new line doesn't require test updates. A valid but overly broad pattern can still cause false positives, so use the preview before relying on it.
 
 ### Multi-instance agents
 Run multiple instances of the same provider — double-click the launcher again and a second instance auto-registers with its own identity, color, status pill, and @mention routing. No configuration needed.

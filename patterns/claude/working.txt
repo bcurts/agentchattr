@@ -1,2 +1,2 @@
 # Claude Code status line with the interrupt hint but no timer yet: "✢ Pondering… (esc to interrupt)".
-^[^\w(:]*[^\W\d_][\w …\.\-]{0,40}?\s*\((?:esc|ctrl\+c) to interrupt\)\s*$
+re: ^[^\w(:]*[^\W\d_][\w …\.\-]{0,40}?\s*\((?:esc|ctrl\+c) to interrupt\)\s*$

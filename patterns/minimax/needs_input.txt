@@ -1,1 +1,1 @@
-# Add agent-specific expressions here.
+# Add agent-specific rules here.
