@@ -1,9 +1,11 @@
 """Runtime behavior uses isolated fixtures; live pattern files are syntax checked only."""
 from pathlib import Path
+from contextlib import redirect_stdout
+from io import StringIO
 import tempfile
 import unittest
 
-from pattern_loader import PatternStore, agent_for_command, validate_files
+from pattern_loader import PatternStore, agent_for_command, preview, validate_files
 
 
 class PatternLoaderTests(unittest.TestCase):
@@ -16,9 +18,9 @@ class PatternLoaderTests(unittest.TestCase):
             folder.mkdir()
             for state in ('working', 'idle', 'needs_input'):
                 (folder / f'{state}.txt').write_text('# patterns\n', encoding='utf-8')
-        self.write('_shared', 'working', '^WORKING$\n')
-        self.write('_shared', 'idle', '^DONE$\n')
-        self.write('codex', 'needs_input', '^APPROVE$\n')
+        self.write('_shared', 'working', 'WORKING\n')
+        self.write('_shared', 'idle', 'DONE\n')
+        self.write('codex', 'needs_input', 'APPROVE\n')
         self.now = 100.0
         self.store = PatternStore('codex-2', self.root, clock=lambda: self.now)
 
@@ -35,17 +37,48 @@ class PatternLoaderTests(unittest.TestCase):
         self.assertEqual(PatternStore('claude', self.root).classify('APPROVE')[0], None)
         self.assertEqual(PatternStore('../codex', self.root).classify('APPROVE')[0], None)
 
+    def test_readable_rules_normalize_and_never_cross_rows(self):
+        self.write('codex', 'needs_input', r"""# comment
+Allow * for this session
+starts: Press enter
+ends: [y/n]
+contains: narrow phrase
+\# literal hash
+A literal \* star
+""")
+        self.advance()
+        for line in ('❯ Allow commands for this session (y) │', 'Press Enter to continue',
+                     'confirm [Y/N]', 'one narrow phrase here', '# literal hash', 'A literal * star'):
+            self.assertEqual(self.store.classify(line)[0], 'needs_input', line)
+        for line in ('"Allow commands for this session"', 'Allow ' + 'x' * 61 + ' for this session',
+                     'Allow commands\nfor this session', 'A literal x star'):
+            self.assertIsNone(self.store.classify(line)[0], line)
+
+    def test_rule_whitespace_and_preview_contains_warning(self):
+        self.write('codex', 'needs_input', '1.  Yes,\tproceed\ncontains: narrow  phrase\n')
+        self.advance()
+        self.assertEqual(self.store.classify('1. Yes, proceed')[0], 'needs_input')
+        self.assertEqual(self.store.classify('1.   Yes,\tproceed')[0], 'needs_input')
+        for screen, warning in (('short narrow phrase', False),
+                                ('A' * 81 + ' narrow phrase', True),
+                                ('A' * 81 + ' unrelated', False),
+                                ('1. Yes, proceed\n' + 'A' * 81 + ' narrow phrase', False)):
+            output = StringIO()
+            with redirect_stdout(output):
+                preview(screen, self.store)
+            self.assertEqual('Warning:' in output.getvalue(), warning, screen)
+
     def test_reload_valid_change_without_restart(self):
         self.assertIsNone(self.store.classify('NEW PROMPT')[0])
-        self.write('codex', 'needs_input', '^APPROVE$\n^NEW PROMPT$\n')
+        self.write('codex', 'needs_input', 'APPROVE\nNEW PROMPT\n')
         self.advance()
         state, matched = self.store.classify('NEW PROMPT')
         self.assertEqual(state, 'needs_input')
         self.assertEqual(matched[1], 2)
 
     def test_invalid_or_missing_file_keeps_whole_last_known_good_set(self):
-        self.write('codex', 'needs_input', '[broken\n')
-        self.write('_shared', 'working', '^CHANGED$\n')
+        self.write('codex', 'needs_input', 're: [broken\n')
+        self.write('_shared', 'working', 'CHANGED\n')
         self.advance()
         with self.assertLogs('pattern_loader', level='WARNING') as log:
             self.assertEqual(self.store.classify('APPROVE')[0], 'needs_input')
@@ -62,7 +95,7 @@ class PatternLoaderTests(unittest.TestCase):
         self.assertEqual(self.store.classify('Would you like to make the following edits?\n1. Yes')[0], 'needs_input')
 
     def test_pathological_expression_has_enforced_timeout(self):
-        self.write('codex', 'needs_input', '(a+)+$\n')
+        self.write('codex', 'needs_input', 're: (a+)+$\n')
         self.advance()
         with self.assertLogs('pattern_loader', level='WARNING'):
             self.assertEqual(self.store.classify('a' * 1900 + '!')[0], 'unavailable')
@@ -81,9 +114,9 @@ class PatternLoaderTests(unittest.TestCase):
         self.assertEqual(agent_for_command('unknown-tool', 'codex-2'), 'codex')
 
     def test_syntax_check_accepts_any_valid_regex_and_reports_invalid_line(self):
-        self.write('codex', 'working', '# comment\n.*\n^new valid expression$\n')
+        self.write('codex', 'working', '# comment\n*\nnew valid expression\n')
         self.assertEqual(validate_files(self.root), [])
-        self.write('codex', 'working', '# comment\n[invalid\n')
+        self.write('codex', 'working', '# comment\nre: [invalid\n')
         self.assertIn('working.txt:2', validate_files(self.root)[0])
 
     def test_isolated_codex_fixtures_cover_new_approval_and_trailing_status(self):

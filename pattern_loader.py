@@ -51,6 +51,50 @@ def parse_file(file):
         yield line_number, line
 
 
+
+def normalize_row(row):
+    """Remove terminal decoration, but preserve prose and quoted content."""
+    row = str(row)[:MAX_SCREEN_ROW].strip()
+    row = re.sub(r'^[\s│|╭╰─╮╯❯>›•●✻✶✢]+', '', row)
+    row = re.sub(r'[\s│|╭╰─╮╯]+$', '', row)
+    row = re.sub(r'\s*\((?:y|a|enter)\)\s*$', '', row, flags=re.IGNORECASE)
+    return ' '.join(row.split())
+
+
+def compile_rule(expression):
+    """Compile readable row rules; explicit re: rules operate on the original row."""
+    expression = expression.strip()
+    if expression.lower().startswith('re:'):
+        source = expression[3:].strip()
+        if not source:
+            raise ValueError('empty regex rule')
+        re.compile(source, re.IGNORECASE)
+        return regex.compile(source, regex.IGNORECASE), True
+    mode = 'line'
+    for prefix in ('starts:', 'ends:', 'contains:'):
+        if expression.lower().startswith(prefix):
+            mode, expression = prefix[:-1], expression[len(prefix):].strip()
+            break
+    if not expression:
+        raise ValueError('empty rule')
+    expression = ' '.join(expression.split())
+    chunks = []
+    i = 0
+    while i < len(expression):
+        char = expression[i]
+        if char == '\\' and i + 1 < len(expression) and expression[i + 1] in '*#\\':
+            i += 1
+            chunks.append(re.escape(expression[i]))
+        elif char == '*':
+            chunks.append(r'[^\n]{0,60}')
+        else:
+            chunks.append(re.escape(char))
+        i += 1
+    body = ''.join(chunks)
+    source = ('^' if mode in ('line', 'starts') else '') + body + ('$' if mode in ('line', 'ends') else '')
+    return regex.compile(source, regex.IGNORECASE), False
+
+
 def validate_files(root=ROOT):
     """Syntax-only CI/startup validation; adding any valid expression is allowed."""
     errors = []
@@ -58,8 +102,8 @@ def validate_files(root=ROOT):
         try:
             for number, expression in parse_file(file):
                 try:
-                    re.compile(expression, re.IGNORECASE)
-                except re.error as error:
+                    compile_rule(expression)
+                except (ValueError, re.error, regex.error) as error:
                     errors.append(f'{file}:{number}: {error}')
         except (OSError, UnicodeError) as error:
             errors.append(f'{file}: {error}')
@@ -74,7 +118,7 @@ def _defaults():
 
 
 def _compile_defaults():
-    return {state: [(regex.compile(p.pattern, regex.IGNORECASE), '<bundled default>', 0)
+    return {state: [(regex.compile(p.pattern, regex.IGNORECASE), '<bundled default>', 0, True)
                     for p in patterns] for state, patterns in _defaults().items()}
 
 
@@ -136,11 +180,10 @@ class PatternStore:
                     if sum(map(len, candidate.values())) >= MAX_PATTERNS:
                         raise ValueError(f'{file}:{number}: too many patterns')
                     try:
-                        re.compile(expression, re.IGNORECASE)
-                        compiled = regex.compile(expression, regex.IGNORECASE)
-                    except (re.error, regex.error) as error:
+                        compiled, raw = compile_rule(expression)
+                    except (ValueError, re.error, regex.error) as error:
                         raise ValueError(f'{file}:{number}: {error}') from error
-                    candidate[file.stem].append((compiled, str(file), number))
+                    candidate[file.stem].append((compiled, str(file), number, raw))
             if _signature(files) != signature:
                 self._signature = None
                 raise ValueError('files changed during reload; retrying')
@@ -157,11 +200,11 @@ class PatternStore:
         try:
             for state in ('needs_input', 'working', 'idle'):
                 for row in rows[-ROWS[state]:]:
-                    for pattern, file, line in self.patterns[state]:
+                    for pattern, file, line, raw in self.patterns[state]:
                         remaining = deadline - time.monotonic()
                         if remaining <= 0:
                             raise TimeoutError('screen match budget exhausted')
-                        if pattern.search(row, timeout=min(SEARCH_TIMEOUT, remaining)):
+                        if pattern.search(row if raw else normalize_row(row), timeout=min(SEARCH_TIMEOUT, remaining)):
                             matches[state] = (file, line)
                             break
                     if state in matches:
@@ -184,9 +227,34 @@ class PatternStore:
         return None, None
 
 
+def preview(screen, store):
+    """Show the selected rule and flag broad contains matches on long rows."""
+    rows = screen.splitlines()[-max(ROWS.values()):]
+    print('Normalized rows:')
+    for row in rows:
+        print(f'  {normalize_row(row)}')
+    state, match = store.classify(screen)
+    if match and match[1]:
+        try:
+            rules = Path(match[0]).read_text(encoding='utf-8-sig').splitlines()
+            rule = rules[match[1] - 1]
+            print(f'Rule: {rule}')
+            if rule.strip().lower().startswith('contains:'):
+                compiled, _ = compile_rule(rule)
+                for row in rows[-ROWS[state]:]:
+                    normalized = normalize_row(row)
+                    if compiled.search(normalized, timeout=SEARCH_TIMEOUT):
+                        if len(normalized) > 80:
+                            print('Warning: contains: matched a long row; it may match ordinary prose.')
+                        break
+        except (OSError, UnicodeError, IndexError, TimeoutError):
+            pass
+    print(f'{state or "unknown"}: {match[0]}:{match[1]}' if match else 'unknown')
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Preview agent screen classification from stdin.')
     parser.add_argument('--agent', required=True)
     args = parser.parse_args()
-    state, match = PatternStore(args.agent).classify(sys.stdin.buffer.read().decode('utf-8-sig', errors='replace'))
-    print(f'{state or "unknown"}: {match[0]}:{match[1]}' if match else 'unknown')
+    screen = sys.stdin.buffer.read().decode('utf-8-sig', errors='replace')
+    preview(screen, PatternStore(args.agent))

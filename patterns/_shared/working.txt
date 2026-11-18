@@ -1,2 +1,2 @@
-# One Python regular expression per line; matching is case-insensitive.
-^[^\w(:]*[^\W\d_][\w …\.\-]{0,40}?\s*\((?=[^)\n]*(?:esc|ctrl\+c) to (?:interrupt|cancel))(?=[^)\n]*\d+\s*[smh]\b)[^)\n]*[·•,][^)\n]*\)\s*$
+# One rule per line; see README for readable syntax.
+re: ^[^\w(:]*[^\W\d_][\w …\.\-]{0,40}?\s*\((?=[^)\n]*(?:esc|ctrl\+c) to (?:interrupt|cancel))(?=[^)\n]*\d+\s*[smh]\b)[^)\n]*[·•,][^)\n]*\)\s*$
