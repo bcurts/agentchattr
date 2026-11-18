@@ -1,1 +1,8 @@
-# Test fixture only.
+# Claude Code prompts. Whole-line patterns; the bare question lines ("Do you want to make this edit...?") are paired with option rows in code.
+# Option 3 of every permission menu; stays valid if the question wording changes.
+^[\s│|╭╰─❯>›•●]*\d\.\s+no,?\s+and\s+tell\s+claude\s+what\s+to\s+do\s+differently(?:\s*\([^)\n]*\))?[\s│|╮╯─]*$
+# Plan approval: "1. Yes, and auto-accept edits" / "2. Yes, and manually approve edits" / "3. No, keep planning".
+^[\s│|╭╰─❯>›•●]*[12]\.\s+yes,?\s+(?:and|clear context and)\s+(?:auto-accept|manually approve|bypass permissions)\b[^\n]{0,60}$
+^[\s│|╭╰─❯>›•●]*3\.\s+no,?\s+keep\s+planning[\s│|╮╯─]*$
+# Question form footer with the navigation hint: "Enter to select · ↑/↓ to navigate · Esc to cancel".
+^[\s│|]*enter to (?:select|submit)\s*[·•|,][^\n]*esc to cancel[\s│|]*$
