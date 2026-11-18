@@ -1,6 +1,9 @@
 [server]
 port = 8300
 host = "127.0.0.1"
+# Listen on all interfaces so the UI works at localhost, 127.0.0.1 and the PC's LAN IP.
+# Only this PC gets the session token; other LAN devices are refused.
+allow_lan = true
 data_dir = "./data"
 # Stop the server once the browser tab is closed and no agents are connected
 # (waits idle_shutdown_seconds so a page refresh doesn't trigger it).

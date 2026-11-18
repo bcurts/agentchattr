@@ -123,16 +123,22 @@ def main():
     # Mount static files
     from fastapi.staticfiles import StaticFiles
     from fastapi.responses import HTMLResponse
+    from fastapi import Request
+    from app import is_local_client
 
     static_dir = ROOT / "static"
 
     @app.get("/")
-    async def index():
+    async def index(request: Request):
         # Read index.html fresh each request so changes take effect without restart.
         # Inject the session token into the HTML so the browser client can use it.
         # This is safe: same-origin policy prevents cross-origin pages from reading
         # the response body, so only the user's own browser tab gets the token.
         html = (static_dir / "index.html").read_text("utf-8")
+        # Only this PC gets the token; other devices on the LAN see a page that cannot connect.
+        client_ip = request.client.host if request.client else ""
+        if not is_local_client(client_ip):
+            return HTMLResponse(html, headers={"Cache-Control": "no-store"})
         injected = html.replace(
             "</head>",
             f'<script>window.__SESSION_TOKEN__="{session_token}";</script>\n</head>',
@@ -153,9 +159,13 @@ def main():
     import uvicorn
     host = config.get("server", {}).get("host", "127.0.0.1")
     port = config.get("server", {}).get("port", 8300)
+    # allow_lan: listen on every interface so the UI is reachable at localhost, 127.0.0.1 and
+    # this PC's LAN IP. The app itself refuses other devices (see app.is_local_client).
+    if config.get("server", {}).get("allow_lan", False):
+        host = "0.0.0.0"
 
     # --- Security: warn if binding to a non-localhost address ---
-    if host not in ("127.0.0.1", "localhost", "::1"):
+    if host not in ("127.0.0.1", "localhost", "::1", "0.0.0.0") or (host == "0.0.0.0" and not config.get("server", {}).get("allow_lan", False)):
         print(f"\n  !! SECURITY WARNING — binding to {host} !!")
         print("  This exposes agentchattr to your local network.")
         print()
@@ -180,9 +190,9 @@ def main():
                 sys.exit(1)
 
     print(f"\n  agentchattr")
-    print(f"  Web UI:  http://{host}:{port}")
-    print(f"  MCP HTTP: http://{host}:{http_port}/mcp  (Claude, Codex)")
-    print(f"  MCP SSE:  http://{host}:{sse_port}/sse   (Gemini)")
+    print(f"  Web UI:  http://{'localhost' if host == '0.0.0.0' else host}:{port}" + ("  (also on this PC's LAN IP; other devices are refused)" if host == "0.0.0.0" else ""))
+    print(f"  MCP HTTP: http://127.0.0.1:{http_port}/mcp  (Claude, Codex)")
+    print(f"  MCP SSE:  http://127.0.0.1:{sse_port}/sse   (Gemini)")
     print(f"  Data:    {data_dir}")
     print(f"  Agents auto-trigger on @mention")
     if config.get("server", {}).get("auto_shutdown", True):
