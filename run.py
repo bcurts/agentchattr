@@ -67,6 +67,17 @@ def main():
         datefmt="%H:%M:%S",
     )
 
+    # Surface editable-pattern syntax errors at service startup. Wrappers load
+    # and reload their own last-known-good sets independently.
+    from pattern_loader import KNOWN_AGENTS, ROOT as PATTERN_ROOT, STATES, validate_files
+    for error in validate_files():
+        logging.getLogger(__name__).warning('Screen pattern: %s', error)
+    for agent in ('_shared', *sorted(KNOWN_AGENTS)):
+        for state in STATES:
+            file = PATTERN_ROOT / agent / f'{state}.txt'
+            if not file.is_file():
+                logging.getLogger(__name__).warning('Screen pattern file missing: %s', file)
+
     # Parse flags for --help support; the actual env propagation happens via
     # the shared config_loader.apply_cli_overrides helper so run.py and the
     # wrappers use identical extraction logic.

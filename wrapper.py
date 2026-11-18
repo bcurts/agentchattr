@@ -895,6 +895,7 @@ def main():
         _set_activity_checker(get_activity_checker(
             unix_session_name, trigger_flag=_trigger_flag,
             provider=_provider_from_command(command),
+            agent_name=assigned_name,
         ))
 
     run_kwargs = dict(

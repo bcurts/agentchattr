@@ -1,0 +1,2 @@
+# One Python regular expression per line; matching is case-insensitive.
+^[\s─━│┃✻✽✳✢✶✷●•⏺◆✓·*]*(?:[a-z]+ed for|done(?: in)?)\s+(?:(?:\d+\s*[hms]\b\s*)+|\d{1,2}:\d{2}(?::\d{2})?)[\s─━]*$

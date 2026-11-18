@@ -165,7 +165,22 @@ Agents include choices via `chat_send(message="Should I merge?", choices=["Yes",
 Decision cards use the sender's agent color for button borders and tinting. Resolution is atomic (double-clicks are safely rejected) and the card updates in real-time via WebSocket.
 
 ### Activity indicators
-Status pills show a spinning border in each agent's color when that agent is actively working — so you can minimize the terminals and still know at a glance who's busy. Detection works by hashing the agent's terminal screen buffer every second: if anything changes (spinner, streaming text, tool output), the pill lights up. When the screen stops changing, it stops instantly. Cross-platform — Windows uses `ReadConsoleOutputW`, Mac/Linux uses `tmux capture-pane`.
+Status pills indicate agent activity and requests for attention based on the visible terminal. The Windows wrapper reads the console and uses a short quiet-period debounce; the Unix wrapper captures the tmux pane. Both check live prompt and status patterns before falling back to screen changes. These are heuristics, not guaranteed agent state.
+
+### Editing screen-state patterns
+
+Patterns live in `patterns/<agent>/working.txt`, `idle.txt`, and `needs_input.txt`. The matching files in `patterns/_shared/` apply to every agent. Instance suffixes such as `codex-2` use the base agent's directory. Unknown agents use shared patterns. Each nonblank, non-comment line is a case-insensitive Python regular expression matched against one recent physical screen row; lines beginning with `#` are comments (use `\#` for a literal leading hash). Use `^` and `$` when the entire row should match. Examples:
+
+```text
+# Match a complete status line, ignoring case
+^Working \(\d+s · esc to interrupt\)$
+```
+
+Only the last 12 rows are searched for working, eight for idle, and 20 for attention. Attention takes priority over working, and working over idle. The question-plus-option rule is kept in code. A background terminal count by itself does not establish that an agent is working. Screen changes and injected messages remain fallbacks, and the Windows quiet debounce still applies.
+
+The service validates file syntax at startup. Each wrapper loads its own shared and agent-specific files at startup and checks for changes every five seconds. An invalid, missing or oversized runtime set produces a warning and leaves the last-known-good set active; on initial failure, bundled defaults are used. Runtime matching has a 50ms total budget per screen; a timeout is reported as needing attention. Pattern files are trusted local configuration. The `regex` dependency supplies the match timeout; after upgrading, install updated dependencies with `python -m pip install -r requirements.txt` if not using a provided launcher.
+
+To preview a captured screen without changing live status, run `python pattern_loader.py --agent codex < screen.txt`. It reports the matched state and file/line. CI checks the editable files for regex syntax only; classification tests use separate fixed fixtures, so a valid new line doesn't require test updates. A valid but overly broad pattern can still cause false positives, so use the preview before relying on it.
 
 ### Multi-instance agents
 Run multiple instances of the same provider — double-click the launcher again and a second instance auto-registers with its own identity, color, status pill, and @mention routing. No configuration needed.
