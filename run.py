@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import re
 import secrets
 import sys
 import threading
@@ -30,6 +31,24 @@ def _parse_args():
     parser.add_argument("--allow-network", action="store_true",
                         help="Allow binding to non-localhost hosts (with confirmation).")
     return parser.parse_args()
+
+
+_TOKEN_QS_RE = re.compile(r"([?&]token=)[^&\s\"']+", re.IGNORECASE)
+
+
+def _redact_tokens(text: str) -> str:
+    return _TOKEN_QS_RE.sub(r"\1[redacted]", text)
+
+
+class _RedactTokenFilter(logging.Filter):
+    """Mask ?token=... in uvicorn access-log lines so the session token never reaches a log."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple):
+            record.args = tuple(_redact_tokens(a) if isinstance(a, str) else a for a in record.args)
+        if isinstance(record.msg, str):
+            record.msg = _redact_tokens(record.msg)
+        return True
 
 
 def _log_level() -> int:
@@ -168,8 +187,9 @@ def main():
     print(f"  Agents auto-trigger on @mention")
     if config.get("server", {}).get("auto_shutdown", True):
         print(f"  Auto-shutdown when the browser is closed and no agents are connected")
-    print(f"\n  Session token: {session_token}\n")
+    print()  # the session token is deliberately never printed or logged
 
+    logging.getLogger("uvicorn.access").addFilter(_RedactTokenFilter())
     server = uvicorn.Server(uvicorn.Config(app, host=host, port=port, log_level=logging.getLevelName(_log_level()).lower(), access_log=_log_level() <= logging.INFO))
 
     def _request_shutdown():
