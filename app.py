@@ -301,6 +301,55 @@ def _resolve_authenticated_agent(request: Request) -> dict | None:
     return registry.resolve_token(token)
 
 
+# --- Local vs. LAN clients ---
+# The server may listen on the LAN (server.allow_lan). Only requests from this PC
+# (loopback or one of its own interface addresses) get the session token and full
+# access; other devices on the network are refused everywhere except static assets.
+_local_ips_cache: tuple[float, frozenset] = (0.0, frozenset())
+
+
+def _local_ips() -> frozenset:
+    global _local_ips_cache
+    now = time.time()
+    if now - _local_ips_cache[0] < 30 and _local_ips_cache[1]:
+        return _local_ips_cache[1]
+    import socket
+    ips = {"127.0.0.1", "::1"}
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None):
+            ips.add(info[4][0].split("%")[0])
+    except OSError:
+        pass
+    try:  # primary outbound interface (no packets are sent for a UDP connect)
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            probe.connect(("192.0.2.1", 9))
+            ips.add(probe.getsockname()[0])
+    except OSError:
+        pass
+    _local_ips_cache = (now, frozenset(ips))
+    return _local_ips_cache[1]
+
+
+def is_local_client(client_ip: str) -> bool:
+    ip = (client_ip or "").split("%")[0]
+    if ip.startswith("::ffff:"):
+        ip = ip[7:]
+    return ip in ("localhost",) or ip.startswith("127.") or ip in _local_ips()
+
+
+def _origin_allowed(origin: str, port: int) -> bool:
+    """Allow only this server's own origin: localhost, loopback, or this PC's own IPs."""
+    from urllib.parse import urlsplit
+    try:
+        parts = urlsplit(origin)
+        host, origin_port = parts.hostname, parts.port or 80
+    except ValueError:
+        return False
+    if parts.scheme != "http" or origin_port != port or not host:
+        return False
+    return host == "localhost" or host.startswith("127.") or host in _local_ips()
+
+
 # --- Security middleware ---
 # Paths that don't require the session token (public assets).
 _PUBLIC_PREFIXES = ("/", "/static/")
@@ -311,10 +360,6 @@ def _install_security_middleware(token: str, cfg: dict):
     import app as _self
     _self.session_token = token
     port = cfg.get("server", {}).get("port", 8300)
-    allowed_origins = {
-        f"http://127.0.0.1:{port}",
-        f"http://localhost:{port}",
-    }
 
     class SecurityMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
@@ -325,13 +370,20 @@ def _install_security_middleware(token: str, cfg: dict):
             # Images keep their public preview URLs. Other attachments require
             # the browser session token, like the rest of the API.
             public_image = path.startswith("/uploads/") and Path(path).suffix.lower() in IMAGE_UPLOAD_EXTS
+            client_ip = request.client.host if request.client else ""
             if path == "/" or path.startswith(("/static/", "/api/roles")) or public_image:
                 return await call_next(request)
 
+            # Devices on the LAN never get API access, even with a token.
+            if not is_local_client(client_ip):
+                return JSONResponse(
+                    {"error": "forbidden: this server only accepts requests from the PC it runs on"},
+                    status_code=403,
+                )
+
             # Agent registration/heartbeat: loopback only (no remote agent minting).
             if path.startswith(("/api/register", "/api/deregister/", "/api/heartbeat/")):
-                client_ip = request.client.host if request.client else ""
-                if client_ip not in ("127.0.0.1", "::1", "localhost"):
+                if not is_local_client(client_ip):
                     return JSONResponse(
                         {"error": f"forbidden: agent registration is restricted to local loopback. Source {client_ip} is not allowed."},
                         status_code=403,
@@ -340,7 +392,7 @@ def _install_security_middleware(token: str, cfg: dict):
 
             # --- Origin check (blocks cross-origin / DNS-rebinding attacks) ---
             origin = request.headers.get("origin")
-            if origin and origin not in allowed_origins:
+            if origin and not _origin_allowed(origin, port):
                 return JSONResponse(
                     {"error": "forbidden: origin not allowed"},
                     status_code=403,
@@ -1216,7 +1268,7 @@ def _on_registry_change():
 async def websocket_endpoint(websocket: WebSocket):
     # --- Security: validate session token on WebSocket connect ---
     token = websocket.query_params.get("token", "")
-    if token != session_token:
+    if token != session_token or not is_local_client(websocket.client.host if websocket.client else ""):
         # Must accept before closing so the browser receives the close frame.
         # Code 4003 triggers an auto-reload in the client to pick up the new token.
         await websocket.accept()
