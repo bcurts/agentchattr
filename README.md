@@ -169,7 +169,7 @@ Status pills indicate agent activity and requests for attention based on the vis
 
 ### Editing screen-state patterns
 
-Patterns live in `patterns/<agent>/working.txt`, `idle.txt`, and `needs_input.txt`; `_shared` applies to every agent. Numbered instances use the base agent's directory. One rule per line, case-insensitive; blank lines and lines starting with `#` are ignored. Plain text matches a whole normalized screen row. `*` matches up to 60 characters on the same row; write `\*` for a literal asterisk and `\#` for a literal leading hash. Use `starts:`, `ends:` or, sparingly, `contains:` for partial rows. Examples:
+Patterns live in `patterns/<agent>/working.txt`, `idle.txt`, and `needs_input.txt`; `_shared` applies to every agent. Numbered instances use the base agent's directory. One rule per line, case-insensitive; blank lines and lines starting with `#` are ignored. Plain text matches a whole normalized screen row. `*` matches up to 60 characters on the same row; surrounding spaces are literal, so `Working *` needs a space after `Working`; write `\*` for a literal asterisk and `\#` for a literal leading hash. Use `starts:`, `ends:` or, sparingly, `contains:` for partial rows. Examples:
 
 ```text
 # A whole row
@@ -185,7 +185,7 @@ Only the last 12 rows are searched for working, eight for idle, and 20 for atten
 
 The service validates file syntax at startup. Each wrapper selects patterns by its CLI executable (falling back to the configured identity), loads its shared and agent-specific files at startup, and checks for changes every five seconds. An invalid, missing or oversized runtime set produces a warning and leaves the last-known-good set active; on initial failure, bundled defaults are used. Runtime matching has a 25ms per-search limit and a 250ms total budget per screen. A timeout preserves the previous state and logs a warning; three consecutive timed-out checks report needing attention. Pattern files are trusted local configuration. The `regex` dependency supplies the match timeout; after upgrading, install updated dependencies with `python -m pip install -r requirements.txt` if not using a provided launcher.
 
-To preview a captured screen without changing live status, run `python pattern_loader.py --agent codex < screen.txt`. It prints normalized rows and reports the matched rule and state with file/line. CI checks the editable files for syntax only; classification tests use separate fixed fixtures, so a valid new line doesn't require test updates. A valid but overly broad pattern can still cause false positives, so use the preview before relying on it.
+To preview a captured screen without changing live status, run `python pattern_loader.py --agent codex < screen.txt`. It prints normalized rows and reports the matched rule and state with file/line. It warns when a `contains:` rule matches a row over 80 characters, since that may be ordinary prose. CI checks the editable files for syntax only; classification tests use separate fixed fixtures, so a valid new line doesn't require test updates. A valid but overly broad pattern can still cause false positives, so use the preview before relying on it.
 
 ### Multi-instance agents
 Run multiple instances of the same provider — double-click the launcher again and a second instance auto-registers with its own identity, color, status pill, and @mention routing. No configuration needed.

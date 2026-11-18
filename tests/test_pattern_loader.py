@@ -1,9 +1,11 @@
 """Runtime behavior uses isolated fixtures; live pattern files are syntax checked only."""
 from pathlib import Path
+from contextlib import redirect_stdout
+from io import StringIO
 import tempfile
 import unittest
 
-from pattern_loader import PatternStore, agent_for_command, validate_files
+from pattern_loader import PatternStore, agent_for_command, preview, validate_files
 
 
 class PatternLoaderTests(unittest.TestCase):
@@ -51,6 +53,20 @@ A literal \* star
         for line in ('"Allow commands for this session"', 'Allow ' + 'x' * 61 + ' for this session',
                      'Allow commands\nfor this session', 'A literal x star'):
             self.assertIsNone(self.store.classify(line)[0], line)
+
+    def test_rule_whitespace_and_preview_contains_warning(self):
+        self.write('codex', 'needs_input', '1.  Yes,\tproceed\ncontains: narrow  phrase\n')
+        self.advance()
+        self.assertEqual(self.store.classify('1. Yes, proceed')[0], 'needs_input')
+        self.assertEqual(self.store.classify('1.   Yes,\tproceed')[0], 'needs_input')
+        for screen, warning in (('short narrow phrase', False),
+                                ('A' * 81 + ' narrow phrase', True),
+                                ('A' * 81 + ' unrelated', False),
+                                ('1. Yes, proceed\n' + 'A' * 81 + ' narrow phrase', False)):
+            output = StringIO()
+            with redirect_stdout(output):
+                preview(screen, self.store)
+            self.assertEqual('Warning:' in output.getvalue(), warning, screen)
 
     def test_reload_valid_change_without_restart(self):
         self.assertIsNone(self.store.classify('NEW PROMPT')[0])

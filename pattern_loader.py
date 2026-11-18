@@ -77,6 +77,7 @@ def compile_rule(expression):
             break
     if not expression:
         raise ValueError('empty rule')
+    expression = ' '.join(expression.split())
     chunks = []
     i = 0
     while i < len(expression):
@@ -226,19 +227,34 @@ class PatternStore:
         return None, None
 
 
+def preview(screen, store):
+    """Show the selected rule and flag broad contains matches on long rows."""
+    rows = screen.splitlines()[-max(ROWS.values()):]
+    print('Normalized rows:')
+    for row in rows:
+        print(f'  {normalize_row(row)}')
+    state, match = store.classify(screen)
+    if match and match[1]:
+        try:
+            rules = Path(match[0]).read_text(encoding='utf-8-sig').splitlines()
+            rule = rules[match[1] - 1]
+            print(f'Rule: {rule}')
+            if rule.strip().lower().startswith('contains:'):
+                compiled, _ = compile_rule(rule)
+                for row in rows[-ROWS[state]:]:
+                    normalized = normalize_row(row)
+                    if compiled.search(normalized, timeout=SEARCH_TIMEOUT):
+                        if len(normalized) > 80:
+                            print('Warning: contains: matched a long row; it may match ordinary prose.')
+                        break
+        except (OSError, UnicodeError, IndexError, TimeoutError):
+            pass
+    print(f'{state or "unknown"}: {match[0]}:{match[1]}' if match else 'unknown')
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Preview agent screen classification from stdin.')
     parser.add_argument('--agent', required=True)
     args = parser.parse_args()
     screen = sys.stdin.buffer.read().decode('utf-8-sig', errors='replace')
-    print('Normalized rows:')
-    for row in screen.splitlines()[-max(ROWS.values()):]:
-        print(f'  {normalize_row(row)}')
-    state, match = PatternStore(args.agent).classify(screen)
-    if match and match[1]:
-        try:
-            rules = Path(match[0]).read_text(encoding='utf-8-sig').splitlines()
-            print(f'Rule: {rules[match[1]-1]}')
-        except (OSError, UnicodeError, IndexError):
-            pass
-    print(f'{state or "unknown"}: {match[0]}:{match[1]}' if match else 'unknown')
+    preview(screen, PatternStore(args.agent))
