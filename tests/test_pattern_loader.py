@@ -96,6 +96,33 @@ class PatternLoaderTests(unittest.TestCase):
         self.assertIsNone(store.classify('1 background terminal running · /ps to view')[0])
 
 
+    def test_isolated_claude_fixtures_cover_permission_plan_form_and_status_screens(self):
+        # Screens are written from memory of Claude Code's interface, not captured from a live session.
+        store = PatternStore('claude', Path(__file__).parent / 'fixtures/screen_patterns')
+        edit_menu = ['Do you want to make this edit to app.py?', '❯ 1. Yes', '  2. Yes, allow all edits during this session (shift+tab)',
+                     '  3. No, and tell Claude what to do differently (esc)']
+        shell_menu = ['Do you want to proceed?', '❯ 1. Yes', "  2. Yes, and don't ask again for git commands in /repo",
+                      '  3. No, and tell Claude what to do differently (esc)']
+        plan = ['Would you like to proceed?', '❯ 1. Yes, and auto-accept edits', '  2. Yes, and manually approve edits', '  3. No, keep planning']
+        form = ['Which approach?', '❯ 1. Option A', '  2. Option B', 'Enter to select · ↑/↓ to navigate · Esc to cancel']
+        for name, screen in (('edit', edit_menu), ('shell', shell_menu), ('plan', plan), ('form', form)):
+            self.assertEqual(store.classify(screen)[0], 'needs_input', name)
+        self.assertEqual(store.classify('✻ Thinking… (12s · esc to interrupt)')[0], 'working')
+        self.assertEqual(store.classify('✢ Pondering… (esc to interrupt)')[0], 'working')
+        self.assertEqual(store.classify(['✻ Worked for 1m 3s', '> '])[0], 'idle')
+        # A working line beats a done line, and a prompt beats both.
+        self.assertEqual(store.classify(['✻ Worked for 1m 3s', '✢ Pondering… (esc to interrupt)'])[0], 'working')
+        self.assertEqual(store.classify(['✢ Pondering… (esc to interrupt)'] + plan)[0], 'needs_input')
+
+    def test_isolated_claude_fixtures_ignore_quoted_text(self):
+        store = PatternStore('claude', Path(__file__).parent / 'fixtures/screen_patterns')
+        for quoted in ('The menu says: 3. No, and tell Claude what to do differently (esc)',
+                       'I will say "Would you like to proceed?" with 1. Yes, and auto-accept edits',
+                       'Press esc to interrupt (esc to interrupt) when needed',
+                       'Enter to select and then Esc to cancel later'):
+            self.assertIsNone(store.classify(quoted)[0], quoted)
+
+
 class DistributedPatternSyntaxTests(unittest.TestCase):
     def test_distributed_patterns_compile(self):
         self.assertEqual(validate_files(), [])
