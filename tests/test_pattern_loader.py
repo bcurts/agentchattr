@@ -3,7 +3,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from pattern_loader import PatternStore, validate_files
+from pattern_loader import PatternStore, agent_for_command, validate_files
 
 
 class PatternLoaderTests(unittest.TestCase):
@@ -65,9 +65,20 @@ class PatternLoaderTests(unittest.TestCase):
         self.write('codex', 'needs_input', '(a+)+$\n')
         self.advance()
         with self.assertLogs('pattern_loader', level='WARNING'):
+            self.assertEqual(self.store.classify('a' * 1900 + '!')[0], 'unavailable')
+            self.assertEqual(self.store.classify('a' * 1900 + '!')[0], 'unavailable')
             state, match = self.store.classify('a' * 1900 + '!')
         self.assertEqual(state, 'needs_input')
-        self.assertEqual(match[0], '<timeout>')
+        self.assertEqual(match[0], '<repeated timeout>')
+        self.assertEqual(self.store.classify('DONE')[0], 'idle')
+        with self.assertLogs('pattern_loader', level='WARNING'):
+            self.assertEqual(self.store.classify('a' * 1900 + '!')[0], 'unavailable')
+
+    def test_cli_executable_selects_patterns_before_display_name(self):
+        self.assertEqual(agent_for_command(r'C:\Tools\codex.exe', 'claude-music'), 'codex')
+        self.assertEqual(agent_for_command('agy.cmd', 'renamed-agent'), 'antigravity')
+        self.assertEqual(agent_for_command('claude', 'codex-2'), 'claude')
+        self.assertEqual(agent_for_command('unknown-tool', 'codex-2'), 'codex')
 
     def test_syntax_check_accepts_any_valid_regex_and_reports_invalid_line(self):
         self.write('codex', 'working', '# comment\n.*\n^new valid expression$\n')

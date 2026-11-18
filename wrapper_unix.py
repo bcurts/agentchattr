@@ -162,6 +162,7 @@ def get_activity_checker(session_name, trigger_flag=None, *, provider="", agent_
     """Return a callable that detects tmux pane output by hashing content."""
     last_hash = [None]
     _needs_input = [False]
+    _is_active = [False]
     patterns = pattern_store or PatternStore(agent_name or provider)
 
     def check():
@@ -178,6 +179,8 @@ def get_activity_checker(session_name, trigger_flag=None, *, provider="", agent_
             output = result.stdout
             screen_text = output.decode("utf-8", "ignore")
             state, _match = patterns.classify(screen_text)
+            if state == 'unavailable':
+                return _is_active[0]
             _needs_input[0] = state == 'needs_input'
             done_marker = state == 'idle'
             busy_marker = state == 'working'
@@ -188,7 +191,8 @@ def get_activity_checker(session_name, trigger_flag=None, *, provider="", agent_
             last_hash[0] = h
             # A visible "Worked for 2m 14s"-style summary (no live busy status) means finished.
             # A live busy status (e.g. "1 background terminal running") counts as working even when quiet.
-            return (triggered or changed or busy_marker) and (not done_marker or triggered) and not _needs_input[0]
+            _is_active[0] = (triggered or changed or busy_marker) and (not done_marker or triggered) and not _needs_input[0]
+            return _is_active[0]
         except Exception:
             _needs_input[0] = False
             return triggered

@@ -884,10 +884,12 @@ def main():
 
     _agent_pid = [None]
 
+    from pattern_loader import agent_for_command
+    pattern_agent = agent_for_command(command, assigned_name)
     if sys.platform == "win32":
         from wrapper_windows import get_activity_checker, run_agent
 
-        _set_activity_checker(get_activity_checker(_agent_pid, agent_name=assigned_name, trigger_flag=_trigger_flag))
+        _set_activity_checker(get_activity_checker(_agent_pid, agent_name=pattern_agent, trigger_flag=_trigger_flag))
     else:
         from wrapper_unix import get_activity_checker, run_agent
 
@@ -895,7 +897,7 @@ def main():
         _set_activity_checker(get_activity_checker(
             unix_session_name, trigger_flag=_trigger_flag,
             provider=_provider_from_command(command),
-            agent_name=assigned_name,
+            agent_name=pattern_agent,
         ))
 
     run_kwargs = dict(

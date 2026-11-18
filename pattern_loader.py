@@ -15,7 +15,9 @@ ROOT = Path(__file__).resolve().parent / 'patterns'
 STATES = ('working', 'idle', 'needs_input')
 ROWS = {'working': 12, 'idle': 8, 'needs_input': 20}
 INTERVAL = 5.0
-MATCH_BUDGET = 0.05
+MATCH_BUDGET = 0.25
+SEARCH_TIMEOUT = 0.025
+TIMEOUT_ALERT_THRESHOLD = 3
 MAX_PATTERNS = 256
 MAX_LINE_LENGTH = 1024
 MAX_FILE_BYTES = 512_000
@@ -29,6 +31,17 @@ def normalize_agent(name):
     """Never allow a requested agent name to escape the pattern directory."""
     name = re.sub(r'-\d+$', '', str(name or '').lower())
     return name if re.fullmatch(r'[a-z][a-z0-9_-]{0,31}', name) else ''
+
+
+def agent_for_command(command, fallback=''):
+    """Choose patterns by CLI executable, not by a changeable chat identity."""
+    if isinstance(command, str):
+        executable = command.strip().replace('\\', '/').rsplit('/', 1)[-1].lower()
+        executable = re.sub(r'\.(?:exe|cmd|bat)$', '', executable)
+        executable = {'agy': 'antigravity'}.get(executable, executable)
+        if executable in KNOWN_AGENTS:
+            return executable
+    return normalize_agent(fallback)
 
 
 def parse_file(file):
@@ -87,6 +100,7 @@ class PatternStore:
         self._agent_files_expected = self.agent in KNOWN_AGENTS
         self._next_check = 0.0
         self._signature = None
+        self._timeouts = 0
         self.refresh(force=True)
 
     def _files(self):
@@ -147,7 +161,7 @@ class PatternStore:
                         remaining = deadline - time.monotonic()
                         if remaining <= 0:
                             raise TimeoutError('screen match budget exhausted')
-                        if pattern.search(row, timeout=remaining):
+                        if pattern.search(row, timeout=min(SEARCH_TIMEOUT, remaining)):
                             matches[state] = (file, line)
                             break
                     if state in matches:
@@ -158,8 +172,12 @@ class PatternStore:
                     and any(screen_state._OPTION_ROW.match(r) for r in live)):
                 matches['needs_input'] = ('<question and options>', 0)
         except TimeoutError as error:
-            LOG.warning('Screen pattern match timed out; requiring attention: %s', error)
-            return 'needs_input', ('<timeout>', 0)
+            self._timeouts += 1
+            LOG.warning('Screen pattern match timed out (%s/%s): %s', self._timeouts, TIMEOUT_ALERT_THRESHOLD, error)
+            if self._timeouts >= TIMEOUT_ALERT_THRESHOLD:
+                return 'needs_input', ('<repeated timeout>', 0)
+            return 'unavailable', ('<timeout; retain previous state>', 0)
+        self._timeouts = 0
         for state in ('needs_input', 'working', 'idle'):
             if state in matches:
                 return state, matches[state]

@@ -339,6 +339,8 @@ def get_activity_checker(pid_holder, agent_name="unknown", trigger_flag=None):
             text = char_data.decode("utf-16-le", "ignore")
             rows = [text[i:i + width] for i in range(0, len(text), width)]
             state, _match = patterns.classify(rows)
+            if state == 'unavailable':
+                return _is_active[0]
             _needs_input[0] = state == 'needs_input'
             done_marker = state == 'idle'
             if state == 'working':

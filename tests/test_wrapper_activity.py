@@ -72,3 +72,14 @@ class ActivityTests(unittest.TestCase):
             self.assertTrue(checker())
             self.assertFalse(trigger[0])
             self.assertFalse(checker())
+
+    def test_transient_classifier_timeout_retains_previous_state(self):
+        class Store:
+            def __init__(self): self.states = iter(['working', 'unavailable', 'needs_input'])
+            def classify(self, _): return next(self.states), None
+        checker = get_activity_checker('test', provider='codex', pattern_store=Store())
+        result = subprocess.CompletedProcess([], 0, stdout=screen())
+        with patch('wrapper_unix.subprocess.run', return_value=result):
+            self.assertTrue(checker()); self.assertFalse(checker.needs_input())
+            self.assertTrue(checker()); self.assertFalse(checker.needs_input())
+            self.assertFalse(checker()); self.assertTrue(checker.needs_input())
