@@ -1,4 +1,5 @@
 @echo off
+setlocal
 REM agentchattr — starts server (if not running) + Kimi wrapper
 cd /d "%~dp0.."
 

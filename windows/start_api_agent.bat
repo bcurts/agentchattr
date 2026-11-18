@@ -1,4 +1,5 @@
 @echo off
+setlocal
 REM agentchattr — starts server (if not running) + API agent wrapper
 REM Usage: start_api_agent.bat <agent_name>
 REM Example: start_api_agent.bat qwen

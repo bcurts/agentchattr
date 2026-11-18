@@ -1,4 +1,5 @@
 @echo off
+setlocal
 REM agentchattr — starts server (if not running) + MiniMax API agent wrapper
 REM Usage: start_minimax.bat
 REM Requires MINIMAX_API_KEY environment variable.

@@ -1,4 +1,5 @@
 @echo off
+setlocal
 REM agentchattr - starts server (if not running) + CodeBuddy wrapper
 REM Usage: start_codebuddy.bat
 REM Requires the codebuddy CLI on PATH. First launch prompts interactive login.

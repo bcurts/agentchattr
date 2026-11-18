@@ -1,4 +1,5 @@
 @echo off
+setlocal
 REM agentchattr - starts server (if not running) + GitHub Copilot CLI wrapper
 REM Usage: start_copilot.bat
 REM Requires the copilot CLI on PATH. First launch prompts GitHub login.
