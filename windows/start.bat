@@ -1,4 +1,5 @@
 @echo off
+setlocal
 REM agentchattr - starts the server in the background and returns once it is listening.
 REM Use stop.bat / restart.bat to stop or restart it. For a visible console, run: .venv\Scripts\python.exe run.py
 cd /d "%~dp0.."

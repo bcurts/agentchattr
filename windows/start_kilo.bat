@@ -1,4 +1,5 @@
 @echo off
+setlocal
 REM agentchattr — starts server (if not running) + Kilo wrapper
 REM Usage: start_kilo.bat [provider/model]
 REM   e.g. start_kilo.bat anthropic/claude-sonnet-4-20250514

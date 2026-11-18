@@ -1,4 +1,5 @@
 @echo off
+setlocal
 REM agentchattr — starts server (if not running) + Claude wrapper (auto-approve mode)
 cd /d "%~dp0.."
 
