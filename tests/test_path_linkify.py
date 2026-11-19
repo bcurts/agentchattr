@@ -11,13 +11,16 @@ CHAT_JS = Path(__file__).resolve().parent.parent / "static" / "chat.js"
 RUNNER = r"""
 const fs = require('fs');
 const src = fs.readFileSync(process.argv[1], 'utf8');
-const names = ['pathSpaceSource', 'windowsPathSource', 'unixPathSource', 'linkifyPaths'];
-const code = names.map((n) => src.match(new RegExp('function ' + n + '[\\s\\S]*?\\r?\\n}\\r?\\n'))[0]).join('\n');
-const make = (platform) => new Function('serverPlatform', code + ';return {linkifyPaths, windowsPathSource};')(platform);
+const names = ['mapTextOutsideSkipped', 'linkifyUrls', 'pathSpaceSource', 'windowsPathSource', 'unixPathSource',
+  'uncPathSource', 'protectedPathSource', 'linkifyPaths'];
+const code = src.match(/const TEXT_SKIP_TAGS[^\r\n]*/)[0] + '\n' + names.map((n) => src.match(new RegExp('function ' + n + '[\\s\\S]*?\\r?\\n}\\r?\\n'))[0]).join('\n');
+const make = (platform) => new Function('serverPlatform',
+  code + ';return {linkifyPaths, linkifyUrls, protectedPathSource};')(platform);
 const cases = JSON.parse(fs.readFileSync(0, 'utf8'));
 console.log(JSON.stringify(cases.map(([platform, text, mode]) => {
   const api = make(platform);
-  return mode === 'protect' ? text.match(new RegExp(api.windowsPathSource(), 'g')) || [] : api.linkifyPaths(text);
+  if (mode === 'protect') return text.match(new RegExp(api.protectedPathSource(), 'g')) || [];
+  return mode === 'urls' ? api.linkifyUrls(text) : api.linkifyPaths(text);
 })));
 """
 
@@ -71,6 +74,36 @@ class LinkifyPathsTests(unittest.TestCase):
                          [r"C:\Users\DL\Github"])
         self.assertEqual(run([["win32", r"open C:\Program Files and C:\x\y", "protect"]])[0],
                          [r"C:\Program Files", r"C:\x\y"])
+
+    # The HTML fixtures below are what `marked` produces for the matching Markdown; I checked each
+    # against the real parser by hand, since tests here run without a DOM or the CDN script.
+    def test_attributes_are_never_rewritten(self):
+        for platform, path in (("win32", "C:/Users/DL/file.txt"), ("linux", "/tmp/file.txt")):
+            html = f'<img src="https://example.com/image.png" alt="inspect {path} https://evil.example">'
+            self.assertEqual(run([[platform, html]])[0], html)
+            self.assertEqual(run([[platform, html, "urls"]])[0], html)
+
+    def test_code_stays_literal(self):
+        inline = "run <code>C:\\Users\\DL\\file.txt</code> and <code>/tmp/file.txt</code> and <code>https://a.com</code>"
+        block = "<pre><code>C:\\Users\\DL\\file.txt\n/tmp/x https://a.com\n</code></pre>"
+        for platform in ("win32", "linux"):
+            for html in (inline, block):
+                self.assertEqual(run([[platform, html]])[0], html)
+                self.assertEqual(run([[platform, html, "urls"]])[0], html)
+
+    def test_text_after_code_is_still_linked(self):
+        html = run([["win32", "<code>x</code> then C:\\a\\b"]])[0]
+        self.assertEqual(linked(html), [r"C:\a\b"])
+
+    def test_unc_text_is_protected_from_escape_handling(self):
+        self.assertEqual(run([["win32", r"\\server\new\tests", "protect"]])[0], [r"\\server\new\tests"])
+        self.assertEqual(run([["win32", r"open \\files\team share\x", "protect"]])[0], [r"\\files\team"])
+
+    def test_urls_link_only_visible_text(self):
+        html = run([["win32", 'see https://a.com/x and <a href="https://b.com">https://b.com</a>', "urls"]])[0]
+        self.assertEqual(html.count("<a "), 2)
+        self.assertIn('<a href="https://a.com/x" target="_blank" rel="noopener">https://a.com/x</a>', html)
+        self.assertIn('<a href="https://b.com" target="_blank" rel="noopener noreferrer">https://b.com</a>', html)
 
     def test_existing_links_are_not_nested(self):
         html = run([["win32", '<a href="https://x.com/a">C:/Users/a</a> C:\\q\\r']])[0]

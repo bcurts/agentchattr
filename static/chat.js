@@ -492,9 +492,9 @@ function renderMarkdown(text) {
         codeSlots.push(match);
         return '\x00C' + (codeSlots.length - 1) + '\x00';
     });
-    // Protect Windows paths from escape replacement (e.g. \tests → tab, \new → newline)
+    // Protect Windows and UNC paths from escape replacement (e.g. \tests → tab, \new → newline)
     const pathSlots = [];
-    text = text.replace(new RegExp(windowsPathSource(), 'g'), (m) => {
+    text = text.replace(new RegExp(protectedPathSource(), 'g'), (m) => {
         pathSlots.push(m);
         return `\x00P${pathSlots.length - 1}\x00`;
     });
@@ -521,19 +521,32 @@ function renderMarkdown(text) {
 }
 
 function linkifyUrls(html) {
-    // Match http/https URLs not already inside an <a> tag.
-    // We match tags first to skip them, then capture URLs in the same pass.
-    return html.replace(/<a\b[^>]*>.*?<\/a>|(?<!["=])(https?:\/\/[^\s<>"')\]]+)/gs, (match, url) => {
-        if (url) {
-            return `<a href="${url}" target="_blank" rel="noopener">${url}</a>`;
-        }
-        // Markdown links ([text](https://...)) render as bare <a href>: make outbound ones open in a new tab.
-        return match.replace(/^<a\b([^>]*)>/i, (tag, attrs) => {
-            if (!/\bhref\s*=\s*["'](?:https?:)?\/\//i.test(attrs)) return tag;
-            attrs = attrs.replace(/\s(?:target|rel)\s*=\s*("[^"]*"|'[^']*'|\S+)/gi, '');
-            return `<a${attrs} target="_blank" rel="noopener noreferrer">`;
-        });
+    // Markdown links ([text](https://...)) render as bare <a href>: make outbound ones open in a new tab.
+    html = html.replace(/<a\b[^>]*>/gi, (tag) => {
+        if (!/\bhref\s*=\s*["'](?:https?:)?\/\//i.test(tag)) return tag;
+        const attrs = tag.slice(0, -1).replace(/\s(?:target|rel)\s*=\s*("[^"]*"|'[^']*'|\S+)/gi, '');
+        return attrs + ' target="_blank" rel="noopener noreferrer">';
     });
+    // Bare http/https URLs in visible text become links.
+    return mapTextOutsideSkipped(html, (text) =>
+        text.replace(/(?<!["=])(https?:\/\/[^\s<>"')\]]+)/g,
+            (url) => `<a href="${url}" target="_blank" rel="noopener">${url}</a>`));
+}
+
+// Post-Markdown transforms (URLs, @mentions, paths) must only touch visible text. This applies `fn`
+// to the text outside tags (so attributes such as <img alt="..."> are never rewritten) and outside
+// <a>, <code>, <pre> and similar elements (so links are not nested and code stays literal).
+const TEXT_SKIP_TAGS = /^(?:a|code|pre|script|style|textarea|kbd|samp)$/i;
+function mapTextOutsideSkipped(html, fn) {
+    let skipDepth = 0;
+    return html.split(/(<[^>]*>)/).map((part, i) => {
+        if (i % 2 === 0) return skipDepth ? part : fn(part);
+        const m = part.match(/^<(\/?)([a-z][a-z0-9]*)/i);
+        if (m && TEXT_SKIP_TAGS.test(m[2]) && !/\/>$/.test(part)) {
+            skipDepth = Math.max(0, skipDepth + (m[1] ? -1 : 1));
+        }
+        return part;
+    }).join('');
 }
 
 let serverPlatform = 'win32';  // default, updated on connect
@@ -559,20 +572,28 @@ function unixPathSource() {
     return String.raw`\/(?:Users|home|tmp|opt|var|etc|usr)\/(?:[\w\-.\/]|` + pathSpaceSource(String.raw`\/`) + String.raw`)+(?<![.\-])`;
 }
 
+// UNC paths (\\server\share\dir) are protected from escape handling so \new and \tests survive.
+// They are shown as plain text, not linked.
+function uncPathSource() {
+    return String.raw`\\\\[\w.\-]+(?:\\[\w\-.$]+)+(?<![.\-])`;
+}
+function protectedPathSource() {
+    return windowsPathSource() + '|' + uncPathSource();
+}
+
 function linkifyPaths(html) {
-    // Existing <a> elements are matched first and returned untouched, so links are never nested.
     const link = (path, escaped) =>
         `<a class="file-link" href="#" onclick="openPath('${escaped}'); return false;" title="Open in file manager">${path}</a>`;
-    // Windows paths: E:\foo\bar or E:/foo/bar
-    const windows = new RegExp(String.raw`<a\b[^>]*>.*?<\/a>|(?<!["=\/])` + windowsPathSource(), 'gs');
-    html = html.replace(windows, (match) => match.startsWith('<a') ? match :
-        link(match, match.replace(/\\/g, '\\\\').replace(/'/g, "\\'")));
-    // Unix paths: /Users/..., /home/..., /tmp/..., /opt/..., /var/..., /etc/...
-    if (serverPlatform !== 'win32') {
-        const unix = new RegExp(String.raw`<a\b[^>]*>.*?<\/a>|(?<!["=\w])` + unixPathSource(), 'gs');
-        html = html.replace(unix, (match) => match.startsWith('<a') ? match : link(match, match.replace(/'/g, "\\'")));
-    }
-    return html;
+    // Only visible text outside links and code is linked; attributes and nested anchors are never touched.
+    return mapTextOutsideSkipped(html, (text) => {
+        // Windows paths: E:\foo\bar or E:/foo/bar
+        text = text.replace(new RegExp(String.raw`(?<!["=\/])` + windowsPathSource(), 'g'),
+            (match) => link(match, match.replace(/\\/g, '\\\\').replace(/'/g, "\\'")));
+        // Unix paths: /Users/..., /home/..., /tmp/..., /opt/..., /var/..., /etc/...
+        return serverPlatform === 'win32' ? text :
+            mapTextOutsideSkipped(text, (rest) => rest.replace(new RegExp(String.raw`(?<!["=\w])` + unixPathSource(), 'g'),
+                (match) => link(match, match.replace(/'/g, "\\'"))));
+    });
 }
 
 async function openPath(path) {
@@ -1415,10 +1436,9 @@ function getColor(sender) {
 }
 
 function colorMentions(textHtml) {
-    // Match any @word — we'll resolve color per match. Skip HTML tags/anchors (an email autolinks to
-    // <a href="mailto:a@b.com">) and require a non-word char before '@' so emails are never treated as mentions.
-    return textHtml.replace(/<a\b[^>]*>.*?<\/a>|<[^>]*>|(?<![\w.+-])@(\w[\w-]*)/gis, (match, name) => {
-        if (!name) return match;
+    // Only visible text outside links and code is scanned, and a non-word char (not '.', '+' or '-')
+    // must precede '@' so emails are never treated as mentions.
+    return mapTextOutsideSkipped(textHtml, (text) => text.replace(/(?<![\w.+-])@(\w[\w-]*)/g, (match, name) => {
         const lower = name.toLowerCase();
         if (lower === 'both' || lower === 'all') {
             return `<span class="mention" style="color: var(--accent)">@${name}</span>`;
@@ -1430,7 +1450,7 @@ function colorMentions(textHtml) {
         }
         // Non-agent mention (e.g. @ben, @user) — use user color
         return `<span class="mention" style="color: var(--user-color)">@${name}</span>`;
-    });
+    }));
 }
 
 function scrollToBottom(instant = false) {
