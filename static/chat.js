@@ -546,14 +546,15 @@ async function detectPlatform() {
 }
 
 function linkifyPaths(html) {
-    // Windows paths: E:\foo\bar or E:/foo/bar
-    html = html.replace(/(?<!["=\/])([A-Z]):[\\\/][\w\-.\\ \/]+/g, (match) => {
+    // Windows paths: E:\foo\bar or E:/foo/bar. A space belongs to the path only when another
+    // separator follows it, so text after the path is not swallowed into the link.
+    html = html.replace(/(?<!["=\/])([A-Z]):[\\\/](?:[\w\-.\\\/]|[ ](?=[\w\-. ]*[\\\/]))+/g, (match) => {
         const escaped = match.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
         return `<a class="file-link" href="#" onclick="openPath('${escaped}'); return false;" title="Open in file manager">${match}</a>`;
     });
     // Unix paths: /Users/..., /home/..., /tmp/..., /opt/..., /var/..., /etc/...
     if (serverPlatform !== 'win32') {
-        html = html.replace(/(?<!["=\w])(\/(?:Users|home|tmp|opt|var|etc|usr)\/[\w\-.\/ ]+)/g, (match) => {
+        html = html.replace(/(?<!["=\w])(\/(?:Users|home|tmp|opt|var|etc|usr)\/(?:[\w\-.\/]|[ ](?=[\w\-. ]*\/))+)/g, (match) => {
             const escaped = match.replace(/'/g, "\\'");
             return `<a class="file-link" href="#" onclick="openPath('${escaped}'); return false;" title="Open in file manager">${match}</a>`;
         });
