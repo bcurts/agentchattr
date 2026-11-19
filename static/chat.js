@@ -487,14 +487,16 @@ function sanitizeLinkHrefs(html) {
 
 function renderMarkdown(text) {
     // Keep code untouched while protecting and escaping paths in regular text.
+    // NUL is reserved for the placeholders below; a literal one in a message must not collide with them.
+    text = String(text).replace(/\x00/g, '');
     const codeSlots = [];
     text = text.replace(/(```[\s\S]*?```|`[^`\n]+`)/g, function(match) {
         codeSlots.push(match);
         return '\x00C' + (codeSlots.length - 1) + '\x00';
     });
-    // Protect Windows paths from escape replacement (e.g. \tests → tab, \new → newline)
+    // Protect Windows and UNC paths from escape replacement (e.g. \tests → tab, \new → newline)
     const pathSlots = [];
-    text = text.replace(/[A-Z]:[\\\/][\w\-.\\ \/]+/g, (m) => {
+    text = text.replace(new RegExp(protectedPathSource(), 'g'), (m) => {
         pathSlots.push(m);
         return `\x00P${pathSlots.length - 1}\x00`;
     });
@@ -521,19 +523,32 @@ function renderMarkdown(text) {
 }
 
 function linkifyUrls(html) {
-    // Match http/https URLs not already inside an <a> tag.
-    // We match tags first to skip them, then capture URLs in the same pass.
-    return html.replace(/<a\b[^>]*>.*?<\/a>|(?<!["=])(https?:\/\/[^\s<>"')\]]+)/gs, (match, url) => {
-        if (url) {
-            return `<a href="${url}" target="_blank" rel="noopener">${url}</a>`;
-        }
-        // Markdown links ([text](https://...)) render as bare <a href>: make outbound ones open in a new tab.
-        return match.replace(/^<a\b([^>]*)>/i, (tag, attrs) => {
-            if (!/\bhref\s*=\s*["'](?:https?:)?\/\//i.test(attrs)) return tag;
-            attrs = attrs.replace(/\s(?:target|rel)\s*=\s*("[^"]*"|'[^']*'|\S+)/gi, '');
-            return `<a${attrs} target="_blank" rel="noopener noreferrer">`;
-        });
+    // Markdown links ([text](https://...)) render as bare <a href>: make outbound ones open in a new tab.
+    html = html.replace(/<a\b[^>]*>/gi, (tag) => {
+        if (!/\bhref\s*=\s*["'](?:https?:)?\/\//i.test(tag)) return tag;
+        const attrs = tag.slice(0, -1).replace(/\s(?:target|rel)\s*=\s*("[^"]*"|'[^']*'|\S+)/gi, '');
+        return attrs + ' target="_blank" rel="noopener noreferrer">';
     });
+    // Bare http/https URLs in visible text become links.
+    return mapTextOutsideSkipped(html, (text) =>
+        text.replace(/(?<!["=])(https?:\/\/[^\s<>"')\]]+)/g,
+            (url) => `<a href="${url}" target="_blank" rel="noopener">${url}</a>`));
+}
+
+// Post-Markdown transforms (URLs, @mentions, paths) must only touch visible text. This applies `fn`
+// to the text outside tags (so attributes such as <img alt="..."> are never rewritten) and outside
+// <a>, <code>, <pre> and similar elements (so links are not nested and code stays literal).
+const TEXT_SKIP_TAGS = /^(?:a|code|pre|script|style|textarea|kbd|samp)$/i;
+function mapTextOutsideSkipped(html, fn) {
+    let skipDepth = 0;
+    return html.split(/(<[^>]*>)/).map((part, i) => {
+        if (i % 2 === 0) return skipDepth ? part : fn(part);
+        const m = part.match(/^<(\/?)([a-z][a-z0-9]*)/i);
+        if (m && TEXT_SKIP_TAGS.test(m[2]) && !/\/>$/.test(part)) {
+            skipDepth = Math.max(0, skipDepth + (m[1] ? -1 : 1));
+        }
+        return part;
+    }).join('');
 }
 
 let serverPlatform = 'win32';  // default, updated on connect
@@ -545,21 +560,56 @@ async function detectPlatform() {
     } catch (e) { /* fallback to win32 */ }
 }
 
+// A space belongs to a path only when it looks like part of a name: another separator follows
+// within a couple of words ("My Docs\x"), the next word is capitalised ("Program Files"), or it
+// starts a file name with an extension ("my notes.txt"). Prose after a path stays outside the link.
+// A trailing dot or dash is sentence punctuation, not part of the path.
+function pathSpaceSource(sep, word = String.raw`[\w\-.]`) {
+    return String.raw`[ ](?=(?:` + word + String.raw`+ ){0,2}` + word + '+' + sep + String.raw`|[A-Z][\w\-]*|[\w\-]+\.\w{1,5}\b)`;
+}
+function windowsPathSource() {
+    return String.raw`[A-Z]:[\\\/](?:[\w\-.\\\/]|` + pathSpaceSource(String.raw`[\\\/]`) + String.raw`)+(?<![.\-])`;
+}
+function unixPathSource() {
+    return String.raw`\/(?:Users|home|tmp|opt|var|etc|usr)\/(?:[\w\-.\/]|` + pathSpaceSource(String.raw`\/`) + String.raw`)+(?<![.\-])`;
+}
+
+// Escape protection is broader than linking. Any non-space character other than angle brackets and
+// backticks may appear in a path (R&D, (old), non-ASCII), and the text after it would otherwise go
+// through the literal \n and \t conversion. UNC paths (\\server\share\dir) are protected the same
+// way but are shown as plain text, not linked.
+const PATH_WORD = String.raw`[^\s\\\/<>`+ '`' + String.raw`]`;
+function drivePathProtectSource() {
+    return String.raw`[A-Z]:[\\\/](?:[^\s<>` + '`' + String.raw`]|` + pathSpaceSource(String.raw`[\\\/]`, PATH_WORD) + String.raw`)+(?<![.\-])`;
+}
+function uncPathSource() {
+    return String.raw`\\\\[^\s\\\/<>` + '`' + String.raw`]+\\(?:[^\s<>` + '`' + String.raw`]|` + pathSpaceSource(String.raw`\\`, PATH_WORD) + String.raw`)+(?<![.\-])`;
+}
+function protectedPathSource() {
+    return drivePathProtectSource() + '|' + uncPathSource();
+}
+
+// A link is made only when the match ends the path: followed by whitespace, the end of the text,
+// closing punctuation, or a quote. Otherwise the path has characters outside the link grammar
+// (R&D, non-ASCII) and stays plain text, so a click never opens a truncated target.
+const PATH_END = String.raw`(?=$|\s|[.,;:!?)\]}]+(?:\s|$)|&(?:quot|#39);)`;
+// ...and not when the text after a space looks like more of the same path ("my projects (old)\x"):
+// up to two words and then a word ending in a separator. A new drive path ("C:\x") starts a new path.
+const PATH_MORE = String.raw`(?!\s(?:(?![A-Z]:[\\\/])[^\s\\\/<>]+ ){0,2}(?![A-Z]:[\\\/])[^\s\\\/<>]+[\\\/])`;
+
 function linkifyPaths(html) {
-    // Windows paths: E:\foo\bar or E:/foo/bar. A space belongs to the path only when another
-    // separator follows it, so text after the path is not swallowed into the link.
-    html = html.replace(/(?<!["=\/])([A-Z]):[\\\/](?:[\w\-.\\\/]|[ ](?=[\w\-. ]*[\\\/]))+/g, (match) => {
-        const escaped = match.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-        return `<a class="file-link" href="#" onclick="openPath('${escaped}'); return false;" title="Open in file manager">${match}</a>`;
+    const link = (path, escaped) =>
+        `<a class="file-link" href="#" onclick="openPath('${escaped}'); return false;" title="Open in file manager">${path}</a>`;
+    // Only visible text outside links and code is linked; attributes and nested anchors are never touched.
+    return mapTextOutsideSkipped(html, (text) => {
+        // Windows paths: E:\foo\bar or E:/foo/bar
+        text = text.replace(new RegExp(String.raw`(?<!["=\/])` + windowsPathSource() + PATH_END + PATH_MORE, 'g'),
+            (match) => link(match, match.replace(/\\/g, '\\\\').replace(/'/g, "\\'")));
+        // Unix paths: /Users/..., /home/..., /tmp/..., /opt/..., /var/..., /etc/...
+        return serverPlatform === 'win32' ? text :
+            mapTextOutsideSkipped(text, (rest) => rest.replace(new RegExp(String.raw`(?<!["=\w])` + unixPathSource() + PATH_END + PATH_MORE, 'g'),
+                (match) => link(match, match.replace(/'/g, "\\'"))));
     });
-    // Unix paths: /Users/..., /home/..., /tmp/..., /opt/..., /var/..., /etc/...
-    if (serverPlatform !== 'win32') {
-        html = html.replace(/(?<!["=\w])(\/(?:Users|home|tmp|opt|var|etc|usr)\/(?:[\w\-.\/]|[ ](?=[\w\-. ]*\/))+)/g, (match) => {
-            const escaped = match.replace(/'/g, "\\'");
-            return `<a class="file-link" href="#" onclick="openPath('${escaped}'); return false;" title="Open in file manager">${match}</a>`;
-        });
-    }
-    return html;
 }
 
 async function openPath(path) {
@@ -1402,10 +1452,9 @@ function getColor(sender) {
 }
 
 function colorMentions(textHtml) {
-    // Match any @word — we'll resolve color per match. Skip HTML tags/anchors (an email autolinks to
-    // <a href="mailto:a@b.com">) and require a non-word char before '@' so emails are never treated as mentions.
-    return textHtml.replace(/<a\b[^>]*>.*?<\/a>|<[^>]*>|(?<![\w.+-])@(\w[\w-]*)/gis, (match, name) => {
-        if (!name) return match;
+    // Only visible text outside links and code is scanned, and a non-word char (not '.', '+' or '-')
+    // must precede '@' so emails are never treated as mentions.
+    return mapTextOutsideSkipped(textHtml, (text) => text.replace(/(?<![\w.+-])@(\w[\w-]*)/g, (match, name) => {
         const lower = name.toLowerCase();
         if (lower === 'both' || lower === 'all') {
             return `<span class="mention" style="color: var(--accent)">@${name}</span>`;
@@ -1417,7 +1466,7 @@ function colorMentions(textHtml) {
         }
         // Non-agent mention (e.g. @ben, @user) — use user color
         return `<span class="mention" style="color: var(--user-color)">@${name}</span>`;
-    });
+    }));
 }
 
 function scrollToBottom(instant = false) {
@@ -3916,17 +3965,15 @@ window._preserveScroll = _preserveScroll;
 
 // Style #hashtags in rendered message text
 function styleHashtags(html) {
-    // "Match and skip" pattern: consume HTML tags first (to skip hex colors in
-    // style attributes like color: #da7756), then match real hashtags in text.
-    return html.replace(/<[^>]*>|((?:^|\s))(#([a-zA-Z][a-zA-Z0-9_-]{0,39}))\b/g,
+    // Visible text only: attributes (hex colors in style="..."), links and code are left alone.
+    return mapTextOutsideSkipped(html, (text) => text.replace(/((?:^|\s))(#([a-zA-Z][a-zA-Z0-9_-]{0,39}))\b/g,
         (match, prefix, fullHash, tag) => {
-            if (tag === undefined) return match; // HTML tag — skip
             const lower = tag.toLowerCase();
             if (['clear', 'off', 'none', 'end'].includes(lower)) {
                 return `${prefix}<span class="msg-hashtag" style="opacity:0.5">#${tag}</span>`;
             }
             return `${prefix}<span class="msg-hashtag">#${tag}</span>`;
-        });
+        }));
 }
 
 // --- Helpers ---
