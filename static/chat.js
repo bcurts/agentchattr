@@ -494,7 +494,7 @@ function renderMarkdown(text) {
     });
     // Protect Windows paths from escape replacement (e.g. \tests → tab, \new → newline)
     const pathSlots = [];
-    text = text.replace(/[A-Z]:[\\\/][\w\-.\\ \/]+/g, (m) => {
+    text = text.replace(new RegExp(windowsPathSource(), 'g'), (m) => {
         pathSlots.push(m);
         return `\x00P${pathSlots.length - 1}\x00`;
     });
@@ -545,19 +545,32 @@ async function detectPlatform() {
     } catch (e) { /* fallback to win32 */ }
 }
 
+// A space belongs to a path only when it looks like part of a name: another separator follows
+// within a couple of words ("My Docs\x"), the next word is capitalised ("Program Files"), or it
+// starts a file name with an extension ("my notes.txt"). Prose after a path stays outside the link.
+// A trailing dot or dash is sentence punctuation, not part of the path.
+function pathSpaceSource(sep) {
+    return String.raw`[ ](?=(?:[\w\-.]+ ){0,2}[\w\-.]+` + sep + String.raw`|[A-Z][\w\-]*|[\w\-]+\.\w{1,5}\b)`;
+}
+function windowsPathSource() {
+    return String.raw`[A-Z]:[\\\/](?:[\w\-.\\\/]|` + pathSpaceSource(String.raw`[\\\/]`) + String.raw`)+(?<![.\-])`;
+}
+function unixPathSource() {
+    return String.raw`\/(?:Users|home|tmp|opt|var|etc|usr)\/(?:[\w\-.\/]|` + pathSpaceSource(String.raw`\/`) + String.raw`)+(?<![.\-])`;
+}
+
 function linkifyPaths(html) {
-    // Windows paths: E:\foo\bar or E:/foo/bar. A space belongs to the path only when another
-    // separator follows it, so text after the path is not swallowed into the link.
-    html = html.replace(/(?<!["=\/])([A-Z]):[\\\/](?:[\w\-.\\\/]|[ ](?=[\w\-. ]*[\\\/]))+/g, (match) => {
-        const escaped = match.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-        return `<a class="file-link" href="#" onclick="openPath('${escaped}'); return false;" title="Open in file manager">${match}</a>`;
-    });
+    // Existing <a> elements are matched first and returned untouched, so links are never nested.
+    const link = (path, escaped) =>
+        `<a class="file-link" href="#" onclick="openPath('${escaped}'); return false;" title="Open in file manager">${path}</a>`;
+    // Windows paths: E:\foo\bar or E:/foo/bar
+    const windows = new RegExp(String.raw`<a\b[^>]*>.*?<\/a>|(?<!["=\/])` + windowsPathSource(), 'gs');
+    html = html.replace(windows, (match) => match.startsWith('<a') ? match :
+        link(match, match.replace(/\\/g, '\\\\').replace(/'/g, "\\'")));
     // Unix paths: /Users/..., /home/..., /tmp/..., /opt/..., /var/..., /etc/...
     if (serverPlatform !== 'win32') {
-        html = html.replace(/(?<!["=\w])(\/(?:Users|home|tmp|opt|var|etc|usr)\/(?:[\w\-.\/]|[ ](?=[\w\-. ]*\/))+)/g, (match) => {
-            const escaped = match.replace(/'/g, "\\'");
-            return `<a class="file-link" href="#" onclick="openPath('${escaped}'); return false;" title="Open in file manager">${match}</a>`;
-        });
+        const unix = new RegExp(String.raw`<a\b[^>]*>.*?<\/a>|(?<!["=\w])` + unixPathSource(), 'gs');
+        html = html.replace(unix, (match) => match.startsWith('<a') ? match : link(match, match.replace(/'/g, "\\'")));
     }
     return html;
 }
