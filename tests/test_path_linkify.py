@@ -13,7 +13,7 @@ const fs = require('fs');
 const src = fs.readFileSync(process.argv[1], 'utf8');
 const names = ['mapTextOutsideSkipped', 'linkifyUrls', 'pathSpaceSource', 'windowsPathSource', 'unixPathSource', 'drivePathProtectSource',
   'uncPathSource', 'protectedPathSource', 'linkifyPaths'];
-const code = src.match(/const TEXT_SKIP_TAGS[^\r\n]*/)[0] + '\n' + src.match(/const PATH_WORD[^\r\n]*/)[0] + '\n' + names.map((n) => src.match(new RegExp('function ' + n + '[\\s\\S]*?\\r?\\n}\\r?\\n'))[0]).join('\n');
+const code = src.match(/const TEXT_SKIP_TAGS[^\r\n]*/)[0] + '\n' + src.match(/const PATH_WORD[^\r\n]*/)[0] + '\n' + src.match(/const PATH_END[^\r\n]*/)[0] + '\n' + src.match(/const PATH_MORE[^\r\n]*/)[0] + '\n' + names.map((n) => src.match(new RegExp('function ' + n + '[\\s\\S]*?\\r?\\n}\\r?\\n'))[0]).join('\n');
 const make = (platform) => new Function('serverPlatform',
   code + ';return {linkifyPaths, linkifyUrls, protectedPathSource};')(platform);
 const cases = JSON.parse(fs.readFileSync(0, 'utf8'));

@@ -15,7 +15,8 @@ const FUNCTIONS = ['isSafeLinkHref', 'sanitizeLinkHrefs', 'renderMarkdown', 'map
     'linkifyPaths', 'colorMentions', 'styleHashtags'];
 const pick = (re, label) => { const m = source.match(re); assert.ok(m, `${label} not found in chat.js`); return m[0]; };
 const code = [pick(/const SAFE_LINK_SCHEMES[^\n]*/, 'SAFE_LINK_SCHEMES'), pick(/const TEXT_SKIP_TAGS[^\n]*/, 'TEXT_SKIP_TAGS'),
-    pick(/const PATH_WORD[^\n]*/, 'PATH_WORD'),
+    pick(/const PATH_WORD[^\n]*/, 'PATH_WORD'), pick(/const PATH_END[^\n]*/, 'PATH_END'),
+    pick(/const PATH_MORE[^\n]*/, 'PATH_MORE'),
     ...FUNCTIONS.map((n) => pick(new RegExp(`function ${n}\\([\\s\\S]*?\\n}\\n`), n))].join('\n');
 
 function makeRenderer(platform) {
@@ -74,6 +75,27 @@ test('paths with &, parentheses and non-ASCII characters keep their \\n and \\t 
             assert.equal(text, `see ${raw} now`, raw);
         }
     }
+});
+
+// The click target is the argument of openPath(...) in the generated onclick attribute.
+const targets = (html) => [...html.matchAll(/openPath\('((?:\\\\|[^'\\])*)'\)/g)].map((m) => m[1].replace(/\\\\/g, '\\'));
+
+test('a path is linked only when the whole path matches; otherwise it stays plain text', () => {
+    for (const raw of ['C:\\Users\\DL\\R&D\\new\\tests', 'C:\\Users\\Zoë\\new\\tests', 'C:\\Users\\DL\\my projects (old)\\x']) {
+        const out = render.win32(`see ${raw} now`);
+        assert.deepEqual(targets(out), [], raw);
+        assert.doesNotMatch(out, /file-link/, raw);
+    }
+    assert.deepEqual(targets(render.linux('open /tmp/R&D/x now')), []);
+});
+
+test('link targets are the complete path, including with trailing punctuation or quotes', () => {
+    assert.deepEqual(targets(render.win32('see C:\\Users\\DL\\out.txt.')), ['C:\\Users\\DL\\out.txt']);
+    assert.deepEqual(targets(render.win32('(see C:\\Program Files)')), ['C:\\Program Files']);
+    assert.deepEqual(targets(render.win32('a C:\\x\\y, then C:\\p\\q!')), ['C:\\x\\y', 'C:\\p\\q']);
+    assert.deepEqual(targets(render.linux('open /home/u/My Docs/a.txt now')), ['/home/u/My Docs/a.txt']);
+    assert.deepEqual(targets(render.win32('in C:\\Users\\DL\\Github 2. start')), ['C:\\Users\\DL\\Github']);
+    assert.deepEqual(targets(render.win32('**C:\\a\\b**')), ['C:\\a\\b']);
 });
 
 test('prose after a path with unusual characters stays outside the protected span', () => {

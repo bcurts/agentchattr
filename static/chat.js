@@ -589,17 +589,25 @@ function protectedPathSource() {
     return drivePathProtectSource() + '|' + uncPathSource();
 }
 
+// A link is made only when the match ends the path: followed by whitespace, the end of the text,
+// closing punctuation, or a quote. Otherwise the path has characters outside the link grammar
+// (R&D, non-ASCII) and stays plain text, so a click never opens a truncated target.
+const PATH_END = String.raw`(?=$|\s|[.,;:!?)\]}]+(?:\s|$)|&(?:quot|#39);)`;
+// ...and not when the text after a space looks like more of the same path ("my projects (old)\x"):
+// up to two words and then a word ending in a separator. A new drive path ("C:\x") starts a new path.
+const PATH_MORE = String.raw`(?!\s(?:(?![A-Z]:[\\\/])[^\s\\\/<>]+ ){0,2}(?![A-Z]:[\\\/])[^\s\\\/<>]+[\\\/])`;
+
 function linkifyPaths(html) {
     const link = (path, escaped) =>
         `<a class="file-link" href="#" onclick="openPath('${escaped}'); return false;" title="Open in file manager">${path}</a>`;
     // Only visible text outside links and code is linked; attributes and nested anchors are never touched.
     return mapTextOutsideSkipped(html, (text) => {
         // Windows paths: E:\foo\bar or E:/foo/bar
-        text = text.replace(new RegExp(String.raw`(?<!["=\/])` + windowsPathSource(), 'g'),
+        text = text.replace(new RegExp(String.raw`(?<!["=\/])` + windowsPathSource() + PATH_END + PATH_MORE, 'g'),
             (match) => link(match, match.replace(/\\/g, '\\\\').replace(/'/g, "\\'")));
         // Unix paths: /Users/..., /home/..., /tmp/..., /opt/..., /var/..., /etc/...
         return serverPlatform === 'win32' ? text :
-            mapTextOutsideSkipped(text, (rest) => rest.replace(new RegExp(String.raw`(?<!["=\w])` + unixPathSource(), 'g'),
+            mapTextOutsideSkipped(text, (rest) => rest.replace(new RegExp(String.raw`(?<!["=\w])` + unixPathSource() + PATH_END + PATH_MORE, 'g'),
                 (match) => link(match, match.replace(/'/g, "\\'"))));
     });
 }
