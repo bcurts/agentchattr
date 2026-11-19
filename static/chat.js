@@ -487,6 +487,8 @@ function sanitizeLinkHrefs(html) {
 
 function renderMarkdown(text) {
     // Keep code untouched while protecting and escaping paths in regular text.
+    // NUL is reserved for the placeholders below; a literal one in a message must not collide with them.
+    text = String(text).replace(/\x00/g, '');
     const codeSlots = [];
     text = text.replace(/(```[\s\S]*?```|`[^`\n]+`)/g, function(match) {
         codeSlots.push(match);
@@ -575,7 +577,7 @@ function unixPathSource() {
 // UNC paths (\\server\share\dir) are protected from escape handling so \new and \tests survive.
 // They are shown as plain text, not linked.
 function uncPathSource() {
-    return String.raw`\\\\[\w.\-]+(?:\\[\w\-.$]+)+(?<![.\-])`;
+    return String.raw`\\\\[\w.\-]+\\(?:[\w\-.$\\]|` + pathSpaceSource(String.raw`\\`) + String.raw`)+(?<![.\-])`;
 }
 function protectedPathSource() {
     return windowsPathSource() + '|' + uncPathSource();
@@ -3949,17 +3951,15 @@ window._preserveScroll = _preserveScroll;
 
 // Style #hashtags in rendered message text
 function styleHashtags(html) {
-    // "Match and skip" pattern: consume HTML tags first (to skip hex colors in
-    // style attributes like color: #da7756), then match real hashtags in text.
-    return html.replace(/<[^>]*>|((?:^|\s))(#([a-zA-Z][a-zA-Z0-9_-]{0,39}))\b/g,
+    // Visible text only: attributes (hex colors in style="..."), links and code are left alone.
+    return mapTextOutsideSkipped(html, (text) => text.replace(/((?:^|\s))(#([a-zA-Z][a-zA-Z0-9_-]{0,39}))\b/g,
         (match, prefix, fullHash, tag) => {
-            if (tag === undefined) return match; // HTML tag — skip
             const lower = tag.toLowerCase();
             if (['clear', 'off', 'none', 'end'].includes(lower)) {
                 return `${prefix}<span class="msg-hashtag" style="opacity:0.5">#${tag}</span>`;
             }
             return `${prefix}<span class="msg-hashtag">#${tag}</span>`;
-        });
+        }));
 }
 
 // --- Helpers ---

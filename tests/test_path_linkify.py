@@ -97,7 +97,7 @@ class LinkifyPathsTests(unittest.TestCase):
 
     def test_unc_text_is_protected_from_escape_handling(self):
         self.assertEqual(run([["win32", r"\\server\new\tests", "protect"]])[0], [r"\\server\new\tests"])
-        self.assertEqual(run([["win32", r"open \\files\team share\x", "protect"]])[0], [r"\\files\team"])
+        self.assertEqual(run([["win32", r"open \\files\team share\x", "protect"]])[0], [r"\\files\team share\x"])
 
     def test_urls_link_only_visible_text(self):
         html = run([["win32", 'see https://a.com/x and <a href="https://b.com">https://b.com</a>', "urls"]])[0]
