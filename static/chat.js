@@ -564,8 +564,8 @@ async function detectPlatform() {
 // within a couple of words ("My Docs\x"), the next word is capitalised ("Program Files"), or it
 // starts a file name with an extension ("my notes.txt"). Prose after a path stays outside the link.
 // A trailing dot or dash is sentence punctuation, not part of the path.
-function pathSpaceSource(sep) {
-    return String.raw`[ ](?=(?:[\w\-.]+ ){0,2}[\w\-.]+` + sep + String.raw`|[A-Z][\w\-]*|[\w\-]+\.\w{1,5}\b)`;
+function pathSpaceSource(sep, word = String.raw`[\w\-.]`) {
+    return String.raw`[ ](?=(?:` + word + String.raw`+ ){0,2}` + word + '+' + sep + String.raw`|[A-Z][\w\-]*|[\w\-]+\.\w{1,5}\b)`;
 }
 function windowsPathSource() {
     return String.raw`[A-Z]:[\\\/](?:[\w\-.\\\/]|` + pathSpaceSource(String.raw`[\\\/]`) + String.raw`)+(?<![.\-])`;
@@ -574,13 +574,19 @@ function unixPathSource() {
     return String.raw`\/(?:Users|home|tmp|opt|var|etc|usr)\/(?:[\w\-.\/]|` + pathSpaceSource(String.raw`\/`) + String.raw`)+(?<![.\-])`;
 }
 
-// UNC paths (\\server\share\dir) are protected from escape handling so \new and \tests survive.
-// They are shown as plain text, not linked.
+// Escape protection is broader than linking. Any non-space character other than angle brackets and
+// backticks may appear in a path (R&D, (old), non-ASCII), and the text after it would otherwise go
+// through the literal \n and \t conversion. UNC paths (\\server\share\dir) are protected the same
+// way but are shown as plain text, not linked.
+const PATH_WORD = String.raw`[^\s\\\/<>`+ '`' + String.raw`]`;
+function drivePathProtectSource() {
+    return String.raw`[A-Z]:[\\\/](?:[^\s<>` + '`' + String.raw`]|` + pathSpaceSource(String.raw`[\\\/]`, PATH_WORD) + String.raw`)+(?<![.\-])`;
+}
 function uncPathSource() {
-    return String.raw`\\\\[\w.\-]+\\(?:[\w\-.$\\]|` + pathSpaceSource(String.raw`\\`) + String.raw`)+(?<![.\-])`;
+    return String.raw`\\\\[^\s\\\/<>` + '`' + String.raw`]+\\(?:[^\s<>` + '`' + String.raw`]|` + pathSpaceSource(String.raw`\\`, PATH_WORD) + String.raw`)+(?<![.\-])`;
 }
 function protectedPathSource() {
-    return windowsPathSource() + '|' + uncPathSource();
+    return drivePathProtectSource() + '|' + uncPathSource();
 }
 
 function linkifyPaths(html) {

@@ -11,10 +11,11 @@ const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, '../../static/chat.js'), 'utf8').replace(/\r\n/g, '\n');
 const FUNCTIONS = ['isSafeLinkHref', 'sanitizeLinkHrefs', 'renderMarkdown', 'mapTextOutsideSkipped', 'linkifyUrls',
-    'pathSpaceSource', 'windowsPathSource', 'unixPathSource', 'uncPathSource', 'protectedPathSource',
+    'pathSpaceSource', 'windowsPathSource', 'unixPathSource', 'drivePathProtectSource', 'uncPathSource', 'protectedPathSource',
     'linkifyPaths', 'colorMentions', 'styleHashtags'];
 const pick = (re, label) => { const m = source.match(re); assert.ok(m, `${label} not found in chat.js`); return m[0]; };
 const code = [pick(/const SAFE_LINK_SCHEMES[^\n]*/, 'SAFE_LINK_SCHEMES'), pick(/const TEXT_SKIP_TAGS[^\n]*/, 'TEXT_SKIP_TAGS'),
+    pick(/const PATH_WORD[^\n]*/, 'PATH_WORD'),
     ...FUNCTIONS.map((n) => pick(new RegExp(`function ${n}\\([\\s\\S]*?\\n}\\n`), n))].join('\n');
 
 function makeRenderer(platform) {
@@ -62,6 +63,22 @@ test('UNC paths, with or without spaces, keep backslash sequences like \\new and
     for (const raw of ['\\\\server\\new\\tests', '\\\\server\\my docs\\new\\tests']) {
         for (const platform of ['win32', 'linux']) assert.equal(render[platform](raw), raw, raw);
     }
+});
+
+test('paths with &, parentheses and non-ASCII characters keep their \\n and \\t sequences', () => {
+    const paths = ['\\\\server\\R&D\\new\\tests', '\\\\server\\my projects (old)\\new\\tests',
+        'C:\\Users\\DL\\R&D\\new\\tests', 'C:\\Users\\Zoë\\new\\tests', 'C:\\Users\\DL\\my projects (old)\\new\\tests'];
+    for (const raw of paths) {
+        for (const platform of ['win32', 'linux']) {
+            const text = bare(render[platform](`see ${raw} now`)).replace(/<\/?a>/g, '').replace(/&amp;/g, '&');
+            assert.equal(text, `see ${raw} now`, raw);
+        }
+    }
+});
+
+test('prose after a path with unusual characters stays outside the protected span', () => {
+    // The protected span ends at the space, so a literal \n later in the message still becomes a newline.
+    assert.match(render.win32('C:\\R&D\\x then see \\n next'), /<br>/);
 });
 
 test('literal NUL placeholders in a message cannot collide with internal ones', () => {

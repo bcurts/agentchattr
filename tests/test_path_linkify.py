@@ -11,9 +11,9 @@ CHAT_JS = Path(__file__).resolve().parent.parent / "static" / "chat.js"
 RUNNER = r"""
 const fs = require('fs');
 const src = fs.readFileSync(process.argv[1], 'utf8');
-const names = ['mapTextOutsideSkipped', 'linkifyUrls', 'pathSpaceSource', 'windowsPathSource', 'unixPathSource',
+const names = ['mapTextOutsideSkipped', 'linkifyUrls', 'pathSpaceSource', 'windowsPathSource', 'unixPathSource', 'drivePathProtectSource',
   'uncPathSource', 'protectedPathSource', 'linkifyPaths'];
-const code = src.match(/const TEXT_SKIP_TAGS[^\r\n]*/)[0] + '\n' + names.map((n) => src.match(new RegExp('function ' + n + '[\\s\\S]*?\\r?\\n}\\r?\\n'))[0]).join('\n');
+const code = src.match(/const TEXT_SKIP_TAGS[^\r\n]*/)[0] + '\n' + src.match(/const PATH_WORD[^\r\n]*/)[0] + '\n' + names.map((n) => src.match(new RegExp('function ' + n + '[\\s\\S]*?\\r?\\n}\\r?\\n'))[0]).join('\n');
 const make = (platform) => new Function('serverPlatform',
   code + ';return {linkifyPaths, linkifyUrls, protectedPathSource};')(platform);
 const cases = JSON.parse(fs.readFileSync(0, 'utf8'));
@@ -73,7 +73,7 @@ class LinkifyPathsTests(unittest.TestCase):
         self.assertEqual(run([["win32", r"in C:\Users\DL\Github 2. start the \new thing", "protect"]])[0],
                          [r"C:\Users\DL\Github"])
         self.assertEqual(run([["win32", r"open C:\Program Files and C:\x\y", "protect"]])[0],
-                         [r"C:\Program Files", r"C:\x\y"])
+                         [r"C:\Program Files and C:\x\y"])  # protection may span two close paths; linking does not
 
     # The HTML fixtures below are what `marked` produces for the matching Markdown; I checked each
     # against the real parser by hand, since tests here run without a DOM or the CDN script.
