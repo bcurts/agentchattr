@@ -432,6 +432,17 @@ python wrapper.py claude -- --dangerously-skip-permissions
 
 Edit `config.toml` to customize agents, ports, and routing:
 
+An agent may set `args = ["--model", "example-model"]` to pass additional
+arguments on every launch. Arguments are individual strings, not a shell command;
+they follow the wrapper's MCP arguments and precede arguments passed after `--`.
+Changes apply when the agent is next launched. Keep credentials out of this file.
+`config.local.toml` adds new agents; it does not override existing agents in `config.toml`.
+
+For work that needs a durable handoff, copy [features/_TEMPLATE.md](features/_TEMPLATE.md)
+to `features/FEAT-<id>.md` and record the goal, decisions, current status, branches,
+PRs, and next action. Update it as work progresses so another session can resume.
+Follow the active team rules for ownership, review, and merging.
+
 ```toml
 [server]
 port = 8300                 # web UI port

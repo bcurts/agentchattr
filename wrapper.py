@@ -373,13 +373,16 @@ def _build_provider_launch(
     because subprocess.run(env=...) only affects the tmux client binary.
     On Windows they are simply merged into the Popen env dict.
     """
+    configured_args = agent_cfg.get("args", [])
+    if not isinstance(configured_args, list) or not all(isinstance(arg, str) for arg in configured_args):
+        raise ValueError(f"[agents.{agent}] args must be a list of strings")
     inject_cfg = _resolve_mcp_inject(agent, agent_cfg)
     mcp_args, inject_env, settings_path = _apply_mcp_inject(
         inject_cfg, instance_name, data_dir, proxy_url,
         token=token, mcp_cfg=mcp_cfg, project_dir=project_dir,
     )
 
-    launch_args = [*mcp_args, *extra_args]
+    launch_args = [*mcp_args, *configured_args, *extra_args]
     launch_env = dict(env)
 
     return launch_args, launch_env, inject_env, settings_path
