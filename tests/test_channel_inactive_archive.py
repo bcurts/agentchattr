@@ -2,6 +2,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -82,6 +83,39 @@ class NormaliseChannelPrefsTests(unittest.TestCase):
         app._normalise_channel_prefs()
 
         self.assertEqual(app.room_settings["inactive_hours"], 24)
+
+
+
+class UnarchiveOnActivityTests(unittest.TestCase):
+    def setUp(self):
+        saved = {k: app.room_settings.get(k) for k in ("channels", "archived_channels")}
+        self.addCleanup(lambda: app.room_settings.update(saved))
+        app.room_settings["channels"] = ["general", "ops", "dev"]
+        app.room_settings["archived_channels"] = ["ops", "dev"]
+        patcher = patch.object(app, "_save_settings")
+        self.save = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_a_chat_message_restores_only_its_channel(self):
+        self.assertTrue(app._unarchive_for_activity("ops", "chat"))
+
+        self.assertEqual(app.room_settings["archived_channels"], ["dev"])
+        self.save.assert_called_once()
+
+    def test_any_real_message_type_restores_it(self):
+        for kind in ("chat", "decision", "job_proposal"):
+            app.room_settings["archived_channels"] = ["ops"]
+            self.assertTrue(app._unarchive_for_activity("ops", kind), kind)
+
+    def test_join_leave_and_system_notices_do_not(self):
+        for kind in ("join", "leave", "system"):
+            self.assertFalse(app._unarchive_for_activity("ops", kind), kind)
+        self.assertEqual(app.room_settings["archived_channels"], ["ops", "dev"])
+        self.save.assert_not_called()
+
+    def test_a_channel_that_is_not_archived_changes_nothing(self):
+        self.assertFalse(app._unarchive_for_activity("general", "chat"))
+        self.save.assert_not_called()
 
 
 if __name__ == "__main__":
