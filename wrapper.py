@@ -365,6 +365,7 @@ def _build_provider_launch(
     token: str = "",
     mcp_cfg: dict | None = None,
     project_dir: Path | None = None,
+    resolved_command: str | None = None,
 ) -> tuple[list[str], dict[str, str], dict[str, str], Path | None]:
     """Return provider-specific launch args/env/inject_env/settings_path.
 
@@ -376,6 +377,11 @@ def _build_provider_launch(
     configured_args = agent_cfg.get("args", [])
     if not isinstance(configured_args, list) or not all(isinstance(arg, str) for arg in configured_args):
         raise ValueError(f"[agents.{agent}] args must be a list of strings")
+    if (sys.platform == "win32" and resolved_command and
+            Path(resolved_command).suffix.lower() in {".cmd", ".bat"} and
+            any(any(ch in '&|<>^%!"()\r\n' or ord(ch) < 32 for ch in arg)
+                for arg in configured_args)):
+        raise ValueError(f"[agents.{agent}] args contain unsafe characters for a Windows batch launcher")
     inject_cfg = _resolve_mcp_inject(agent, agent_cfg)
     mcp_args, inject_env, settings_path = _apply_mcp_inject(
         inject_cfg, instance_name, data_dir, proxy_url,
@@ -751,6 +757,7 @@ def main():
         token=assigned_token,
         mcp_cfg=mcp_cfg,
         project_dir=project_dir,
+        resolved_command=command,
     )
 
     print(f"  === {assigned_name.capitalize()} Chat Wrapper ===")

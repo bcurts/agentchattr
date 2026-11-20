@@ -1,6 +1,7 @@
 """Configured agent arguments reach provider launch without shell splitting."""
 
 import sys
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -18,12 +19,12 @@ if sys.platform == "win32":
 
 
 class AgentArgsTests(unittest.TestCase):
-    def launch(self, config, extra=()):
+    def launch(self, config, extra=(), command=None):
         with mock.patch.object(wrapper, "_resolve_mcp_inject", return_value={}):
             with mock.patch.object(wrapper, "_apply_mcp_inject", return_value=(["--mcp", "url"], {}, None)):
                 return wrapper._build_provider_launch(
                     agent="codex", agent_cfg=config, instance_name="codex", data_dir=ROOT,
-                    proxy_url=None, extra_args=list(extra), env={},
+                    proxy_url=None, extra_args=list(extra), env={}, resolved_command=command,
                 )[0]
 
     def test_toml_args_and_passthrough_order(self):
@@ -56,6 +57,20 @@ class AgentArgsTests(unittest.TestCase):
         self.assertEqual(popen.call_args.args[0],
                          ["codex", "--mcp", "url", "--model", "model name", "a&b", "--debug"])
         self.assertNotIn("shell", popen.call_args.kwargs)
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows batch launcher")
+    def test_batch_shim_rejects_metacharacters_and_runs_plain_args(self):
+        with tempfile.TemporaryDirectory() as directory:
+            shim = Path(directory) / "shim.cmd"
+            shim.write_text("@echo off\necho %~1\necho %~2\n", encoding="ascii")
+            for arg in ("a&b", "%PATH%", "!name!", 'x"y', "x|y", "(x)", "bad\nline"):
+                with self.subTest(arg=arg), self.assertRaisesRegex(ValueError, "unsafe characters"):
+                    self.launch({"args": [arg]}, command=str(shim))
+            args = self.launch({"args": ["plain", "model name"]}, command=str(shim))
+            # The stub MCP pair is also sent through the same launcher.
+            completed = subprocess.run([str(shim), *args[2:]], capture_output=True, text=True,
+                                       creationflags=subprocess.CREATE_NO_WINDOW, timeout=5, check=True)
+            self.assertEqual(completed.stdout.splitlines(), ["plain", "model name"])
 
 
 if __name__ == "__main__":
