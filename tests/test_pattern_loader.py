@@ -163,6 +163,10 @@ A literal \* star
         self.assertEqual(store.classify('⣾  Thinking')[0], 'working')
         self.assertEqual(store.classify(['│ ⣾  Generating response...', '> '])[0], 'working')
         # Not a spinner: no glyph, glyph mid-line, glyph-only rows (braille art), or a non-label after the glyph.
+        # Braille cells that are not spinner frames: blank cell, full cell (progress bar), other dots patterns.
+        for other in ('⠀', '⣿', '⠋', '⠙'):
+            self.assertIsNone(store.classify(f'{other}  Normal output')[0], other)
+        self.assertIsNone(store.classify('⣿  Progress bar 40%')[0])
         for quiet in ('Calling MCP tool...', 'status ⣾  Calling MCP tool...', '⣿⣿⣿⣿', '⣾  ',
                       '⣾  ...', 'The spinner shows ⣾  Calling MCP tool...'):
             self.assertIsNone(store.classify(quiet)[0], quiet)
