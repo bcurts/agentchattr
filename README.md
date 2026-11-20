@@ -491,6 +491,21 @@ http_port = 8200            # MCP streamable-http (Claude Code, Codex)
 sse_port = 8201             # MCP SSE transport (Gemini)
 ```
 
+An agent may set `args = ["--model", "example-model"]` to pass additional
+arguments on every launch. Arguments are individual strings, not a shell command;
+they follow the wrapper's MCP arguments and precede arguments passed after `--`.
+Changes apply when the agent is next launched. Keep credentials out of this file.
+On Windows, configured arguments containing command-shell metacharacters or unquoted
+argument separators (`,`, `;`, `=`) are rejected when the resolved executable is a
+`.cmd` or `.bat` script. To switch models from the
+localhost dashboard, avoid setting a model flag here: it overrides the agent's settings.
+`config.local.toml` adds new agents; it does not override existing agents in `config.toml`.
+
+For work that needs a durable handoff, copy [features/_TEMPLATE.md](features/_TEMPLATE.md)
+to `features/FEAT-<id>.md` and record the goal, decisions, current status, branches,
+PRs, and next action. Update it as work progresses so another session can resume.
+Follow the active team rules for ownership, review, and merging.
+
 ### Per-project isolation
 
 If you keep one agentchattr install shared across several repos (e.g. via dotfiles), you can run an isolated instance per project without editing `config.toml` — override the data directory and ports at launch time.

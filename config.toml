@@ -13,6 +13,8 @@ idle_shutdown_seconds = 30
 # Add agents here. Each gets a status pill, @mention routing, and color.
 # "cwd" is the working directory for the agent's terminal session.
 # "command" is the CLI command (must be on PATH).
+# Optional "args" is a list of extra CLI arguments passed at every launch.
+# Example: args = ["--model", "example-model"]
 
 [agents.claude]
 command = "claude"
