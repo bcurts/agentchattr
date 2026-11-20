@@ -115,9 +115,48 @@ class UnarchiveOnActivityTests(unittest.TestCase):
         self.assertEqual(app.room_settings["archived_channels"], ["ops", "dev"])
         self.save.assert_not_called()
 
+    def test_a_system_sender_with_the_default_chat_type_does_not(self):
+        self.assertFalse(app._unarchive_for_activity("ops", "chat", "system"))
+        self.assertEqual(app.room_settings["archived_channels"], ["ops", "dev"])
+        self.save.assert_not_called()
+
     def test_a_channel_that_is_not_archived_changes_nothing(self):
         self.assertFalse(app._unarchive_for_activity("general", "chat"))
         self.save.assert_not_called()
+
+
+class ChatCallbackActivityTests(unittest.TestCase):
+    """The real _handle_new_message path, for notices stored as ordinary chat messages."""
+
+    def setUp(self):
+        saved = {k: app.room_settings.get(k) for k in ("channels", "archived_channels")}
+        self.addCleanup(lambda: app.room_settings.update(saved))
+        app.room_settings["channels"] = ["general", "ops"]
+        app.room_settings["archived_channels"] = ["ops"]
+        router = MagicMock()
+        router.get_targets.return_value = []
+        router.is_paused.return_value = False
+        for name, value in (("_save_settings", MagicMock()), ("broadcast_settings", AsyncMock()),
+                            ("broadcast", AsyncMock()), ("router", router)):
+            patcher = patch.object(app, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def post(self, sender, msg_type="chat"):
+        message = {"id": 1, "sender": sender, "text": "hello", "type": msg_type, "channel": "ops"}
+        asyncio.run(app._handle_new_message(message))
+
+    def test_a_person_or_agent_message_un_archives_and_broadcasts_settings(self):
+        self.post("derek")
+
+        self.assertEqual(app.room_settings["archived_channels"], [])
+        app.broadcast_settings.assert_awaited_once()
+
+    def test_a_system_sender_chat_message_does_not(self):
+        self.post("system")
+
+        self.assertEqual(app.room_settings["archived_channels"], ["ops"])
+        app.broadcast_settings.assert_not_awaited()
 
 
 class JobThreadActivityTests(unittest.TestCase):
@@ -163,6 +202,30 @@ class JobThreadActivityTests(unittest.TestCase):
 
         self.assertEqual(app.room_settings["archived_channels"], ["ops", "dev"])
         app.broadcast_settings.assert_not_awaited()
+
+    def test_a_job_message_sent_by_system_does_not(self):
+        self.store.add_message(self.job["id"], "system", "auto note")
+        self.deliver()
+
+        self.assertEqual(app.room_settings["archived_channels"], ["ops", "dev"])
+        app.broadcast_settings.assert_not_awaited()
+
+    def test_settings_payload_counts_the_job_reply_as_fresh_activity(self):
+        with patch.object(app, "store", MessageStore(str(Path(self.tmp.name) / "messages.jsonl"))):
+            app.store.add("a", "old", channel="ops", timestamp=100.0)
+            self.store.add_message(self.job["id"], "derek", "any update?", timestamp=5000.0)
+            self.deliver()
+
+            self.assertEqual(app._settings_payload()["channel_activity"]["ops"], 5000.0)
+            self.assertEqual(app._settings_payload()["channel_activity"]["ops"], 5000.0)  # and after a reload
+
+    def test_system_and_deleted_job_replies_do_not_count_as_activity(self):
+        self.store.add_message(self.job["id"], "system", "auto note", timestamp=9000.0)
+        deleted = self.store.add_message(self.job["id"], "derek", "oops", timestamp=8000.0)
+        self.store.delete_message(self.job["id"], deleted["id"])
+        self.store.add_message(self.job["id"], "derek", "real", timestamp=7000.0)
+
+        self.assertEqual(self.store.channel_activity(), {"ops": 7000.0})
 
     def test_a_system_type_job_message_does_not(self):
         self.store.add_message(self.job["id"], "system", "status changed", msg_type="system")

@@ -274,10 +274,11 @@ def _normalise_channel_prefs():
     room_settings["inactive_hours"] = 24 if hours is None else hours
 
 
-def _unarchive_for_activity(channel: str, msg_type: str) -> bool:
-    """A real message in an archived channel brings it back. Join/leave/system notices don't count,
-    so an agent disconnecting doesn't pull an archived channel out of the Archived group."""
-    if msg_type in ("system", "leave", "join"):
+def _unarchive_for_activity(channel: str, msg_type: str, sender: str = "") -> bool:
+    """A message from a person or agent in an archived channel brings it back. Automated notices
+    (join/leave/system types, or anything sent by "system") don't count, so an agent disconnecting
+    doesn't pull an archived channel out of the Archived group."""
+    if msg_type in ("system", "leave", "join") or sender == "system":
         return False
     archived = room_settings.get("archived_channels", [])
     if channel not in archived:
@@ -289,7 +290,17 @@ def _unarchive_for_activity(channel: str, msg_type: str) -> bool:
 
 def _settings_payload() -> dict:
     """Settings as sent to clients: persisted values plus live per-channel activity."""
-    return {**room_settings, "channel_activity": store.channel_activity()}
+    return {**room_settings, "channel_activity": _channel_activity()}
+
+
+def _channel_activity() -> dict[str, float]:
+    """Newest activity per channel: main-chat messages and real job-thread replies."""
+    latest = store.channel_activity()
+    if jobs is not None:
+        for channel, ts in jobs.channel_activity().items():
+            if ts > latest.get(channel, 0):
+                latest[channel] = ts
+    return latest
 
 
 def _save_settings():
@@ -906,7 +917,7 @@ async def _handle_new_message(msg: dict):
 
     # Track last active channel for leave/join messages (skip system messages)
     global _last_active_channel
-    if _unarchive_for_activity(channel, msg_type):
+    if _unarchive_for_activity(channel, msg_type, sender):
         await broadcast_settings()
     if msg_type not in ("system", "leave", "join"):
         _last_active_channel = channel
@@ -1211,7 +1222,9 @@ async def broadcast_job(action: str, data: dict):
         # path (web UI, MCP, API) fires this callback, so un-archive the job's channel here.
         job = jobs.get(data.get("job_id"))
         message = data.get("message") or {}
-        if job and _unarchive_for_activity(job.get("channel", ""), message.get("type", "chat")):
+        if job and _unarchive_for_activity(
+            job.get("channel", ""), message.get("type", "chat"), message.get("sender", "")
+        ):
             await broadcast_settings()
     payload = json.dumps({"type": "job", "action": action, "data": data})
     dead = set()

@@ -228,6 +228,22 @@ class JobStore:
         self._fire("message", {"job_id": job_id, "message": result_msg})
         return result_msg
 
+    def channel_activity(self) -> dict[str, float]:
+        """Epoch timestamp of the newest real reply in each channel's job threads.
+
+        Deleted replies and automated (system) notices don't count as activity."""
+        latest: dict[str, float] = {}
+        with self._lock:
+            for job in self._jobs:
+                channel = job.get("channel", "general")
+                for m in job.get("messages", []):
+                    ts = m.get("timestamp")
+                    if m.get("deleted") or m.get("sender") == "system" or m.get("type") == "system":
+                        continue
+                    if isinstance(ts, (int, float)) and ts > latest.get(channel, 0):
+                        latest[channel] = ts
+        return latest
+
     def get_messages(self, job_id: int) -> list[dict] | None:
         """Get all messages for a job."""
         with self._lock:
