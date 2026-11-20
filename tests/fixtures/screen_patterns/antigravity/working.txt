@@ -1,0 +1,3 @@
+# Antigravity (agy) shows a braille spinner glyph and a label while it works, e.g. "⣾  Calling MCP tool...".
+# Anchored at the start of the row and bounded in length, so braille art or prose that merely contains the glyph never matches.
+re: ^[\s│|]*[⠀-⣿]\s+[A-Za-z][^\n]{2,60}$

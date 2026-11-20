@@ -256,5 +256,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Preview agent screen classification from stdin.')
     parser.add_argument('--agent', required=True)
     args = parser.parse_args()
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')  # screen rows hold glyphs a Windows console codepage can't print
     screen = sys.stdin.buffer.read().decode('utf-8-sig', errors='replace')
     preview(screen, PatternStore(args.agent))

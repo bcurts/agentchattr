@@ -155,6 +155,20 @@ A literal \* star
                        'Enter to select and then Esc to cancel later'):
             self.assertIsNone(store.classify(quoted)[0], quoted)
 
+    def test_antigravity_spinner_line_means_working(self):
+        # The first line is the spinner text Derek pasted from a live Agy session.
+        store = PatternStore('antigravity', Path(__file__).parent / 'fixtures/screen_patterns')
+        for frame in '⣾⣽⣻⢿⡿⣟⣯⣷':        # the spinner's animation frames
+            self.assertEqual(store.classify(f'{frame}  Calling MCP tool...')[0], 'working', frame)
+        self.assertEqual(store.classify('⣾  Thinking')[0], 'working')
+        self.assertEqual(store.classify(['│ ⣾  Generating response...', '> '])[0], 'working')
+        # Not a spinner: no glyph, glyph mid-line, glyph-only rows (braille art), or a non-label after the glyph.
+        for quiet in ('Calling MCP tool...', 'status ⣾  Calling MCP tool...', '⣿⣿⣿⣿', '⣾  ',
+                      '⣾  ...', 'The spinner shows ⣾  Calling MCP tool...'):
+            self.assertIsNone(store.classify(quiet)[0], quiet)
+        # Only the live bottom rows count: a spinner line scrolled far up does not.
+        self.assertIsNone(store.classify(['⣾  Calling MCP tool...'] + ['output'] * 14)[0])
+
 
 class DistributedPatternSyntaxTests(unittest.TestCase):
     def test_distributed_patterns_compile(self):
