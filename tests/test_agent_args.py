@@ -63,7 +63,7 @@ class AgentArgsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             shim = Path(directory) / "shim.cmd"
             shim.write_text("@echo off\necho %~1\necho %~2\n", encoding="ascii")
-            for arg in ("a&b", "%PATH%", "!name!", 'x"y', "x|y", "(x)", "bad\nline"):
+            for arg in ("a&b", "%PATH%", "!name!", 'x"y', "x|y", "(x)", "bad\nline", "a,b", "a;b", "a=b"):
                 with self.subTest(arg=arg), self.assertRaisesRegex(ValueError, "unsafe characters"):
                     self.launch({"args": [arg]}, command=str(shim))
             args = self.launch({"args": ["plain", "model name"]}, command=str(shim))

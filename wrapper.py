@@ -379,7 +379,7 @@ def _build_provider_launch(
         raise ValueError(f"[agents.{agent}] args must be a list of strings")
     if (sys.platform == "win32" and resolved_command and
             Path(resolved_command).suffix.lower() in {".cmd", ".bat"} and
-            any(any(ch in '&|<>^%!"()\r\n' or ord(ch) < 32 for ch in arg)
+            any(any(ch in '&|<>^%!"(),;=\r\n' or ord(ch) < 32 for ch in arg)
                 for arg in configured_args)):
         raise ValueError(f"[agents.{agent}] args contain unsafe characters for a Windows batch launcher")
     inject_cfg = _resolve_mcp_inject(agent, agent_cfg)

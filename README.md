@@ -495,8 +495,9 @@ An agent may set `args = ["--model", "example-model"]` to pass additional
 arguments on every launch. Arguments are individual strings, not a shell command;
 they follow the wrapper's MCP arguments and precede arguments passed after `--`.
 Changes apply when the agent is next launched. Keep credentials out of this file.
-On Windows, configured arguments containing command-shell metacharacters are rejected
-when the resolved executable is a `.cmd` or `.bat` script. To switch models from the
+On Windows, configured arguments containing command-shell metacharacters or unquoted
+argument separators (`,`, `;`, `=`) are rejected when the resolved executable is a
+`.cmd` or `.bat` script. To switch models from the
 localhost dashboard, avoid setting a model flag here: it overrides the agent's settings.
 `config.local.toml` adds new agents; it does not override existing agents in `config.toml`.
 
