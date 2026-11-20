@@ -1,1 +1,4 @@
-# Add agent-specific rules here.
+# Antigravity (agy) shows a braille spinner glyph and a label while it works, e.g. "⣾  Calling MCP tool...".
+# Only the 8 frames of that spinner match (not the whole braille block), at the start of the row, with a bounded label,
+# so blank braille cells, progress bars, braille art and prose that merely contains a glyph never match.
+re: ^[\s│|]*[⣾⣽⣻⢿⡿⣟⣯⣷]\s+[A-Za-z][^\n]{2,60}$
