@@ -1206,6 +1206,13 @@ async def broadcast_rule(action: str, rule: dict):
 
 
 async def broadcast_job(action: str, data: dict):
+    if action == "message" and jobs is not None:
+        # Job-thread messages never pass through _handle_new_message, but they are activity too. Every
+        # path (web UI, MCP, API) fires this callback, so un-archive the job's channel here.
+        job = jobs.get(data.get("job_id"))
+        message = data.get("message") or {}
+        if job and _unarchive_for_activity(job.get("channel", ""), message.get("type", "chat")):
+            await broadcast_settings()
     payload = json.dumps({"type": "job", "action": action, "data": data})
     dead = set()
     for client in list(ws_clients):

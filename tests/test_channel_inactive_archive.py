@@ -1,14 +1,16 @@
+import asyncio
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import app
+from jobs import JobStore
 from store import MessageStore
 
 
@@ -116,6 +118,57 @@ class UnarchiveOnActivityTests(unittest.TestCase):
     def test_a_channel_that_is_not_archived_changes_nothing(self):
         self.assertFalse(app._unarchive_for_activity("general", "chat"))
         self.save.assert_not_called()
+
+
+class JobThreadActivityTests(unittest.TestCase):
+    """Job messages skip _handle_new_message, so they reach the archive logic through the job callback."""
+
+    def setUp(self):
+        saved = {k: app.room_settings.get(k) for k in ("channels", "archived_channels")}
+        self.addCleanup(lambda: app.room_settings.update(saved))
+        app.room_settings["channels"] = ["general", "ops", "dev"]
+        app.room_settings["archived_channels"] = ["ops", "dev"]
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.store = JobStore(str(Path(self.tmp.name) / "jobs.json"))
+        self.fired = []
+        self.store.on_change(lambda action, data: self.fired.append((action, data)))
+        self.job = self.store.create("Fix it", "job", "ops", "derek")
+        self.fired.clear()
+        for target, replacement in (
+            (app, {"jobs": self.store}),
+            (app, {"_save_settings": MagicMock()}),
+            (app, {"broadcast_settings": AsyncMock()}),
+        ):
+            for name, value in replacement.items():
+                patcher = patch.object(target, name, value)
+                patcher.start()
+                self.addCleanup(patcher.stop)
+
+    def deliver(self):
+        for action, data in self.fired:
+            asyncio.run(app.broadcast_job(action, data))
+
+    def test_a_job_message_un_archives_its_channel_and_broadcasts_settings(self):
+        self.store.add_message(self.job["id"], "derek", "any update?")
+        self.deliver()
+
+        self.assertEqual(app.room_settings["archived_channels"], ["dev"])
+        app._save_settings.assert_called_once()
+        app.broadcast_settings.assert_awaited_once()
+
+    def test_creating_or_updating_a_job_alone_does_not(self):
+        self.store.update_status(self.job["id"], "done")
+        self.deliver()
+
+        self.assertEqual(app.room_settings["archived_channels"], ["ops", "dev"])
+        app.broadcast_settings.assert_not_awaited()
+
+    def test_a_system_type_job_message_does_not(self):
+        self.store.add_message(self.job["id"], "system", "status changed", msg_type="system")
+        self.deliver()
+
+        self.assertEqual(app.room_settings["archived_channels"], ["ops", "dev"])
 
 
 if __name__ == "__main__":
