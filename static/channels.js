@@ -208,7 +208,7 @@ function renderChannelSidebar() {
     // Inactive and Archived are collapsible groups, closed by default. A group
     // holding the channel you're viewing stays open so it never disappears.
     const open = _openGroups();
-    for (const [group, title] of [['inactive', 'Inactive'], ['archived', 'Archived']]) {
+    for (const [group, title] of [['archived', 'Archived'], ['inactive', 'Inactive']]) {
         const names = groups[group];
         if (!names.length) continue;
         const expanded = !!open[group] || names.includes(window.activeChannel);
