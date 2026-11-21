@@ -397,7 +397,11 @@ def _build_provider_launch(
 def _register_instance(server_port: int, base: str, label: str | None = None) -> dict:
     import urllib.request
 
-    reg_body = json.dumps({"base": base, "label": label}).encode()
+    registration = {"base": base, "label": label}
+    if os.environ.get("TERMGRID_BRIDGE_PORT") or os.environ.get("TERMGRID_BRIDGE_TOKEN"):
+        # Mark activity unknown before registration makes the instance visible.
+        registration["activity_known"] = False
+    reg_body = json.dumps(registration).encode()
     reg_req = urllib.request.Request(
         f"http://127.0.0.1:{server_port}/api/register",
         method="POST",

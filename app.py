@@ -2497,6 +2497,10 @@ async def register_agent(request: Request):
         mcp_bridge.purge_identity(expired_name)
     with mcp_bridge._presence_lock:
         mcp_bridge._presence[result["name"]] = __import__("time").time()
+        if body.get("activity_known") is False:
+            mcp_bridge._activity_known[result["name"]] = False
+        else:
+            mcp_bridge._activity_known.pop(result["name"], None)
     # If slot 1 was renamed (e.g. "claude" → "claude-1"), migrate state
     renamed = result.pop("_renamed_slot1", None)
     if renamed:
