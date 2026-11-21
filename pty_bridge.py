@@ -37,14 +37,15 @@ def receive_frame(sock):
 
 
 class BridgeClient:
-    def __init__(self, port, token):
+    def __init__(self, port, token, retry_timeout=60):
         self.port, self.token = port, token
+        self.retry_timeout = retry_timeout
         self.lock = threading.Lock()
         self.socket = None
         self._connect()
 
-    def _connect(self):
-        sock = socket.create_connection(('127.0.0.1', self.port), timeout=5)
+    def _connect(self, timeout=5):
+        sock = socket.create_connection(('127.0.0.1', self.port), timeout=timeout)
         try:
             send_frame(sock, {'type': 'hello', 'token': self.token})
             if receive_frame(sock) != {'type': 'ready'}:
@@ -59,10 +60,13 @@ class BridgeClient:
             raise ValueError('invalid injection text')
         request_id = secrets.token_hex(16)
         with self.lock:
-            while True:
+            deadline = time.monotonic() + self.retry_timeout
+            while time.monotonic() < deadline:
                 try:
+                    remaining = max(.01, min(5, deadline - time.monotonic()))
                     if self.socket is None:
-                        self._connect()
+                        self._connect(timeout=remaining)
+                    self.socket.settimeout(remaining)
                     send_frame(self.socket, {'type': 'inject', 'id': request_id, 'text': text})
                     if receive_frame(self.socket) != {'type': 'accepted', 'id': request_id}:
                         raise ConnectionError('invalid bridge acknowledgement')
@@ -71,7 +75,10 @@ class BridgeClient:
                     if self.socket:
                         self.socket.close()
                     self.socket = None
-                    time.sleep(1)
+                    remaining = deadline - time.monotonic()
+                    if remaining > 0:
+                        time.sleep(min(1, remaining))
+            raise TimeoutError('PTY prompt delivery was not confirmed; check the agent before resending')
 
     def close(self):
         if self.socket:

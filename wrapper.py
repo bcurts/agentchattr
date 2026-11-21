@@ -573,7 +573,12 @@ def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = Fals
                     # Flatten to single line — multi-line text triggers paste
                     # detection in CLIs (Claude Code shows "[Pasted text +N]")
                     # which can break injection of long session prompts
-                    inject_fn(prompt.replace("\n", " "))
+                    try:
+                        inject_fn(prompt.replace("\n", " "))
+                    except Exception:
+                        # Do not log prompt contents or claim non-delivery: a
+                        # lost acknowledgement can follow a successful paste.
+                        print("  [wrapper] Prompt delivery was not confirmed; check the agent before resending.", flush=True)
         except Exception:
             pass
 

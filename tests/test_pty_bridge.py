@@ -3,7 +3,7 @@ import struct
 import unittest
 from unittest.mock import patch, Mock
 
-from pty_bridge import MAX_FRAME, receive_frame, send_frame
+from pty_bridge import MAX_FRAME, BridgeClient, receive_frame, send_frame
 import wrapper_pty
 
 
@@ -31,3 +31,21 @@ class FramingTests(unittest.TestCase):
         self.assertNotIn('TERMGRID_BRIDGE_PORT', sent_env)
         self.assertEqual(sent_env['OTHER'], 'ok')
         client_type.return_value.close.assert_called_once()
+
+    def test_authentication_failure_is_rejected(self):
+        left, right = socket.socketpair()
+        self.addCleanup(right.close)
+        with patch('pty_bridge.socket.create_connection', return_value=left), patch('pty_bridge.receive_frame', return_value={'type': 'denied'}):
+            with self.assertRaises(ConnectionError):
+                BridgeClient(1234, 'secret')
+
+    def test_disconnected_bridge_retry_is_bounded(self):
+        with patch.object(BridgeClient, '_connect'):
+            client = BridgeClient(1234, 'secret', retry_timeout=2)
+        now = [0.0]
+        with patch.object(client, '_connect', side_effect=OSError('offline')), \
+             patch('pty_bridge.time.monotonic', side_effect=lambda: now[0]), \
+             patch('pty_bridge.time.sleep', side_effect=lambda seconds: now.__setitem__(0, now[0] + seconds)):
+            with self.assertRaises(TimeoutError):
+                client.inject('test')
+        self.assertLessEqual(now[0], 2)
