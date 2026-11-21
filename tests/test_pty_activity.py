@@ -36,3 +36,11 @@ class ActivityTests(unittest.TestCase):
         patterns = Mock()
         patterns.classify.return_value = ('unavailable', None)
         self.assertIsNone(get_activity_checker(client, pattern_store=patterns)())
+
+    def test_queue_trigger_alone_does_not_claim_activity(self):
+        client = Mock()
+        client.screen.return_value = None
+        trigger = [True]
+        check = get_activity_checker(client, trigger_flag=trigger, pattern_store=Mock())
+        self.assertIsNone(check())
+        self.assertFalse(trigger[0])

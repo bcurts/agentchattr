@@ -12,6 +12,9 @@ def get_activity_checker(client, agent_name='unknown', trigger_flag=None, patter
 
     def check():
         nonlocal previous, active, quiet, needs, known
+        # A queued prompt is not proof that the agent processed it.
+        if trigger_flag and trigger_flag[0]:
+            trigger_flag[0] = False
         rows = client.screen()
         if rows is None:
             previous = None
@@ -38,10 +41,7 @@ def get_activity_checker(client, agent_name='unknown', trigger_flag=None, patter
             previous, active, quiet, needs, known = current, False, 0, True, True
             return False
         needs = False
-        triggered = bool(trigger_flag and trigger_flag[0])
-        if trigger_flag and triggered:
-            trigger_flag[0] = False
-        if state == 'working' or triggered:
+        if state == 'working':
             previous, active, quiet, known = current, True, 0, True
             return True
         if state == 'idle':
