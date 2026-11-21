@@ -28,6 +28,7 @@ router = None         # set by run.py — Router instance
 agents = None         # set by run.py — AgentManager instance
 _presence: dict[str, float] = {}
 _activity: dict[str, bool] = {}   # True = screen changed on last poll
+_activity_known: dict[str, bool] = {}  # absent means legacy wrapper behavior
 _activity_ts: dict[str, float] = {}  # timestamp of last active=True heartbeat
 _needs_input_ts: dict[str, float] = {}  # name -> last needs_input=True heartbeat
 NEEDS_INPUT_TIMEOUT = 10  # auto-clear if the wrapper stops reporting
@@ -506,6 +507,8 @@ def migrate_identity(old_name: str, new_name: str):
             _presence[new_name] = _presence.pop(old_name)
         if old_name in _activity:
             _activity[new_name] = _activity.pop(old_name)
+        if old_name in _activity_known:
+            _activity_known[new_name] = _activity_known.pop(old_name)
         if old_name in _activity_ts:
             _activity_ts[new_name] = _activity_ts.pop(old_name)
         if old_name in _needs_input_ts:
@@ -530,6 +533,7 @@ def purge_identity(name: str):
     with _presence_lock:
         _presence.pop(name, None)
         _activity.pop(name, None)
+        _activity_known.pop(name, None)
         _activity_ts.pop(name, None)
         _needs_input_ts.pop(name, None)
     with _cursors_lock:
@@ -769,6 +773,16 @@ def set_active(name: str, active: bool):
         _activity[name] = active
         if active:
             _activity_ts[name] = __import__("time").time()
+
+
+def set_activity_known(name: str, known: bool):
+    with _presence_lock:
+        _activity_known[name] = known
+
+
+def is_activity_known(name: str) -> bool:
+    with _presence_lock:
+        return _activity_known.get(name, True)
 
 
 def set_needs_input(name: str, needs: bool):

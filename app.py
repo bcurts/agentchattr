@@ -2499,6 +2499,10 @@ async def register_agent(request: Request):
         mcp_bridge.purge_identity(expired_name)
     with mcp_bridge._presence_lock:
         mcp_bridge._presence[result["name"]] = __import__("time").time()
+        if body.get("activity_known") is False:
+            mcp_bridge._activity_known[result["name"]] = False
+        else:
+            mcp_bridge._activity_known.pop(result["name"], None)
     # If slot 1 was renamed (e.g. "claude" → "claude-1"), migrate state
     renamed = result.pop("_renamed_slot1", None)
     if renamed:
@@ -2619,11 +2623,16 @@ async def heartbeat(agent_name: str, request: Request):
     _activity_changed = False
     try:
         body = await request.json()
-        if "active" in body:
+        if isinstance(body.get("activity_known"), bool):
+            known = body["activity_known"]
+            if mcp_bridge.is_activity_known(current_name) != known:
+                _activity_changed = True
+            mcp_bridge.set_activity_known(current_name, known)
+        if isinstance(body.get("active"), bool):
             active_val = bool(body["active"])
             was_active = mcp_bridge._activity.get(current_name, False)
             mcp_bridge.set_active(current_name, active_val)
-            _activity_changed = was_active != active_val
+            _activity_changed = _activity_changed or was_active != active_val
         if "needs_input" in body:
             needs_val = bool(body["needs_input"])
             if mcp_bridge.is_needs_input(current_name) != needs_val:
