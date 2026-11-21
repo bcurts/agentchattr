@@ -138,6 +138,7 @@ const UI_PREF_STORAGE = {
     attention_style: 'agentchattr-attention-style',
     attention_sound: 'agentchattr-attention-sound',
     sidebar_mode: 'agentchattr-channel-sidebar-mode',
+    channel_attention: 'agentchattr-channel-attention',
 };
 function collectUiPrefs() {
     const out = {};
@@ -185,6 +186,7 @@ function applyUiPrefs(p) {
     });
     applyUserColor();
     applyAttentionStyle();
+    if (window.ChannelAttention) window.ChannelAttention.apply();
     const as = document.getElementById('setting-attention-sound');
     if (as) as.value = attentionSoundChoice();
     // Edits made while disconnected stay local (see the dirty-key check above); send them now.
@@ -449,6 +451,7 @@ function init() {
     setupSettingsKeys();
     setupUserColorSetting();
     setupAttentionStyleSetting();
+    if (window.ChannelAttention) window.ChannelAttention.setup();
     setupKeyboardShortcuts();
     RulesPanel.init();
     Jobs.init();
@@ -1225,6 +1228,8 @@ function dayFloatRefresh() {
 function appendMessage(msg, options = {}) {
     // History replay and a live delivery can contain the same saved message.
     if (document.getElementById(`message-${msg.id}`)) return;
+    // History is noted too, so channel attention survives a reload (see channel-attention.js).
+    if (window.ChannelAttention) window.ChannelAttention.noteMessage(msg, { history: !!options.history });
     const container = options.container || document.getElementById('messages');
 
     // Insert date divider if needed
@@ -2280,6 +2285,7 @@ const _ROLE_EMOJI = {
 };
 
 function updateStatus(data) {
+    if (window.ChannelAttention) window.ChannelAttention.noteStatus(data);
     for (const [name, info] of Object.entries(data)) {
         if (name === 'paused') continue;
         const pill = document.getElementById(`status-${name}`);

@@ -122,6 +122,8 @@ function renderChannelTabs() {
             + (group !== 'active' ? ' dimmed' : '');
         tab.dataset.channel = name;
         if (group !== 'active') tab.title = group === 'archived' ? 'Archived' : 'Inactive';
+        const needsYou = window.ChannelAttention ? window.ChannelAttention.reason(name) : '';
+        if (needsYou) { tab.classList.add('needs-you'); tab.title = needsYou; }
 
         const label = document.createElement('span');
         label.className = 'channel-tab-label';
@@ -238,6 +240,8 @@ function _buildSidebarRow(name, group) {
     row.className = 'channel-sidebar-row' + (name === window.activeChannel ? ' active' : '')
         + (group !== 'active' ? ' dimmed' : '');
     row.dataset.channel = name;
+    const needsYou = window.ChannelAttention ? window.ChannelAttention.reason(name) : '';
+    if (needsYou) { row.classList.add('needs-you'); row.title = needsYou; }
 
     const label = document.createElement('span');
     label.className = 'channel-sidebar-row-label';
@@ -414,6 +418,7 @@ function switchChannel(name) {
     // Swap the sticky @-mention toggles to this channel's remembered set
     if (window._onChannelSwitchMentions) window._onChannelSwitchMentions(prevChannel, name);
     window.channelUnread[name] = 0;
+    if (window.ChannelAttention) window.ChannelAttention.clear(name);
     localStorage.setItem('agentchattr-channel', name);
     filterMessagesByChannel();
     renderChannelTabs();
