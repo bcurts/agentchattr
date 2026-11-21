@@ -7,6 +7,7 @@
     const MODES = ['off', 'highlight', 'flash'];
     const mentionedIn = new Map();        // channel -> id of its newest unread mention of you
     const lastChannelOf = new Map();      // agent name -> channel it last posted in
+    const lastPostId = new Map();         // agent name -> id of that post (older history never overrides it)
     let waitingChannels = new Set();      // channels holding an agent that waits on you
 
     function mode() {
@@ -77,13 +78,19 @@
         // Reading a channel, writing in it, or the very first load (nothing to compare against) all count as seen.
         if (channel === window.activeChannel || own || (options.history && firstRun)) markSeen(channel, msg.id);
         if (isAutomatic(msg) || own) return;
-        lastChannelOf.set(msg.sender, channel);  // history arrives oldest first, so the latest post wins
+        // Earlier-history pages can arrive after newer messages, so keep the highest id per sender.
+        if (!Number.isInteger(msg.id) || msg.id >= (lastPostId.get(msg.sender) || 0)) {
+            lastChannelOf.set(msg.sender, channel);
+            if (Number.isInteger(msg.id)) lastPostId.set(msg.sender, msg.id);
+        }
         const isChat = msg.type === 'chat' || msg.type === 'decision';
         if (isChat && channel !== window.activeChannel && !(options.history && firstRun)
             && Number.isInteger(msg.id) && msg.id > (seen[channel] || 0)
             && typeof mentionsUser === 'function' && mentionsUser(msg.text)) {
-            mentionedIn.set(channel, msg.id);
-            rerender();
+            if (msg.id > (mentionedIn.get(channel) || 0)) {  // keep the newest unread mention
+                mentionedIn.set(channel, msg.id);
+                rerender();
+            }
         }
     }
 

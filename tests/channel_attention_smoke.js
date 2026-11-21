@@ -66,6 +66,21 @@ check('own-message clearing survives another reload', CA.reason('stocks') === ''
 CA.noteMessage({ id: 42, type: 'chat', sender: 'c2', channel: 'stocks', text: 'again @derek' });
 check('a newer mention flags again', CA.reason('stocks').includes('unread mention'));
 
+// Earlier history arriving after newer messages must not move a signal backwards.
+({ CA } = load(store));
+CA.noteMessage({ id: 60, type: 'chat', sender: 'c9', channel: 'newer', text: 'later post' }, { history: true });
+CA.noteMessage({ id: 50, type: 'chat', sender: 'c9', channel: 'older', text: 'earlier post' }, { history: true });
+CA.noteStatus({ c9: { needs_input: true, available: true } });
+check('older history does not move a waiting agent to an older channel',
+  CA.reason('newer').includes('agent is waiting') && CA.reason('older') === '');
+CA.noteMessage({ id: 72, type: 'chat', sender: 'c8', channel: 'pages', text: 'new @derek' }, { history: true });
+CA.noteMessage({ id: 65, type: 'chat', sender: 'c8', channel: 'pages', text: 'old @derek' }, { history: true });
+check('older mention does not replace the newer unread mention id', CA.reason('pages').includes('unread mention'));
+CA.noteMessage({ id: 70, type: 'chat', sender: 'derek', channel: 'pages', text: 'replying to the old one' }, { history: true });
+check('a marker below the newer mention does not clear it', CA.reason('pages').includes('unread mention'));
+CA.noteMessage({ id: 73, type: 'chat', sender: 'derek', channel: 'pages', text: 'now caught up' }, { history: true });
+check('a marker at or above the newest mention clears it', CA.reason('pages') === '');
+
 // Excluded cases.
 CA.noteMessage({ id: 20, type: 'join', sender: 'c1', channel: 'consolez', text: '@derek' });
 CA.noteMessage({ id: 21, type: 'chat', sender: 'system', channel: 'consolez', text: '@derek' });
