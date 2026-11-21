@@ -226,6 +226,14 @@
                     <option value="flash">Flash</option>
                 </select>
             </div>
+            <div class="settings-field" title="Make a channel entry glow or flash when an agent is waiting on you there or someone mentions you. Off by default. Synced across browsers.">
+                <label for="setting-channel-attention">Channel attention</label>
+                <select id="setting-channel-attention" title="How a channel signals that your input is needed (synced across browsers)">
+                    <option value="off">Off</option>
+                    <option value="highlight">Highlight</option>
+                    <option value="flash">Flash</option>
+                </select>
+            </div>
             <div class="settings-field" title="Sound played when an agent's pill starts needing you: the agent's own sound, a specific sound, or None. Synced across browsers.">
                 <label for="setting-attention-sound">Needs attention sound</label>
                 <select id="setting-attention-sound" title="Sound played when an agent's pill starts needing you (synced across browsers)"></select>
@@ -414,9 +422,10 @@
     <script src="/static/sessions.js?v=224"></script>
     <script src="/static/attachments.js?v=5"></script>
     <script src="/static/jobs.js?v=227"></script>
-    <script src="/static/channels.js?v=227"></script>
+    <script src="/static/channels.js?v=228"></script>
     <script src="/static/rules-panel.js?v=225"></script>
     <script src="/static/mention-alerts.js?v=1"></script>
-    <script src="/static/chat.js?v=279"></script>
+    <script src="/static/channel-attention.js?v=1"></script>
+    <script src="/static/chat.js?v=280"></script>
 </body>
 </html>

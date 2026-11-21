@@ -138,6 +138,7 @@ const UI_PREF_STORAGE = {
     attention_style: 'agentchattr-attention-style',
     attention_sound: 'agentchattr-attention-sound',
     sidebar_mode: 'agentchattr-channel-sidebar-mode',
+    channel_attention: 'agentchattr-channel-attention',
 };
 function collectUiPrefs() {
     const out = {};
@@ -185,6 +186,7 @@ function applyUiPrefs(p) {
     });
     applyUserColor();
     applyAttentionStyle();
+    if (window.ChannelAttention) window.ChannelAttention.apply();
     const as = document.getElementById('setting-attention-sound');
     if (as) as.value = attentionSoundChoice();
     // Edits made while disconnected stay local (see the dirty-key check above); send them now.
@@ -449,6 +451,7 @@ function init() {
     setupSettingsKeys();
     setupUserColorSetting();
     setupAttentionStyleSetting();
+    if (window.ChannelAttention) window.ChannelAttention.setup();
     setupKeyboardShortcuts();
     RulesPanel.init();
     Jobs.init();
@@ -835,6 +838,7 @@ function handleServerEvent(event) {
         if (!mentionAlert && soundEnabled && mentionsUser(event.data.text) && (document.hidden || !document.hasFocus()) && event.data.type !== 'join' && event.data.type !== 'leave' && event.data.type !== 'summary' && event.data.sender && event.data.sender.toLowerCase() !== username.toLowerCase()) {
             playNotificationSound(event.data.sender);
         }
+        if (window.ChannelAttention) window.ChannelAttention.noteMessage(event.data);
         appendMessage(event.data);
     } else if (event.type === 'agent_renamed') {
         // Migrate active mentions before the agents config rebuild
@@ -2272,6 +2276,7 @@ const _ROLE_EMOJI = {
 };
 
 function updateStatus(data) {
+    if (window.ChannelAttention) window.ChannelAttention.noteStatus(data);
     for (const [name, info] of Object.entries(data)) {
         if (name === 'paused') continue;
         const pill = document.getElementById(`status-${name}`);

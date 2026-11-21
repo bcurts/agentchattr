@@ -89,6 +89,8 @@ def _clean_ui_prefs(raw: dict) -> dict:
         out["attention_sound"] = att
     if raw.get("sidebar_mode") in ("top", "sidebar"):
         out["sidebar_mode"] = raw["sidebar_mode"]
+    if raw.get("channel_attention") in ("off", "highlight", "flash"):
+        out["channel_attention"] = raw["channel_attention"]
     return out
 
 

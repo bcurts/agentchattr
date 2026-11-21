@@ -4542,3 +4542,23 @@ a.file-attachment:hover { border-color: var(--accent); }
     /* Flash is an explicit opt-in, so it still blinks (slowly, <3 Hz); only the default pulse is suppressed. */
     :root:not([data-attention="flash"]) .status-pill.needs-input { animation: none; box-shadow: 0 0 8px 2px var(--agent-color, #fbbf24); }
 }
+
+/* Channel attention (Settings > Channel attention): the channel entry glows or flashes when your input is needed there. */
+:root[data-channel-attention="highlight"] .needs-you {
+    animation: channel-needs-you-pulse 2s ease-in-out infinite;
+}
+:root[data-channel-attention="flash"] .needs-you {
+    animation: channel-needs-you-blink 0.7s steps(1, end) infinite;
+}
+@keyframes channel-needs-you-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 transparent; }
+    50% { box-shadow: 0 0 10px 2px #fbbf24; background-color: color-mix(in srgb, #fbbf24 30%, transparent); }
+}
+@keyframes channel-needs-you-blink {
+    0%, 100% { box-shadow: 0 0 12px 3px #fbbf24; background-color: color-mix(in srgb, #fbbf24 55%, transparent); }
+    50% { box-shadow: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+    /* Steady glow instead of motion. */
+    :root[data-channel-attention] .needs-you { animation: none; box-shadow: 0 0 10px 2px #fbbf24; }
+}
