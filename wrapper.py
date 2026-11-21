@@ -397,7 +397,11 @@ def _build_provider_launch(
 def _register_instance(server_port: int, base: str, label: str | None = None) -> dict:
     import urllib.request
 
-    reg_body = json.dumps({"base": base, "label": label}).encode()
+    registration = {"base": base, "label": label}
+    if os.environ.get("TERMGRID_BRIDGE_PORT") or os.environ.get("TERMGRID_BRIDGE_TOKEN"):
+        # Mark activity unknown before registration makes the instance visible.
+        registration["activity_known"] = False
+    reg_body = json.dumps(registration).encode()
     reg_req = urllib.request.Request(
         f"http://127.0.0.1:{server_port}/api/register",
         method="POST",
@@ -573,7 +577,12 @@ def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = Fals
                     # Flatten to single line — multi-line text triggers paste
                     # detection in CLIs (Claude Code shows "[Pasted text +N]")
                     # which can break injection of long session prompts
-                    inject_fn(prompt.replace("\n", " "))
+                    try:
+                        inject_fn(prompt.replace("\n", " "))
+                    except Exception:
+                        # Do not log prompt contents or claim non-delivery: a
+                        # lost acknowledgement can follow a successful paste.
+                        print("  [wrapper] Prompt delivery was not confirmed; check the agent before resending.", flush=True)
         except Exception:
             pass
 
@@ -851,6 +860,7 @@ def main():
 
     def _activity_monitor():
         last_active = None
+        last_known = None
         last_report_time = 0
         last_needs = False
         REPORT_INTERVAL = 3  # re-send state every 3s while active (keeps server lease fresh)
@@ -860,6 +870,7 @@ def main():
                 continue
             try:
                 active = _activity_checker()
+                known = active is not None
                 needs = bool(getattr(_activity_checker, "needs_input", lambda: False)())
                 now = time.time()
                 # Send on state change, periodically while active (refresh lease),
@@ -867,6 +878,7 @@ def main():
                 IDLE_REPORT_INTERVAL = 8  # keep-alive while idle
                 should_send = (
                     active != last_active
+                    or known != last_known
                     or needs != last_needs
                     or ((active or needs) and now - last_report_time >= REPORT_INTERVAL)
                     or (not active and now - last_report_time >= IDLE_REPORT_INTERVAL)
@@ -875,7 +887,7 @@ def main():
                     current_name, _ = get_identity()
                     current_token = get_token()
                     url = f"http://127.0.0.1:{server_port}/api/heartbeat/{current_name}"
-                    body = json.dumps({"active": active, "needs_input": needs}).encode()
+                    body = json.dumps({"active": active, "activity_known": known, "needs_input": needs}).encode()
                     req = urllib.request.Request(
                         url,
                         method="POST",
@@ -885,6 +897,7 @@ def main():
                     resp = urllib.request.urlopen(req, timeout=5)
                     resp_code = resp.getcode()
                     last_active = active
+                    last_known = known
                     last_needs = needs
                     last_report_time = now
             except Exception:
@@ -896,7 +909,14 @@ def main():
 
     from pattern_loader import agent_for_command
     pattern_agent = agent_for_command(command, assigned_name)
-    if sys.platform == "win32":
+    pty_bridge_mode = bool(os.environ.get("TERMGRID_BRIDGE_PORT") or os.environ.get("TERMGRID_BRIDGE_TOKEN"))
+    if pty_bridge_mode:
+        if sys.platform != "win32" or not os.environ.get("TERMGRID_BRIDGE_PORT") or not os.environ.get("TERMGRID_BRIDGE_TOKEN"):
+            raise RuntimeError("Incomplete or unsupported termgrid PTY bridge configuration")
+        from wrapper_pty import run_agent
+        # Screen activity is intentionally not reported until the PTY screen
+        # adapter is available; the Win32 console checker is not reliable here.
+    elif sys.platform == "win32":
         from wrapper_windows import get_activity_checker, run_agent
 
         _set_activity_checker(get_activity_checker(_agent_pid, agent_name=pattern_agent, trigger_flag=_trigger_flag))
@@ -927,6 +947,9 @@ def main():
     # Windows-only injection tuning (no-op on other platforms).
     if sys.platform == "win32":
         run_kwargs["enter_backend"] = agent_cfg.get("enter_backend", "console_input")
+    if pty_bridge_mode:
+        run_kwargs.update(set_activity_checker=_set_activity_checker, activity_agent=pattern_agent,
+                          trigger_flag=_trigger_flag)
     if sys.platform != "win32":
         run_kwargs["session_name"] = unix_session_name
 
