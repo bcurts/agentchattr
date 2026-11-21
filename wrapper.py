@@ -896,7 +896,14 @@ def main():
 
     from pattern_loader import agent_for_command
     pattern_agent = agent_for_command(command, assigned_name)
-    if sys.platform == "win32":
+    pty_bridge_mode = bool(os.environ.get("TERMGRID_BRIDGE_PORT") or os.environ.get("TERMGRID_BRIDGE_TOKEN"))
+    if pty_bridge_mode:
+        if sys.platform != "win32" or not os.environ.get("TERMGRID_BRIDGE_PORT") or not os.environ.get("TERMGRID_BRIDGE_TOKEN"):
+            raise RuntimeError("Incomplete or unsupported termgrid PTY bridge configuration")
+        from wrapper_pty import run_agent
+        # Screen activity is intentionally not reported until the PTY screen
+        # adapter is available; the Win32 console checker is not reliable here.
+    elif sys.platform == "win32":
         from wrapper_windows import get_activity_checker, run_agent
 
         _set_activity_checker(get_activity_checker(_agent_pid, agent_name=pattern_agent, trigger_flag=_trigger_flag))
