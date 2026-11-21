@@ -838,7 +838,6 @@ function handleServerEvent(event) {
         if (!mentionAlert && soundEnabled && mentionsUser(event.data.text) && (document.hidden || !document.hasFocus()) && event.data.type !== 'join' && event.data.type !== 'leave' && event.data.type !== 'summary' && event.data.sender && event.data.sender.toLowerCase() !== username.toLowerCase()) {
             playNotificationSound(event.data.sender);
         }
-        if (window.ChannelAttention) window.ChannelAttention.noteMessage(event.data);
         appendMessage(event.data);
     } else if (event.type === 'agent_renamed') {
         // Migrate active mentions before the agents config rebuild
@@ -1229,6 +1228,8 @@ function dayFloatRefresh() {
 function appendMessage(msg, options = {}) {
     // History replay and a live delivery can contain the same saved message.
     if (document.getElementById(`message-${msg.id}`)) return;
+    // History is noted too, so channel attention survives a reload (see channel-attention.js).
+    if (window.ChannelAttention) window.ChannelAttention.noteMessage(msg, { history: !!options.history });
     const container = options.container || document.getElementById('messages');
 
     // Insert date divider if needed

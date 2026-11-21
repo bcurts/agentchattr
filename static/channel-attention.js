@@ -44,15 +44,37 @@
             || msg.type === 'join' || msg.type === 'leave' || msg.type === 'summary';
     }
 
-    // Called for every live (not history) message before it is rendered.
-    function noteMessage(msg) {
-        if (!msg || isAutomatic(msg)) return;
+    // Read markers: the newest message id you have seen per channel, kept in this browser.
+    // They let an unread mention survive a reload; they are never sent to the server.
+    const SEEN_KEY = 'agentchattr-channel-seen';
+    let seen = {};
+    let firstRun = true;
+    const newestId = new Map();           // channel -> newest message id loaded this session
+    try {
+        const stored = localStorage.getItem(SEEN_KEY);
+        if (stored !== null) { seen = JSON.parse(stored) || {}; firstRun = false; }
+    } catch (_) { /* private storage or bad JSON: treat as first run */ }
+
+    function markSeen(channel, id) {
+        if (!Number.isInteger(id) || (seen[channel] || 0) >= id) return;
+        seen[channel] = id;
+        try { localStorage.setItem(SEEN_KEY, JSON.stringify(seen)); } catch (_) { /* optional */ }
+    }
+
+    // Called for every message (history and live) before it is rendered.
+    function noteMessage(msg, options = {}) {
+        if (!msg) return;
         const channel = msg.channel || 'general';
         const me = String(window.username || '').toLowerCase();
-        if (String(msg.sender).toLowerCase() === me) return;
-        lastChannelOf.set(msg.sender, channel);
+        const own = String(msg.sender || '').toLowerCase() === me;
+        if (Number.isInteger(msg.id) && msg.id > (newestId.get(channel) || 0)) newestId.set(channel, msg.id);
+        // Reading a channel, writing in it, or the very first load (nothing to compare against) all count as seen.
+        if (channel === window.activeChannel || own || (options.history && firstRun)) markSeen(channel, msg.id);
+        if (isAutomatic(msg) || own) return;
+        lastChannelOf.set(msg.sender, channel);  // history arrives oldest first, so the latest post wins
         const isChat = msg.type === 'chat' || msg.type === 'decision';
-        if (isChat && channel !== window.activeChannel
+        if (isChat && channel !== window.activeChannel && !(options.history && firstRun)
+            && Number.isInteger(msg.id) && msg.id > (seen[channel] || 0)
             && typeof mentionsUser === 'function' && mentionsUser(msg.text)) {
             mentionedIn.add(channel);
             rerender();
@@ -73,6 +95,7 @@
     }
 
     function clear(channel) {
+        markSeen(channel, newestId.get(channel));
         if (mentionedIn.delete(channel)) rerender();
     }
 
