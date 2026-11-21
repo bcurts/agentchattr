@@ -265,6 +265,7 @@ header h1 {
 
 .status-pill.available .status-dot { background: var(--agent-color, var(--online)); }
 .status-pill .status-label { color: var(--agent-color, inherit); }
+.status-pill .status-unknown { color: #b9bac8; font-size: 13px; line-height: 1; }
 .status-pill.offline .status-dot { background: #555; }
 
 .status-pill.offline {

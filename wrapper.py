@@ -856,6 +856,7 @@ def main():
 
     def _activity_monitor():
         last_active = None
+        last_known = None
         last_report_time = 0
         last_needs = False
         REPORT_INTERVAL = 3  # re-send state every 3s while active (keeps server lease fresh)
@@ -865,6 +866,7 @@ def main():
                 continue
             try:
                 active = _activity_checker()
+                known = active is not None
                 needs = bool(getattr(_activity_checker, "needs_input", lambda: False)())
                 now = time.time()
                 # Send on state change, periodically while active (refresh lease),
@@ -872,6 +874,7 @@ def main():
                 IDLE_REPORT_INTERVAL = 8  # keep-alive while idle
                 should_send = (
                     active != last_active
+                    or known != last_known
                     or needs != last_needs
                     or ((active or needs) and now - last_report_time >= REPORT_INTERVAL)
                     or (not active and now - last_report_time >= IDLE_REPORT_INTERVAL)
@@ -880,7 +883,7 @@ def main():
                     current_name, _ = get_identity()
                     current_token = get_token()
                     url = f"http://127.0.0.1:{server_port}/api/heartbeat/{current_name}"
-                    body = json.dumps({"active": active, "needs_input": needs}).encode()
+                    body = json.dumps({"active": active, "activity_known": known, "needs_input": needs}).encode()
                     req = urllib.request.Request(
                         url,
                         method="POST",
@@ -890,6 +893,7 @@ def main():
                     resp = urllib.request.urlopen(req, timeout=5)
                     resp_code = resp.getcode()
                     last_active = active
+                    last_known = known
                     last_needs = needs
                     last_report_time = now
             except Exception:
@@ -939,6 +943,9 @@ def main():
     # Windows-only injection tuning (no-op on other platforms).
     if sys.platform == "win32":
         run_kwargs["enter_backend"] = agent_cfg.get("enter_backend", "console_input")
+    if pty_bridge_mode:
+        run_kwargs.update(set_activity_checker=_set_activity_checker, activity_agent=pattern_agent,
+                          trigger_flag=_trigger_flag)
     if sys.platform != "win32":
         run_kwargs["session_name"] = unix_session_name
 

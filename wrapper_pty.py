@@ -8,8 +8,13 @@ from pty_bridge import BridgeClient
 
 def run_agent(command, extra_args, cwd, env, queue_file, agent, no_restart, start_watcher,
               strip_env=None, pid_holder=None, session_name=None, inject_env=None,
-              inject_delay=.3, enter_backend='console_input'):
+              inject_delay=.3, enter_backend='console_input', set_activity_checker=None,
+              activity_agent='unknown', trigger_flag=None):
     client = BridgeClient(int(os.environ['TERMGRID_BRIDGE_PORT']), os.environ['TERMGRID_BRIDGE_TOKEN'])
+    screen_client = BridgeClient(int(os.environ['TERMGRID_BRIDGE_PORT']), os.environ['TERMGRID_BRIDGE_TOKEN'], connect=False)
+    if set_activity_checker is not None:
+        from pty_activity import get_activity_checker
+        set_activity_checker(get_activity_checker(screen_client, activity_agent, trigger_flag))
     child_env = {**env, **(inject_env or {})}
     child_env.pop('TERMGRID_BRIDGE_TOKEN', None)
     child_env.pop('TERMGRID_BRIDGE_PORT', None)
@@ -26,4 +31,7 @@ def run_agent(command, extra_args, cwd, env, queue_file, agent, no_restart, star
                 break
             time.sleep(3)
     finally:
+        if set_activity_checker is not None:
+            set_activity_checker(None)
+        screen_client.close()
         client.close()

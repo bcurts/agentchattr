@@ -1727,6 +1727,14 @@ function buildStatusPills() {
         pill.title = `@${name}`;  // Tooltip: canonical name for manual @-typing
         pill.style.setProperty('--agent-color', colorOverrides[name] || cfg.color || '#4ade80');
         pill.innerHTML = `<span class="status-dot"></span><span class="status-label">${escapeHtml(cfg.label || name)}</span>`;
+        const unknown = document.createElement('span');
+        unknown.className = 'status-unknown';
+        unknown.textContent = 'ⓘ';
+        unknown.title = 'Activity unknown · screen unavailable';
+        unknown.setAttribute('role', 'img');
+        unknown.setAttribute('aria-label', unknown.title);
+        unknown.hidden = true;
+        pill.appendChild(unknown);
         // Left-click to toggle pill popover (rename + role + color)
         pill.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -2280,12 +2288,15 @@ function updateStatus(data) {
         pill.classList.remove('available', 'working', 'offline');
         const wasNeedsInput = pill.classList.contains('needs-input');
         const needsInput = !!(info.needs_input && info.available);
+        const unknown = info.available && info.activity_known === false;
+        const unknownIcon = pill.querySelector('.status-unknown');
+        if (unknownIcon) unknownIcon.hidden = !unknown;
         pill.classList.toggle('needs-input', needsInput);
         // Sound once when a pill starts needing you (not on every status refresh, not during history replay).
         if (needsInput && !wasNeedsInput && soundEnabled) playAttentionSound(name);
         // Pending pills keep their pending animation (set in buildStatusPills)
         if (!pill.classList.contains('pending')) {
-            if (info.busy && info.available) {
+            if (info.busy && info.available && !unknown) {
                 pill.classList.add('working');
             } else if (info.available) {
                 pill.classList.add('available');

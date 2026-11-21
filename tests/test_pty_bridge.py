@@ -23,6 +23,8 @@ class FramingTests(unittest.TestCase):
     def test_bridge_secret_is_not_passed_to_agent(self, client_type, popen):
         process = Mock()
         popen.return_value = process
+        injection, screen = Mock(), Mock()
+        client_type.side_effect = [injection, screen]
         env = {'TERMGRID_BRIDGE_TOKEN': 'secret', 'TERMGRID_BRIDGE_PORT': '1234', 'OTHER': 'ok'}
         with patch.dict('os.environ', env, clear=True):
             wrapper_pty.run_agent('claude', [], '.', dict(env), None, 'claude', True, lambda callback: None)
@@ -30,7 +32,21 @@ class FramingTests(unittest.TestCase):
         self.assertNotIn('TERMGRID_BRIDGE_TOKEN', sent_env)
         self.assertNotIn('TERMGRID_BRIDGE_PORT', sent_env)
         self.assertEqual(sent_env['OTHER'], 'ok')
-        client_type.return_value.close.assert_called_once()
+        injection.close.assert_called_once()
+        screen.close.assert_called_once()
+
+    def test_screen_poll_rejects_invalid_or_oversized_snapshots(self):
+        with patch.object(BridgeClient, '_connect'):
+            client = BridgeClient(1234, 'secret')
+        client.socket = Mock()
+        with patch('pty_bridge.send_frame'), patch('pty_bridge.receive_frame', return_value={
+            'type': 'screen', 'valid': True, 'rows': ['x' * 501],
+        }):
+            self.assertIsNone(client.screen())
+        with patch('pty_bridge.send_frame'), patch('pty_bridge.receive_frame', return_value={
+            'type': 'screen', 'valid': True, 'rows': ['ready'],
+        }):
+            self.assertEqual(client.screen(), ['ready'])
 
     def test_authentication_failure_is_rejected(self):
         left, right = socket.socketpair()
