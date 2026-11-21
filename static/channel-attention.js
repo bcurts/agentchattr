@@ -5,7 +5,7 @@
     'use strict';
     const STORAGE_KEY = 'agentchattr-channel-attention';
     const MODES = ['off', 'highlight', 'flash'];
-    const mentionedIn = new Set();        // channels with an unread mention of you
+    const mentionedIn = new Map();        // channel -> id of its newest unread mention of you
     const lastChannelOf = new Map();      // agent name -> channel it last posted in
     let waitingChannels = new Set();      // channels holding an agent that waits on you
 
@@ -59,6 +59,12 @@
         if (!Number.isInteger(id) || (seen[channel] || 0) >= id) return;
         seen[channel] = id;
         try { localStorage.setItem(SEEN_KEY, JSON.stringify(seen)); } catch (_) { /* optional */ }
+        // A mention at or before the new marker has now been read (for example, you replied after it).
+        const mention = mentionedIn.get(channel);
+        if (mention !== undefined && mention <= id) {
+            mentionedIn.delete(channel);
+            rerender();
+        }
     }
 
     // Called for every message (history and live) before it is rendered.
@@ -76,7 +82,7 @@
         if (isChat && channel !== window.activeChannel && !(options.history && firstRun)
             && Number.isInteger(msg.id) && msg.id > (seen[channel] || 0)
             && typeof mentionsUser === 'function' && mentionsUser(msg.text)) {
-            mentionedIn.add(channel);
+            mentionedIn.set(channel, msg.id);
             rerender();
         }
     }

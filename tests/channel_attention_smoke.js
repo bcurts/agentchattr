@@ -53,6 +53,19 @@ check('opening the channel clears it', CA.reason('ibkr') === '');
 CA.noteMessage({ id: 11, type: 'chat', sender: 'c2', channel: 'ibkr', text: 'hey @derek' }, { history: true });
 check('read mention stays cleared after reload', CA.reason('ibkr') === '');
 
+// Ordered history: an unread mention followed by your own later message in the same channel is read.
+({ CA } = load(store));
+CA.noteMessage({ id: 40, type: 'chat', sender: 'c2', channel: 'stocks', text: 'ping @derek' }, { history: true });
+check('mention in replayed history flags channel', CA.reason('stocks').includes('unread mention'));
+CA.noteMessage({ id: 41, type: 'chat', sender: 'derek', channel: 'stocks', text: 'on it' }, { history: true });
+check('later own message clears the mention', CA.reason('stocks') === '');
+({ CA } = load(store));
+CA.noteMessage({ id: 40, type: 'chat', sender: 'c2', channel: 'stocks', text: 'ping @derek' }, { history: true });
+CA.noteMessage({ id: 41, type: 'chat', sender: 'derek', channel: 'stocks', text: 'on it' }, { history: true });
+check('own-message clearing survives another reload', CA.reason('stocks') === '');
+CA.noteMessage({ id: 42, type: 'chat', sender: 'c2', channel: 'stocks', text: 'again @derek' });
+check('a newer mention flags again', CA.reason('stocks').includes('unread mention'));
+
 // Excluded cases.
 CA.noteMessage({ id: 20, type: 'join', sender: 'c1', channel: 'consolez', text: '@derek' });
 CA.noteMessage({ id: 21, type: 'chat', sender: 'system', channel: 'consolez', text: '@derek' });
