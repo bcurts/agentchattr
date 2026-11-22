@@ -1,3 +1,3 @@
 # Add agent-specific rules here.
-# Footer shape is "<model> · <folder> · <session title>"; match only the title segment, not prose.
-re: ^[^\n·]+\s·\s[^\n·]+\s·\s*I am idle\s*$
+# Codex footer is "<model> · <folder> · <session title>"; the title is the last segment.
+ends: · I am idle
