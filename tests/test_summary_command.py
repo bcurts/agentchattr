@@ -20,6 +20,7 @@ class SummaryCommandTests(unittest.TestCase):
                            ("/summary-more", "chat"), ("/summary", "summary")]:
             self.assertNotIn("command_instruction", json.loads(_serialize_messages([message(text, kind)]))[0])
         self.assertIn("command_instruction", json.loads(_serialize_messages([message(" /SUMMARY ")]))[0])
+        self.assertIn("command_instruction", json.loads(_serialize_messages([message("/summarise @agent")]))[0])
 
 
 if __name__ == "__main__":

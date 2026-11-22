@@ -425,7 +425,7 @@ def _serialize_messages(msgs: list[dict]) -> str:
             "channel": m.get("channel", "general"),
         }
         words = m["text"].strip().split(maxsplit=1)
-        if m.get("type") == "chat" and words and words[0].lower() == "/summary":
+        if m.get("type") == "chat" and words and words[0].lower() in ("/summary", "/summarise"):
             entry["command_instruction"] = (
                 "Summarize only the channel's current work item; if none is in progress, "
                 "summarize the most recently completed work item. Include its status and "
