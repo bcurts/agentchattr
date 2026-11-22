@@ -2801,7 +2801,7 @@ function getMentionCandidates() {
         candidates.push({ name, label: cfg.label || name, color: cfg.color });
     }
     candidates.push({ name: 'all agents', label: 'all agents', color: 'var(--accent)' });
-    return candidates;
+    return candidates.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base', numeric: true }) || a.name.localeCompare(b.name));
 }
 
 function updateMentionMenu() {
@@ -2904,12 +2904,14 @@ function setupInput() {
                 e.preventDefault();
                 mentionMenuIndex = (mentionMenuIndex - 1 + items.length) % items.length;
                 items.forEach((el, i) => el.classList.toggle('active', i === mentionMenuIndex));
+                items[mentionMenuIndex]?.scrollIntoView({ block: 'nearest' });
                 return;
             }
             if (e.key === 'ArrowDown') {
                 e.preventDefault();
                 mentionMenuIndex = (mentionMenuIndex + 1) % items.length;
                 items.forEach((el, i) => el.classList.toggle('active', i === mentionMenuIndex));
+                items[mentionMenuIndex]?.scrollIntoView({ block: 'nearest' });
                 return;
             }
             if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
@@ -2921,6 +2923,7 @@ function setupInput() {
                 return;
             }
             if (e.key === 'Escape') {
+                e.preventDefault();
                 menu.classList.add('hidden');
                 mentionMenuVisible = false;
                 return;
