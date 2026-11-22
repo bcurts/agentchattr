@@ -1292,7 +1292,7 @@ function appendMessage(msg, options = {}) {
                     <div class="proposal-status-resolved">${status === 'accepted' ? 'Accepted' : 'Dismissed'}</div>
                 `}
             </div>
-            ${!isPending ? `<div class="msg-actions"><button class="reply-btn" onclick="startReply(${msg.id}, event)">reply</button><button class="delete-btn" onclick="deleteClick(${msg.id}, event)" title="Delete">del</button></div>` : ''}`;
+            ${!isPending ? `<div class="msg-actions"><button class="reply-btn" onclick="startReply(${msg.id}, event)" title="Reply" aria-label="Reply">${messageActionIcon('reply')}</button><button class="delete-btn" onclick="deleteClick(${msg.id}, event)" title="Delete" aria-label="Delete">${messageActionIcon('delete')}</button></div>` : ''}`;
     } else if (msg.type === 'rule_proposal') {
         el.classList.add('proposal-msg');
         const meta = msg.metadata || {};
@@ -1317,7 +1317,7 @@ function appendMessage(msg, options = {}) {
                     <div class="proposal-status-resolved">${status === 'activated' ? 'Activated' : status === 'drafted' ? 'Added to drafts' : 'Dismissed'}</div>
                 `}
             </div>
-            ${!isPending ? `<div class="msg-actions"><button class="reply-btn" onclick="startReply(${msg.id}, event)">reply</button><button class="delete-btn" onclick="deleteClick(${msg.id}, event)" title="Delete">del</button></div>` : ''}`;
+            ${!isPending ? `<div class="msg-actions"><button class="reply-btn" onclick="startReply(${msg.id}, event)" title="Reply" aria-label="Reply">${messageActionIcon('reply')}</button><button class="delete-btn" onclick="deleteClick(${msg.id}, event)" title="Delete" aria-label="Delete">${messageActionIcon('delete')}</button></div>` : ''}`;
     } else if (window._messageRenderers && window._messageRenderers[msg.type]) {
         window._messageRenderers[msg.type](el, msg);
     } else if (msg.type === 'system' || msg.sender === 'system') {
@@ -1374,7 +1374,7 @@ function appendMessage(msg, options = {}) {
         const hatHtml = hatSvg ? `<div class="hat-overlay" data-agent="${escapeHtml(agentKey)}">${hatSvg}</div>` : '';
         const avatarHtml = `<div class="avatar-wrap" data-agent="${escapeHtml(agentKey)}"><div class="avatar" style="background-color: ${senderColor}">${getAvatarSvg(msg.sender)}</div>${hatHtml}</div>`;
 
-        const statusLabel = todoStatusLabel(todoStatus);
+        const pinAction = todoAction(todoStatus);
         el.dataset.rawText = msg.text;
         const senderRole = _agentRoles[msg.sender] || '';
         const roleClass = senderRole ? 'bubble-role has-role' : 'bubble-role';
@@ -1392,7 +1392,7 @@ function appendMessage(msg, options = {}) {
                 ).join('') + '</div>';
             }
         }
-        el.innerHTML = `<div class="todo-strip"></div>${isSelf ? '' : avatarHtml}<div class="chat-bubble" style="--bubble-color: ${senderColor}">${replyHtml}<div class="bubble-header"><span class="msg-sender" style="color: ${senderColor}">${escapeHtml(msg.sender)}</span>${rolePillHtml}<span class="msg-time">${msg.time || ''}</span><span class="msg-num">#${msg.id}</span></div><div class="msg-text">${textHtml}</div>${choicesHtml}${attachmentsHtml}<button class="convert-job-pill" onclick="startJobFromMessage(${msg.id}); event.stopPropagation();" title="Convert to job">convert to job</button><button class="bubble-copy" onclick="copyMessage(${msg.id}, event)" title="Copy message"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div><div class="msg-actions"><button class="reply-btn" onclick="startReply(${msg.id}, event)">reply</button><button class="todo-hint" onclick="todoCycle(${msg.id}); event.stopPropagation();">${statusLabel}</button><button class="delete-btn" onclick="deleteClick(${msg.id}, event)" title="Delete">del</button></div>`;
+        el.innerHTML = `<div class="todo-strip"></div>${isSelf ? '' : avatarHtml}<div class="chat-bubble" style="--bubble-color: ${senderColor}">${replyHtml}<div class="bubble-header"><span class="msg-sender" style="color: ${senderColor}">${escapeHtml(msg.sender)}</span>${rolePillHtml}<span class="msg-time">${msg.time || ''}</span><span class="msg-num">#${msg.id}</span></div><div class="msg-text">${textHtml}</div>${choicesHtml}${attachmentsHtml}<button class="convert-job-pill" onclick="startJobFromMessage(${msg.id}); event.stopPropagation();" title="Convert to job">convert to job</button><button class="bubble-copy" onclick="copyMessage(${msg.id}, event)" title="Copy message"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div><div class="msg-actions"><button class="reply-btn" onclick="startReply(${msg.id}, event)" title="Reply" aria-label="Reply">${messageActionIcon('reply')}</button><button class="todo-hint" onclick="todoCycle(${msg.id}); event.stopPropagation();" title="${pinAction.label}" aria-label="${pinAction.label}">${messageActionIcon(pinAction.icon)}</button><button class="delete-btn" onclick="deleteClick(${msg.id}, event)" title="Delete" aria-label="Delete">${messageActionIcon('delete')}</button></div>`;
         if (todoStatus) el.classList.add('msg-todo', `msg-todo-${todoStatus}`);
         if (msg.metadata?.session_output) el.classList.add('session-output');
 
@@ -3319,10 +3319,20 @@ function scrollToMessage(msgId) {
 
 // --- Todos ---
 
-function todoStatusLabel(status) {
-    if (!status) return 'pin';
-    if (status === 'todo') return 'done?';
-    return 'unpin';
+const MESSAGE_ACTION_ICONS = {
+    reply: '<path d="M9 4 4 9l5 5M4 9h8c4 0 6 2 6 6"/>',
+    pin: '<path d="M8 3h8l-1 5 2 3v1H7v-1l2-3zM12 12v7"/>',
+    done: '<path d="M8 3h8l-1 5 2 3v1H7v-1l2-3zM12 12v7M16 16l2 2 4-5"/>',
+    unpin: '<path d="M8 3h8l-1 5 2 3v1H7v-1l2-3zM12 12v7M4 3l17 17"/>',
+    delete: '<path d="M5 6h14M9 3h6M7 6l1 12h8l1-12M10 9v6M14 9v6"/>'
+};
+function messageActionIcon(name) {
+    return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${MESSAGE_ACTION_ICONS[name]}</svg>`;
+}
+function todoAction(status) {
+    if (!status) return { label: 'Pin message', icon: 'pin' };
+    if (status === 'todo') return { label: 'Mark pinned message done', icon: 'done' };
+    return { label: 'Unpin message', icon: 'unpin' };
 }
 
 function todoCycle(msgId) {
@@ -3365,7 +3375,12 @@ function updateTodoState(msgId, status) {
         }
 
         const hint = el.querySelector('.todo-hint');
-        if (hint) hint.textContent = todoStatusLabel(status);
+        if (hint) {
+            const action = todoAction(status);
+            hint.title = action.label;
+            hint.setAttribute('aria-label', action.label);
+            hint.innerHTML = messageActionIcon(action.icon);
+        }
     }
 
     // Update panel if open

@@ -900,13 +900,14 @@ main#timeline {
 
 .msg-actions {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     align-self: center;
     opacity: 0;
     flex-shrink: 0;
 }
 
-.message:hover .msg-actions {
+.message:hover .msg-actions,
+.message:focus-within .msg-actions {
     opacity: 1;
 }
 
@@ -4568,3 +4569,13 @@ a.file-attachment:hover { border-color: var(--accent); }
 .log-warning[hidden] { display: none; }
 .log-warning strong { color: #ffd28b; }
 .log-warning div { margin-top: 4px; }
+
+/* Compact icon-only controls; focus reveals the same actions as hover. */
+.msg-actions button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 4px;
+}
