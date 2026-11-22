@@ -910,6 +910,7 @@ def _resolve_draft_lineage(text: str, channel: str) -> tuple[str, int]:
 # Active ping requests are scoped by message ID; only an explicit OK reply
 # from the requested agent in the same channel satisfies a request.
 _pending_pings: dict[int, tuple[str, set[str]]] = {}
+_ping_tasks: set[asyncio.Task] = set()
 
 
 def _record_ping_reply(msg: dict):
@@ -1115,7 +1116,9 @@ async def _handle_new_message(msg: dict):
             return
         if msg.get("id") is not None:
             _pending_pings[msg["id"]] = (channel, {t.lower() for t in targets})
-            asyncio.create_task(_ping_timeout(msg["id"]))
+            task = asyncio.create_task(_ping_timeout(msg["id"]))
+            _ping_tasks.add(task)
+            task.add_done_callback(_ping_tasks.discard)
 
     if router.is_paused(channel):
         # Only emit the loop guard notice once per pause
