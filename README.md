@@ -275,7 +275,7 @@ The schedule popover validates that at least one agent is toggled before enablin
 ### Slash commands
 Type `/` in the input to open a Slack-style autocomplete menu:
 
-- `/summary @agent` — ask an agent to summarize recent messages in the current channel
+- `/summary @agent` — ask an agent to summarize the current work item in the channel, or the most recently completed item if none is in progress
 - `/continue` — resume after the loop guard pauses an agent-to-agent chain
 - `/clear` — clear messages in the current channel
 
