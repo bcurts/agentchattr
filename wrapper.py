@@ -461,6 +461,11 @@ _IDENTITY_HINT = (
 )
 
 
+def _needs_identity_hint(registration: dict, requested_name: str | None) -> bool:
+    """Only unnamed secondary instances need the legacy recovery prompt."""
+    return registration.get("slot", 1) > 1 and not requested_name
+
+
 def _fetch_role(server_port: int, agent_name: str) -> str:
     """Fetch this agent's role from the server status endpoint."""
     try:
@@ -842,7 +847,7 @@ def main():
 
     _watcher_inject_fn = None
     _watcher_thread = None
-    _is_multi_instance = registration.get("slot", 1) > 1
+    _is_multi_instance = _needs_identity_hint(registration, args.name)
     _trigger_flag = [False]  # shared: queue watcher sets True, activity checker reads
     _refresh_interval = 10  # default; overridden per-trigger by server settings
 
