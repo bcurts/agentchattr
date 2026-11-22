@@ -643,6 +643,10 @@ def main():
     parser.add_argument("--mcp-sse-port",  default=None, help="Override mcp.sse_port (int)")
     parser.add_argument("--upload-dir",    default=None, help="Override images.upload_dir (path)")
     args, extra = parser.parse_known_args()
+    # argparse keeps the '--' separator when an option (e.g. --name) precedes it;
+    # forwarding it would make the agent CLI read its flags as positional args.
+    if extra and extra[0] == "--":
+        extra = extra[1:]
 
     agent = args.agent
     agent_cfg = config.get("agents", {}).get(agent, {})
