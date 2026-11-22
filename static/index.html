@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>agentchattr</title>
-    <link rel="stylesheet" href="/static/style.css?v=261">
+    <link rel="stylesheet" href="/static/style.css?v=262">
     <link rel="stylesheet" href="/static/sessions.css?v=223">
     <link rel="stylesheet" href="/static/jobs.css?v=225">
     <link rel="icon" href="/static/favicon.ico">
@@ -89,6 +89,13 @@
             </div>
         </div>
 
+        <div id="log-warning" class="log-warning" role="alert" hidden>
+            <strong>⚠ Message log could not be saved</strong>
+            <div>Messages are being delivered, but may be lost if the server stops.</div>
+            <div id="log-warning-path"></div>
+            <div id="log-warning-error"></div>
+            <div>This warning clears when the log is saved successfully.</div>
+        </div>
         <div id="content-area">
             <aside id="channel-sidebar" class="hidden">
                 <div id="channel-sidebar-top"></div>
@@ -426,6 +433,6 @@
     <script src="/static/rules-panel.js?v=225"></script>
     <script src="/static/mention-alerts.js?v=1"></script>
     <script src="/static/channel-attention.js?v=1"></script>
-    <script src="/static/chat.js?v=280"></script>
+    <script src="/static/chat.js?v=281"></script>
 </body>
 </html>

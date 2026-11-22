@@ -520,6 +520,7 @@ def configure(cfg: dict, session_token: str = ""):
     # Bridge: when ANY message is added to store (including via MCP),
     # broadcast to all WebSocket clients
     store.on_message(_on_store_message)
+    store.on_log_status(_on_log_status)
 
     _load_settings()
     _load_hats()
@@ -764,6 +765,15 @@ _shutdown_hook = None  # set by run.py; called once when the room goes idle
 def set_shutdown_hook(fn):
     global _shutdown_hook
     _shutdown_hook = fn
+
+
+def _on_log_status():
+    if _event_loop is not None:
+        asyncio.run_coroutine_threadsafe(_broadcast_log_status(), _event_loop)
+
+
+async def _broadcast_log_status():
+    await _broadcast(json.dumps({"type": "log_status", "data": store.log_status()}))
 
 
 def _on_store_message(msg: dict):
@@ -1354,6 +1364,8 @@ async def websocket_endpoint(websocket: WebSocket):
 
     await websocket.accept()
     ws_clients.add(websocket)
+
+    await websocket.send_text(json.dumps({"type": "log_status", "data": store.log_status()}))
 
     # Send settings
     await websocket.send_text(json.dumps({"type": "settings", "data": _settings_payload()}))

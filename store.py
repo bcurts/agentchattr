@@ -23,6 +23,8 @@ class MessageStore:
         self._todos: dict[int, str] = {}  # msg_id → "todo" | "done"
         self._lock = threading.Lock()
         self._log_dirty = False
+        self._log_error = None
+        self._log_callbacks: list = []
         self._callbacks: list = []  # called on each new message
         self._todo_callbacks: list = []  # called on todo changes
         self._delete_callbacks: list = []  # called on message deletion
@@ -55,6 +57,13 @@ class MessageStore:
         """Register a callback(msg) called whenever a message is added."""
         self._callbacks.append(callback)
 
+    def on_log_status(self, callback):
+        self._log_callbacks.append(callback)
+
+    def log_status(self):
+        with self._lock:
+            return {"path": str(self._path.resolve()), "error": self._log_error}
+
     def add(self, sender: str, text: str, msg_type: str = "chat",
             attachments: list | None = None, reply_to: int | None = None,
             channel: str = "general",
@@ -64,7 +73,9 @@ class MessageStore:
             time_str: str | None = None,
             _bulk: bool = False) -> dict:
         persistence_error = None
+        log_status_changed = False
         with self._lock:
+            previous_error = self._log_error
             ts = timestamp if timestamp is not None else time.time()
             msg = {
                 "id": self._next_id,
@@ -93,13 +104,22 @@ class MessageStore:
                             f.flush()
                             os.fsync(f.fileno())
                     self._log_dirty = False
+                    self._log_error = None
                 except OSError as exc:
                     self._log_dirty = True
                     persistence_error = str(exc)
+                    self._log_error = persistence_error
                     log.warning("Message %s delivered in memory but log write failed: %s", msg["id"], exc)
+                log_status_changed = self._log_error != previous_error
 
         # Fire callbacks outside the lock (skip during bulk import)
         if not _bulk:
+            if log_status_changed:
+                for cb in self._log_callbacks:
+                    try:
+                        cb()
+                    except Exception:
+                        log.exception("Log status callback failed")
             for cb in self._callbacks:
                 try:
                     cb(msg)

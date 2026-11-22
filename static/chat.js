@@ -795,7 +795,19 @@ function renderHistoryBatch() {
 
 // --- WebSocket ---
 
+function renderLogStatus(data) {
+    const warning = document.getElementById('log-warning');
+    data = data || {};
+    warning.hidden = !data.error;
+    document.getElementById('log-warning-path').textContent = data.path || '';
+    document.getElementById('log-warning-error').textContent = data.error || '';
+}
+
 function handleServerEvent(event) {
+    if (event.type === 'log_status') {
+        renderLogStatus(event.data);
+        return;
+    }
     if (historyLoading && ['message', 'edit', 'message_update', 'delete', 'clear', 'channel_renamed', 'agent_renamed'].includes(event.type)) {
         pendingLiveEvents.push(event);
         return;

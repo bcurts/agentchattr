@@ -1,14 +1,45 @@
 import json
+import asyncio
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import app
 import mcp_bridge
 from store import MessageStore
 
 
 class LogFailureDeliveryTests(unittest.TestCase):
+    def test_broadcast_sends_current_status(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = MessageStore(str(Path(directory) / "messages.jsonl"))
+            with patch("builtins.open", side_effect=PermissionError("locked")):
+                store.add("codex", "hello")
+            sent = []
+            async def broadcast(raw):
+                sent.append(json.loads(raw))
+            with patch.object(app, "store", store), patch.object(app, "_broadcast", broadcast):
+                asyncio.run(app._broadcast_log_status())
+            self.assertEqual(sent[0]["type"], "log_status")
+            self.assertEqual(sent[0]["data"], store.log_status())
+
+    def test_log_status_reports_full_path_and_recovery(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "messages.jsonl"
+            store = MessageStore(str(path))
+            statuses = []
+            store.on_log_status(lambda: statuses.append(store.log_status()))
+            with patch("builtins.open", side_effect=PermissionError(13, "Permission denied", str(path))):
+                store.add("codex", "first")
+            self.assertEqual(statuses[0]["path"], str(path.resolve()))
+            self.assertIn("Permission denied", statuses[0]["error"])
+            self.assertEqual(store.log_status(), statuses[0])
+            store.add("codex", "second")
+            self.assertIsNone(statuses[-1]["error"])
+            self.assertIsNone(store.log_status()["error"])
+            self.assertEqual(len(statuses), 2)
+
     def test_send_delivers_warns_and_recovers_log_without_duplicates(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "messages.jsonl"

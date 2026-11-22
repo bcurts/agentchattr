@@ -4564,3 +4564,7 @@ a.file-attachment:hover { border-color: var(--accent); }
     /* Steady glow instead of motion. */
     :root[data-channel-attention] .needs-you { animation: none; box-shadow: 0 0 10px 2px #fbbf24; }
 }
+.log-warning { margin: 8px 16px; padding: 12px 16px; border: 1px solid #e9a13b; border-radius: 8px; background: #4a2c19; color: #fff0dc; overflow-wrap: anywhere; }
+.log-warning[hidden] { display: none; }
+.log-warning strong { color: #ffd28b; }
+.log-warning div { margin-top: 4px; }
