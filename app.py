@@ -32,6 +32,13 @@ log = logging.getLogger(__name__)
 
 app = FastAPI(title="agentchattr")
 
+
+@app.exception_handler(OSError)
+async def handle_file_error(request: Request, exc: OSError):
+    path = str(Path(exc.filename).resolve()) if exc.filename else None
+    log.exception("File operation failed: %s", exc)
+    return JSONResponse({"error": str(exc), "path": path}, status_code=500)
+
 # --- globals (set by configure()) ---
 store: MessageStore | None = None
 rules: RuleStore | None = None
@@ -2164,12 +2171,18 @@ async def resolve_decision(msg_id: int, request: Request):
                 if valid_choices and chosen not in valid_choices:
                     error = (f"invalid choice. Valid: {valid_choices}", 400)
                 else:
+                    previous_meta = dict(meta)
+                    meta = dict(meta)
                     meta["resolved"] = True
                     meta["chosen"] = chosen
                     msg["metadata"] = meta
                     channel = msg.get("channel", "general")
                     sender = msg.get("sender", "")
-                    store._rewrite()
+                    try:
+                        store._rewrite()
+                    except OSError as exc:
+                        msg["metadata"] = previous_meta
+                        raise OSError(exc.errno, f"Could not save decision: {exc}", str(store._path.resolve())) from exc
     if error:
         return JSONResponse({"error": error[0]}, status_code=error[1])
     # Post the chosen answer as a regular chat message tagged @sender
@@ -2752,7 +2765,7 @@ async def open_path(body: dict):
     if not path:
         return JSONResponse({"error": "no path"}, status_code=400)
 
-    p = Path(path)
+    p = Path(path).expanduser().resolve()
     try:
         if sys.platform == "win32":
             if p.is_file():
@@ -2760,14 +2773,14 @@ async def open_path(body: dict):
             elif p.is_dir():
                 subprocess.Popen(["explorer", str(p)])
             else:
-                return JSONResponse({"error": "path not found"}, status_code=404)
+                return JSONResponse({"error": "Path not found", "path": str(p)}, status_code=404)
         elif sys.platform == "darwin":
             if p.is_file():
                 subprocess.Popen(["open", "-R", str(p)])
             elif p.is_dir():
                 subprocess.Popen(["open", str(p)])
             else:
-                return JSONResponse({"error": "path not found"}, status_code=404)
+                return JSONResponse({"error": "Path not found", "path": str(p)}, status_code=404)
         else:
             # Linux — xdg-open opens the containing folder for files
             if p.is_file():
@@ -2775,9 +2788,9 @@ async def open_path(body: dict):
             elif p.is_dir():
                 subprocess.Popen(["xdg-open", str(p)])
             else:
-                return JSONResponse({"error": "path not found"}, status_code=404)
+                return JSONResponse({"error": "Path not found", "path": str(p)}, status_code=404)
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": str(e), "path": str(p)}, status_code=500)
 
     return JSONResponse({"ok": True})
 

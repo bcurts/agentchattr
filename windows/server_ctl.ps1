@@ -10,7 +10,7 @@ $venvPy = Join-Path $root '.venv\Scripts\python.exe'
 $py = if (Test-Path $venvPy) { $venvPy } else { 'python' }
 
 $port = & $py -c "from pathlib import Path; from config_loader import load_config; print(load_config(Path('.'))['server']['port'])"
-if ($LASTEXITCODE -ne 0 -or $port -notmatch '^\d+$') { Write-Error "Could not read server.port from config."; exit 1 }
+if ($LASTEXITCODE -ne 0 -or $port -notmatch '^\d+$') { Write-Error "Could not read server.port. Check $root\config.toml and $root\config.local.toml and the Python error above."; exit 1 }
 $port = [int]$port
 
 function Get-ServerPid {
@@ -64,10 +64,18 @@ function Start-Server {
     if (-not $depsOk) {
         & $venvPy -m pip install -r requirements.txt; if ($LASTEXITCODE -ne 0) { Write-Error "pip install failed."; exit 5 }
     }
-    $p = Start-Process -FilePath $venvPy -ArgumentList ('"' + (Join-Path $root 'run.py') + '"') -WorkingDirectory $root -WindowStyle Hidden -PassThru
+    $logDir = Join-Path $root 'data'
+    New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+    $stdoutPath = Join-Path $logDir 'server-startup.stdout.log'
+    $stderrPath = Join-Path $logDir 'server-startup.stderr.log'
+    $p = Start-Process -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -FilePath $venvPy -ArgumentList ('"' + (Join-Path $root 'run.py') + '"') -WorkingDirectory $root -WindowStyle Hidden -PassThru
     $deadline = (Get-Date).AddSeconds(30)
     while ((Get-Date) -lt $deadline) {
-        if ($p.HasExited) { Write-Error "Server exited during startup (code $($p.ExitCode)). Run `python run.py` to see the error."; exit 6 }
+        if ($p.HasExited) {
+            $details = if (Test-Path $stderrPath) { (Get-Content -LiteralPath $stderrPath -Raw) } else { '' }
+            Write-Error "Server exited during startup (code $($p.ExitCode)). Details: $details`nError log: $stderrPath`nOutput log: $stdoutPath"
+            exit 6
+        }
         $lp = Get-ServerPid
         if ($lp) {
             $parentOf = @{}
@@ -78,7 +86,7 @@ function Start-Server {
         }
         Start-Sleep -Milliseconds 300
     }
-    Write-Error "Server did not start listening on port $port within 30s."
+    Write-Error "Server did not start listening on port $port within 30s. Error log: $stderrPath. Output log: $stdoutPath."
     exit 7
 }
 

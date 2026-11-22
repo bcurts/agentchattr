@@ -50,12 +50,14 @@ class SessionStore:
             return
         try:
             raw = json.loads(self._path.read_text("utf-8"))
+            if not isinstance(raw, list):
+                raise ValueError("expected a JSON list")
             if isinstance(raw, list):
                 self._sessions = raw
                 if self._sessions:
                     self._next_id = max(s["id"] for s in self._sessions) + 1
-        except (json.JSONDecodeError, KeyError):
-            self._sessions = []
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"Cannot load sessions from {self._path.resolve()}: {exc}. The file was not changed.") from exc
 
     def _save(self):
         atomic_write_text(self._path, 

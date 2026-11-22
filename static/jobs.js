@@ -1167,6 +1167,7 @@ async function sendJobMessage() {
                 attachments: jobPendingAttachments,
             }),
         });
+        await window.requireOk(resp);
         if (resp.ok) {
             input.value = '';
             input.style.height = 'auto';
@@ -1174,7 +1175,7 @@ async function sendJobMessage() {
             updateJobReplyTargetUI();
         }
     } catch (e) {
-        console.error('Failed to send job message:', e);
+        window.showActionError('Could not send job message. Your text and attachments are still available.', e);
     }
 }
 
@@ -1344,7 +1345,7 @@ async function submitCreateJob(btn) {
     const jobBody = bodyInput ? bodyInput.value.trim() : '';
 
     try {
-        await fetch('/api/jobs', {
+        const response = await fetch('/api/jobs', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-Session-Token': window.SESSION_TOKEN },
             body: JSON.stringify({
@@ -1356,9 +1357,10 @@ async function submitCreateJob(btn) {
                 assignee: window._lastMentionedAgent || '',
             }),
         });
+        await window.requireOk(response);
         form.remove();
     } catch (e) {
-        console.error('Failed to create job:', e);
+        window.showActionError('Could not create job. Your text is still in the form.', e);
     }
 }
 

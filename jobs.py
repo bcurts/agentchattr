@@ -23,20 +23,23 @@ class JobStore:
             return
         try:
             raw = json.loads(self._path.read_text("utf-8"))
+            if not isinstance(raw, list):
+                raise ValueError("expected a JSON list")
             if isinstance(raw, list):
                 self._jobs = raw
                 if self._jobs:
                     self._next_id = max(a["id"] for a in self._jobs) + 1
                     if self._ensure_sort_orders_locked():
                         self._save()
-        except (json.JSONDecodeError, KeyError):
-            self._jobs = []
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"Cannot load jobs from {self._path.resolve()}: {exc}. The file was not changed.") from exc
 
     def _save(self):
-        atomic_write_text(self._path, 
-            json.dumps(self._jobs, indent=2, ensure_ascii=False) + "\n",
-            "utf-8",
-        )
+        try:
+            atomic_write_text(self._path,
+                json.dumps(self._jobs, indent=2, ensure_ascii=False) + "\n", "utf-8")
+        except OSError as exc:
+            raise OSError(exc.errno, f"Could not save jobs: {exc}", str(self._path.resolve())) from exc
 
     def _next_sort_order_locked(self, status: str) -> int:
         max_order = 0
@@ -137,7 +140,12 @@ class JobStore:
             }
             self._next_id += 1
             self._jobs.append(a)
-            self._save()
+            try:
+                self._save()
+            except OSError:
+                self._jobs.pop()
+                self._next_id -= 1
+                raise
         self._fire("create", a)
         return a
 
@@ -218,8 +226,14 @@ class JobStore:
                     if msg_type != "chat":
                         msg["type"] = msg_type
                     a["messages"].append(msg)
+                    old_updated_at = a["updated_at"]
                     a["updated_at"] = time.time()
-                    self._save()
+                    try:
+                        self._save()
+                    except OSError:
+                        a["messages"].pop()
+                        a["updated_at"] = old_updated_at
+                        raise
                     result_msg = dict(msg)
                     result_msg["job_id"] = job_id
                     break

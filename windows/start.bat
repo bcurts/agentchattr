@@ -6,4 +6,10 @@ cd /d "%~dp0.."
 call "%~dp0ensure_venv.bat"
 if errorlevel 1 exit /b 1
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0server_ctl.ps1" start
-exit /b %ERRORLEVEL%
+set "RESULT=%ERRORLEVEL%"
+if not "%RESULT%"=="0" (
+    echo.
+    echo Server control failed with exit code %RESULT%. See details above.
+    if /i not "%~1"=="--no-pause" call "%~dp0pause_if_interactive.bat"
+)
+exit /b %RESULT%

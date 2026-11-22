@@ -21,16 +21,15 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-REM Start server if not already running, then wait for it
-"%VENV_PY%" -c "import socket; socket.create_connection(('127.0.0.1', 8300), 1)" >nul 2>&1
-if %errorlevel% neq 0 (
-    start "agentchattr server" "%VENV_PY%" "%CD%\run.py"
-)
-:wait_server
-"%VENV_PY%" -c "import socket; socket.create_connection(('127.0.0.1', 8300), 1)" >nul 2>&1
-if %errorlevel% neq 0 (
-    timeout /t 1 /nobreak >nul
-    goto :wait_server
+REM Start the configured server if needed; show and retain startup errors.
+"%VENV_PY%" -c "import socket; from config_loader import load_config; socket.create_connection(('127.0.0.1', load_config()['server']['port']), 1)" >nul 2>&1
+if errorlevel 1 (
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0server_ctl.ps1" start
+    if errorlevel 1 (
+        echo Server startup failed. See details above.
+        pause
+        exit /b 1
+    )
 )
 
 if /i "%~1"=="--name" (

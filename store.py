@@ -25,6 +25,7 @@ class MessageStore:
         self._lock = threading.Lock()
         self._log_dirty = False
         self._log_error = None
+        self._log_repair_required = False
         self._log_callbacks: list = []
         self._callbacks: list = []  # called on each new message
         self._todo_callbacks: list = []  # called on todo changes
@@ -32,28 +33,44 @@ class MessageStore:
         self.upload_dir = self._path.parent.parent / "uploads"  # Default fallback
         self._load()
         if self._id_path.exists():
-            self._next_id = max(self._next_id, int(self._id_path.read_text(encoding="utf-8")))
+            try:
+                marker = int(self._id_path.read_text(encoding="utf-8"))
+                if marker < 0:
+                    raise ValueError("next ID must not be negative")
+                self._next_id = max(self._next_id, marker)
+            except (OSError, ValueError) as exc:
+                raise ValueError(f"Cannot read message ID marker {self._id_path.resolve()}: {exc}. The file was not changed.") from exc
         self._load_todos()
 
     def _load(self):
         if not self._path.exists():
             return
         max_id = -1
-        with open(self._path, "r", encoding="utf-8") as f:
-            for i, line in enumerate(f):
-                line = line.strip()
-                if not line:
+        with open(self._path, "rb") as f:
+            for i, raw_line in enumerate(f):
+                if not raw_line.strip():
                     continue
                 try:
-                    msg = json.loads(line)
-                    # Preserve persisted ID; fall back to line number for legacy data
+                    msg = json.loads(raw_line.decode("utf-8"))
                     if "id" not in msg:
                         msg["id"] = i
                     if msg["id"] > max_id:
                         max_id = msg["id"]
                     self._messages.append(msg)
-                except json.JSONDecodeError:
-                    continue
+                    # A complete JSON record without a newline must be rewritten
+                    # before appending the next one.
+                    if not raw_line.endswith(b"\n"):
+                        self._log_dirty = True
+                except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                    if not raw_line.endswith(b"\n"):
+                        self._log_repair_required = True
+                        self._log_dirty = True
+                        self._log_error = (f"Incomplete final record at line {i + 1}: {exc}. "
+                                           "The file was left unchanged. Repair the log and restart; "
+                                           "new messages are in memory only until then.")
+                        log.warning("Message log %s: %s", self._path.resolve(), self._log_error)
+                        break
+                    raise ValueError(f"Cannot read message history {self._path.resolve()}, line {i + 1}: {exc}. The file was not changed.") from exc
         self._next_id = max_id + 1
 
     def on_message(self, callback):
@@ -99,6 +116,8 @@ class MessageStore:
             self._messages.append(msg)
             if not _bulk:
                 try:
+                    if self._log_repair_required:
+                        raise OSError(self._log_error)
                     if self._log_dirty:
                         self._rewrite()
                     else:
@@ -149,6 +168,8 @@ class MessageStore:
 
     def _rewrite(self):
         """Rewrite the full JSONL file from memory (used after bulk edits)."""
+        if self._log_repair_required:
+            raise OSError(self._log_error)
         atomic_write_text(self._path, "".join(json.dumps(m, ensure_ascii=False) + "\n" for m in self._messages))
 
     def get_by_id(self, msg_id: int) -> dict | None:
@@ -255,6 +276,8 @@ class MessageStore:
 
     def _rewrite_jsonl(self):
         """Save the ID high-water mark before rewriting messages."""
+        if self._log_repair_required:
+            raise OSError(self._log_error)
         atomic_write_text(self._id_path, str(self._next_id))
         atomic_write_text(self._path, "".join(json.dumps(m, ensure_ascii=False) + "\n" for m in self._messages))
 
@@ -328,15 +351,15 @@ class MessageStore:
                     self._todos = {int(i): "todo" for i in ids}
                     self._save_todos()
                     old_pins.unlink()
-            except Exception:
-                pass
+            except (OSError, ValueError, TypeError) as exc:
+                raise ValueError(f"Cannot migrate pinned messages from {old_pins.resolve()}: {exc}. Check the file before retrying.") from exc
 
         if self._todos_path.exists():
             try:
                 raw = json.loads(self._todos_path.read_text("utf-8"))
                 self._todos = {int(k): v for k, v in raw.items()}
-            except Exception:
-                self._todos = {}
+            except (OSError, ValueError, TypeError) as exc:
+                raise ValueError(f"Cannot load pinned messages from {self._todos_path.resolve()}: {exc}. The file was not changed.") from exc
 
     def _save_todos(self):
         atomic_write_text(

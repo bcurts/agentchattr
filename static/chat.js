@@ -617,13 +617,15 @@ function linkifyPaths(html) {
 
 async function openPath(path) {
     try {
-        await fetch('/api/open-path', {
+        const response = await fetch('/api/open-path', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-Session-Token': SESSION_TOKEN },
             body: JSON.stringify({ path: path }),
         });
+        await window.requireOk(response);
     } catch (err) {
-        console.error('Failed to open path:', err);
+        if (!err.path) err.path = path;
+        window.showActionError('Could not open path.', err);
     }
 }
 
@@ -4609,14 +4611,9 @@ async function resolveDecision(msgId, choice) {
             headers: { 'Content-Type': 'application/json', 'X-Session-Token': SESSION_TOKEN },
             body: JSON.stringify({ choice }),
         });
-        if (!res.ok) {
-            const err = await res.json();
-            console.error('Failed to resolve decision:', err);
-            // Restore buttons on failure
-            buttons.forEach(btn => { btn.style.opacity = ''; btn.style.pointerEvents = ''; });
-        }
+        await window.requireOk(res);
     } catch (e) {
-        console.error('Decision resolve error:', e);
+        window.showActionError('Could not record your decision. Please try again.', e);
         buttons.forEach(btn => { btn.style.opacity = ''; btn.style.pointerEvents = ''; });
     }
 }

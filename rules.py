@@ -37,10 +37,14 @@ class RuleStore:
                 self._rules = raw
                 self._migrate_legacy()
                 self._epoch = 1
+            else:
+                raise ValueError("expected a JSON object or list")
+            if not isinstance(self._rules, list):
+                raise ValueError("rules must be a list")
             if self._rules:
                 self._next_id = max(d["id"] for d in self._rules) + 1
-        except (json.JSONDecodeError, KeyError):
-            self._rules = []
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"Cannot load rules from {self._path.resolve()}: {exc}. The file was not changed.") from exc
 
     def _migrate_legacy(self):
         """Migrate legacy decision format to rules format."""

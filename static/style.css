@@ -4579,3 +4579,4 @@ a.file-attachment:hover { border-color: var(--accent); }
     height: 24px;
     padding: 4px;
 }
+.action-error-close { float: right; color: inherit; background: transparent; border: 0; cursor: pointer; font-size: 20px; }

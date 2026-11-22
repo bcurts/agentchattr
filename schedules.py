@@ -105,10 +105,12 @@ class ScheduleStore:
             return
         try:
             raw = json.loads(self._path.read_text("utf-8"))
+            if not isinstance(raw, list):
+                raise ValueError("expected a JSON list")
             if isinstance(raw, list):
                 self._schedules = raw
-        except (json.JSONDecodeError, TypeError):
-            self._schedules = []
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise ValueError(f"Cannot load schedules from {self._path.resolve()}: {exc}. The file was not changed.") from exc
 
     def _save(self):
         atomic_write_text(self._path, 

@@ -96,6 +96,12 @@
             <div id="log-warning-error"></div>
             <div>This warning clears when the log is saved successfully.</div>
         </div>
+        <div id="action-error" class="log-warning" role="alert" hidden>
+            <button type="button" class="action-error-close" title="Dismiss error" aria-label="Dismiss error" onclick="this.parentElement.hidden = true">×</button>
+            <strong id="action-error-title"></strong>
+            <div id="action-error-detail"></div>
+            <div id="action-error-path"></div>
+        </div>
         <div id="content-area">
             <aside id="channel-sidebar" class="hidden">
                 <div id="channel-sidebar-top"></div>
@@ -428,7 +434,8 @@
     <script src="/static/store.js?v=223"></script>
     <script src="/static/sessions.js?v=224"></script>
     <script src="/static/attachments.js?v=5"></script>
-    <script src="/static/jobs.js?v=227"></script>
+    <script src="/static/action-errors.js?v=1"></script>
+    <script src="/static/jobs.js?v=228"></script>
     <script src="/static/channels.js?v=228"></script>
     <script src="/static/rules-panel.js?v=225"></script>
     <script src="/static/mention-alerts.js?v=1"></script>
