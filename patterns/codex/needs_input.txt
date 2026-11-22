@@ -1,3 +1,4 @@
 # Add agent-specific rules here.
 re: ^[\s│|╭╰─❯>›•●]*1\.\s+yes,?\s+just\s+this\s+once(?:\s*\([^)]*\))?[\s│|╮╯─]*$
 re: ^[\s│|╭╰─❯>›•●]*[12]\.\s+yes,?\s+and\s+allow\s+(?:these\s+permissions|this\s+host)\s+for\s+this\s+(?:session|conversation)(?:\s*\([^)]*\))?[\s│|╮╯─]*$
+contains: [Pasted Content * chars]
