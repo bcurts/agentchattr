@@ -1,4 +1,5 @@
 # One rule per line; see README for readable syntax.
+use mcp to read
 ends: [y/n]
 ends: (y/n)
 ends: [y/n]?
