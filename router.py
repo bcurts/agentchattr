@@ -33,6 +33,8 @@ class Router:
 
     def parse_mentions(self, text: str) -> list[str]:
         mentions = set()
+        # Mentions shown as code are examples or references, not recipients.
+        text = re.sub(r"(`+)([\s\S]*?)\1", "", text)
         for match in self._mention_re.finditer(text):
             name = match.group(1).lower()
             if name in ("both", "all"):
@@ -59,6 +61,9 @@ class Router:
             ch["hop_count"] = 0
             ch["paused"] = False
             ch["guard_emitted"] = False
+            if (re.match(r"^\s*/(?:summary|summarise)(?:\s|$)", text, re.IGNORECASE)
+                    and re.search(r"@\w[\w-]*", text)):
+                return mentions
             if not mentions:
                 if self.default_mention in ("both", "all"):
                     return list(self.agent_names)

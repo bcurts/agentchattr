@@ -152,6 +152,12 @@ class ChatCallbackActivityTests(unittest.TestCase):
         self.assertEqual(app.room_settings["archived_channels"], [])
         app.broadcast_settings.assert_awaited_once()
 
+    def test_summary_card_is_broadcast_without_routing_its_mentions(self):
+        message = {"id": 1, "sender": "agy", "text": "Selected @all", "type": "summary", "channel": "ops"}
+        asyncio.run(app._handle_new_message(message))
+        app.broadcast.assert_awaited_once_with(message)
+        app.router.get_targets.assert_not_called()
+
     def test_a_system_sender_chat_message_does_not(self):
         self.post("system")
 

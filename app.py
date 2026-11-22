@@ -955,8 +955,8 @@ async def _handle_new_message(msg: dict):
     if suppress_broadcast and msg.get("id"):
         store.delete([msg["id"]])
 
-    # System messages never trigger routing - prevents infinite callback loops
-    if sender == "system":
+    # Summary cards are channel history, not new requests to their mentions.
+    if sender == "system" or msg_type == "summary":
         return
 
     # Check for slash commands — use stripped text (sans @mentions)
