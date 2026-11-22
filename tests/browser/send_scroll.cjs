@@ -45,3 +45,19 @@ test('empty, uploading, disconnected, and failed sends do not change the reading
         if (options.text !== ' ') assert.equal(s.input.value, 'hello');
     }
 });
+
+test('summary without a tag shows the mention hint and sends nothing', () => {
+    const commands = source.slice(source.indexOf('const SLASH_COMMANDS = ['), source.indexOf('\n];', source.indexOf('const SLASH_COMMANDS = [')) + 3);
+    const parsed = vm.runInNewContext(commands + '\nSLASH_COMMANDS');
+    for (const text of ['/summary', '/summarise']) {
+        const s = setup({ text });
+        s.ctx.SLASH_COMMANDS = parsed;
+        s.ctx.Event = class Event {};
+        let hint = '';
+        s.ctx.showSlashHint = value => { hint = value; };
+        s.ctx.sendMessage();
+        assert.equal(s.sent.length, 0);
+        assert.equal(s.input.value, text + ' @');
+        assert.match(hint, /Tag an agent/);
+    }
+});

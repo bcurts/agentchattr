@@ -10,6 +10,15 @@ from router import Router
 
 
 class RouterMentionTests(unittest.TestCase):
+    def test_summary_requires_explicit_target_even_when_default_is_all(self):
+        router = Router(["codex", "claude", "agy"], default_mention="all",
+                        online_checker=lambda: {"codex", "agy"})
+        for command in ("/summary", "/summarise", "/summary please", "/summary @unknown"):
+            with self.subTest(command=command):
+                self.assertEqual(router.get_targets("derek", command), [])
+        self.assertEqual(set(router.get_targets("derek", "/summary @all")), {"codex", "agy"})
+        self.assertEqual(router.get_targets("derek", "/summary @codex"), ["codex"])
+
     def test_summary_targets_only_named_agent_even_when_default_is_all(self):
         router = Router(["agy", "c1", "c2"], default_mention="all")
         self.assertEqual(router.get_targets("derek", "/summary @agy"), ["agy"])

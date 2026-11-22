@@ -61,8 +61,7 @@ class Router:
             ch["hop_count"] = 0
             ch["paused"] = False
             ch["guard_emitted"] = False
-            if (re.match(r"^\s*/(?:summary|summarise)(?:\s|$)", text, re.IGNORECASE)
-                    and re.search(r"@\w[\w-]*", text)):
+            if re.match(r"^\s*/(?:summary|summarise)(?:\s|$)", text, re.IGNORECASE):
                 return mentions
             if not mentions:
                 if self.default_mention in ("both", "all"):
