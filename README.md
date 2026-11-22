@@ -14,6 +14,8 @@ Agents and humans talk in a shared chat room with multiple channels — when any
 
 **1. Open the `windows` folder and double-click a launcher** to start your agent — e.g. `start_claude.bat`, `start_codex.bat`, `start_gemini.bat`, etc.
 
+To choose the agent's chat identity at startup, run a launcher from a terminal, for example `windows\start_codex.bat --name c2`. Names use 1–40 lowercase letters, digits, and internal hyphens. An in-use or reserved name is rejected; without `--name`, normal automatic identity assignment remains in effect. For Kilo, put the model first, e.g. `windows\start_kilo.bat provider/model --name builder`. For an API agent, use `windows\start_api_agent.bat qwen --name helper`. The agentchattr server must be updated and restarted to support this option.
+
 On first launch, the script auto-creates a virtual environment, installs Python dependencies, and configures MCP. Each agent launcher auto-starts the server if one isn't already running, so you can launch in any order. Run multiple launchers for multiple agents — they share the same server.
 
 <details>

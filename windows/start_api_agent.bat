@@ -1,7 +1,7 @@
 @echo off
 setlocal
 REM agentchattr — starts server (if not running) + API agent wrapper
-REM Usage: start_api_agent.bat <agent_name>
+REM Usage: start_api_agent.bat <agent_name> [--name CHAT_NAME]
 REM Example: start_api_agent.bat qwen
 cd /d "%~dp0.."
 
@@ -37,5 +37,5 @@ if %errorlevel% neq 0 (
     goto :wait_server
 )
 
-"%VENV_PY%" wrapper_api.py %AGENT_NAME%
+"%VENV_PY%" wrapper_api.py "%AGENT_NAME%" %2 %3
 pause

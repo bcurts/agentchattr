@@ -1,7 +1,7 @@
 @echo off
 setlocal
 REM agentchattr — starts server (if not running) + Kilo wrapper
-REM Usage: start_kilo.bat [provider/model]
+REM Usage: start_kilo.bat [provider/model] [--name CHAT_NAME]
 REM   e.g. start_kilo.bat anthropic/claude-sonnet-4-20250514
 REM   Omit the model to use Kilo's configured default.
 cd /d "%~dp0.."
@@ -33,10 +33,12 @@ if %errorlevel% neq 0 (
     goto :wait_server
 )
 
-if "%~1"=="" (
+if /i "%~1"=="--name" (
+    "%VENV_PY%" wrapper.py kilo --name "%~2"
+) else if "%~1"=="" (
     "%VENV_PY%" wrapper.py kilo
 ) else (
-    "%VENV_PY%" wrapper.py kilo -- -m %1
+    "%VENV_PY%" wrapper.py kilo %2 %3 -- -m "%~1"
 )
 if %errorlevel% neq 0 (
     echo.
