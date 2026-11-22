@@ -118,6 +118,26 @@ class StableIdentityTests(unittest.TestCase):
                 self.reg.register("codex", requested_name=name)
         self.assertEqual(self.reg.register("codex")["name"], "codex")
 
+    def test_requested_name_can_replace_expired_instance(self):
+        first = self.reg.register("codex", requested_name="c2")
+        with patch("registry.time.time", return_value=first["registered_at"] + 16):
+            fresh = self.reg.register("codex", requested_name="c2")
+        self.assertEqual(fresh["name"], "c2")
+        self.assertIn("c2", fresh["_expired"])
+        self.assertNotEqual(first["token"], fresh["token"])
+        self.assertIsNone(self.reg.resolve_token(first["token"]))
+        self.assertEqual(self.reg.resolve_token(fresh["token"])["name"], "c2")
+
+    def test_failed_name_validation_does_not_expire_other_instances(self):
+        first = self.reg.register("codex", requested_name="c2")
+        second = self.reg.register("codex", requested_name="builder")
+        with patch("registry.time.time", return_value=first["registered_at"] + 16):
+            self.reg._instances[second["name"]].last_seen = first["registered_at"] + 16
+            with self.assertRaises(ValueError):
+                self.reg.register("codex", requested_name="codex-2")
+        self.assertIn("c2", self.reg._instances)
+        self.assertNotIn("c2", self.reg._reclaimable)
+
 
 if __name__ == "__main__":
     unittest.main()

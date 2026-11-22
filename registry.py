@@ -224,27 +224,23 @@ class RuntimeRegistry:
             if base not in self._bases:
                 return None
 
+            now = time.time()
+            expired = [old_name for old_name, old in self._instances.items()
+                       if old.base == base and now - old.last_seen > self.HEARTBEAT_TIMEOUT]
+            live = {n: i for n, i in self._instances.items() if n not in expired}
             if requested_name is not None:
                 import re
                 if not isinstance(requested_name, str) or not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?', requested_name):
                     raise ValueError('Name must be 1–40 lowercase letters, digits or internal hyphens')
                 if requested_name in ('system', 'user'):
                     raise ValueError('That name is reserved')
-                if requested_name in self._instances:
+                if requested_name in live:
                     raise ValueError(f'Name already in use: {requested_name}')
                 if error := self._conflicts_with_other_family(requested_name, base):
                     raise ValueError(error)
 
-            expired = []
-            now = time.time()
-            for old_name, old in list(self._instances.items()):
-                if old.base == base and now - old.last_seen > self.HEARTBEAT_TIMEOUT:
-                    self._remember_profile_locked(old)
-                    self._reclaimable[old_name] = self._instances.pop(old_name)
-                    expired.append(old_name)
-
             # Find next free slot
-            taken = {i.slot for i in self._instances.values() if i.base == base}
+            taken = {i.slot for i in live.values() if i.base == base}
             slot = 1
             while slot in taken:
                 slot += 1
@@ -255,6 +251,13 @@ class RuntimeRegistry:
                     if requested_slot < 1 or requested_slot in taken:
                         raise ValueError(f'Slot {requested_slot} already occupied or invalid')
                     slot = requested_slot
+
+            # No validation can fail after this point: expire stale sessions only
+            # once the requested name and slot are known to be available.
+            for old_name in expired:
+                old = self._instances.pop(old_name)
+                self._remember_profile_locked(old)
+                self._reclaimable[old_name] = old
 
             name = base if slot == 1 else f"{base}-{slot}"
             base_cfg = self._bases[base]
