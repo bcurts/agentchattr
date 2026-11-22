@@ -18,6 +18,7 @@ class MessageStore:
         self._path = Path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._todos_path = self._path.parent / "todos.json"
+        self._id_path = self._path.with_name(self._path.name + ".next-id")
         self._messages: list[dict] = []
         self._next_id: int = 0  # monotonically increasing, survives deletions
         self._todos: dict[int, str] = {}  # msg_id → "todo" | "done"
@@ -30,6 +31,8 @@ class MessageStore:
         self._delete_callbacks: list = []  # called on message deletion
         self.upload_dir = self._path.parent.parent / "uploads"  # Default fallback
         self._load()
+        if self._id_path.exists():
+            self._next_id = max(self._next_id, int(self._id_path.read_text(encoding="utf-8")))
         self._load_todos()
 
     def _load(self):
@@ -251,7 +254,8 @@ class MessageStore:
             return None
 
     def _rewrite_jsonl(self):
-        """Rewrite the JSONL file from current in-memory messages."""
+        """Save the ID high-water mark before rewriting messages."""
+        atomic_write_text(self._id_path, str(self._next_id))
         atomic_write_text(self._path, "".join(json.dumps(m, ensure_ascii=False) + "\n" for m in self._messages))
 
     def clear(self, channel: str | None = None):
@@ -270,7 +274,7 @@ class MessageStore:
                     self._save_todos()
             else:
                 self._messages.clear()
-                atomic_write_text(self._path, "")
+                self._rewrite_jsonl()
                 self._todos.clear()
                 self._save_todos()
 
