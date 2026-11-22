@@ -434,6 +434,11 @@ def _serialize_messages(msgs: list[dict]) -> str:
                 "last completed item, replacing XYZ with the actual work. "
                 "If the messages do not establish an item, say so."
             )
+        if m.get("type") == "chat" and words and words[0].lower() == "/ping":
+            entry["command_instruction"] = (
+                "If you are a target of this ping, reply exactly OK using chat_send "
+                "in this channel with reply_to set to this message's id."
+            )
         if m.get("attachments"):
             entry["attachments"] = _resolve_attachments(m["attachments"])
         if m.get("reply_to") is not None:

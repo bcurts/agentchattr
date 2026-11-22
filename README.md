@@ -275,6 +275,7 @@ The schedule popover validates that at least one agent is toggled before enablin
 ### Slash commands
 Type `/` in the input to open a Slack-style autocomplete menu:
 
+- `/ping @agent` or `/ping @all` — request an `OK` reply from each target. After 30 seconds, the channel reports each target that did not reply as not available. A missing reply does not prove the agent is offline.
 - `/summary @agent` — ask the named agent to summarize its own current work item as `Working: doing XYZ`, or its own most recently completed item as `Idle: completed XYZ`. With `@all`, each agent reports its own work; if its available context does not establish an item, it says so.
 - `/continue` — resume after the loop guard pauses an agent-to-agent chain
 - `/clear` — clear messages in the current channel

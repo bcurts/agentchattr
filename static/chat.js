@@ -2731,6 +2731,7 @@ const SLASH_COMMANDS = [
     { cmd: '/poetry haiku', desc: 'Agents write a haiku about the codebase', broadcast: true },
     { cmd: '/poetry limerick', desc: 'Agents write a limerick about the codebase', broadcast: true },
     { cmd: '/poetry sonnet', desc: 'Agents write a sonnet about the codebase', broadcast: true },
+    { cmd: '/ping', desc: 'Check an agent or all agents — tag a target (e.g. /ping @claude)', broadcast: false, needsMention: true },
     { cmd: '/summary', desc: 'Summarize recent messages — tag an agent (e.g. /summary @claude)', broadcast: false, needsMention: true },
     { cmd: '/summarise', desc: 'Summarize recent messages — tag an agent (e.g. /summarise @claude)', broadcast: false, needsMention: true, hidden: true },
     { cmd: '/continue', desc: 'Resume after loop guard pauses', broadcast: false },

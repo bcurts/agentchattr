@@ -907,6 +907,33 @@ def _resolve_draft_lineage(text: str, channel: str) -> tuple[str, int]:
     return str(uuid.uuid4())[:8], 1
 
 
+# Active ping requests are scoped by message ID; only an explicit OK reply
+# from the requested agent in the same channel satisfies a request.
+_pending_pings: dict[int, tuple[str, set[str]]] = {}
+
+
+def _record_ping_reply(msg: dict):
+    pending = _pending_pings.get(msg.get("reply_to"))
+    if not pending or msg.get("type", "chat") != "chat":
+        return
+    channel, targets = pending
+    if msg.get("channel", "general") == channel and msg.get("text", "").strip() == "OK":
+        targets.discard(msg.get("sender", "").lower())
+
+
+async def _ping_timeout(message_id: int, delay: float = 30):
+    try:
+        await asyncio.sleep(delay)
+        pending = _pending_pings.pop(message_id, None)
+        if pending:
+            channel, targets = pending
+            for target in sorted(targets):
+                store.add("system", f"{target} is not available (no reply within 30 seconds).",
+                          msg_type="system", channel=channel, reply_to=message_id)
+    finally:
+        _pending_pings.pop(message_id, None)
+
+
 async def _handle_new_message(msg: dict):
     """Broadcast message to web clients + check for @mention triggers."""
     # For broadcast slash commands, suppress the raw message — only the expanded
@@ -916,6 +943,7 @@ async def _handle_new_message(msg: dict):
     msg_type = msg.get("type", "chat")
     sender = msg.get("sender", "")
     channel = msg.get("channel", "general")
+    _record_ping_reply(msg)
 
     # Track last active channel for leave/join messages (skip system messages)
     global _last_active_channel
@@ -1079,6 +1107,15 @@ async def _handle_new_message(msg: dict):
         else:
             targets.append(t)
     targets = list(dict.fromkeys(targets))  # dedupe, preserve order
+
+    if _re.match(r"^\s*/ping(?:\s|$)", text, _re.IGNORECASE) and sender.lower() not in {n.lower() for n in known_agents}:
+        if not targets:
+            store.add("system", "Ping requires an available agent target or @all.",
+                      msg_type="system", channel=channel, reply_to=msg.get("id"))
+            return
+        if msg.get("id") is not None:
+            _pending_pings[msg["id"]] = (channel, {t.lower() for t in targets})
+            asyncio.create_task(_ping_timeout(msg["id"]))
 
     if router.is_paused(channel):
         # Only emit the loop guard notice once per pause
