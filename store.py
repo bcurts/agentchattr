@@ -1,6 +1,7 @@
 """JSONL message persistence for the chat room with observer callbacks."""
 
 import json
+import logging
 import os
 import time
 import threading
@@ -8,6 +9,8 @@ import uuid
 from pathlib import Path
 
 from atomic_io import atomic_write_text
+
+log = logging.getLogger(__name__)
 
 
 class MessageStore:
@@ -19,6 +22,7 @@ class MessageStore:
         self._next_id: int = 0  # monotonically increasing, survives deletions
         self._todos: dict[int, str] = {}  # msg_id → "todo" | "done"
         self._lock = threading.Lock()
+        self._log_dirty = False
         self._callbacks: list = []  # called on each new message
         self._todo_callbacks: list = []  # called on todo changes
         self._delete_callbacks: list = []  # called on message deletion
@@ -59,6 +63,7 @@ class MessageStore:
             timestamp: float | None = None,
             time_str: str | None = None,
             _bulk: bool = False) -> dict:
+        persistence_error = None
         with self._lock:
             ts = timestamp if timestamp is not None else time.time()
             msg = {
@@ -79,10 +84,19 @@ class MessageStore:
             self._next_id += 1
             self._messages.append(msg)
             if not _bulk:
-                with open(self._path, "a", encoding="utf-8") as f:
-                    f.write(json.dumps(msg, ensure_ascii=False) + "\n")
-                    f.flush()
-                    os.fsync(f.fileno())
+                try:
+                    if self._log_dirty:
+                        self._rewrite()
+                    else:
+                        with open(self._path, "a", encoding="utf-8") as f:
+                            f.write(json.dumps(msg, ensure_ascii=False) + "\n")
+                            f.flush()
+                            os.fsync(f.fileno())
+                    self._log_dirty = False
+                except OSError as exc:
+                    self._log_dirty = True
+                    persistence_error = str(exc)
+                    log.warning("Message %s delivered in memory but log write failed: %s", msg["id"], exc)
 
         # Fire callbacks outside the lock (skip during bulk import)
         if not _bulk:
@@ -92,6 +106,8 @@ class MessageStore:
                 except Exception:
                     pass
 
+        if persistence_error:
+            return {**msg, "persistence_error": persistence_error}
         return msg
 
     def flush_bulk(self):

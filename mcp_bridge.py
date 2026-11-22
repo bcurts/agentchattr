@@ -355,7 +355,11 @@ def chat_send(
     _update_cursor(sender, [msg], channel)
     with _presence_lock:
         _presence[sender] = time.time()
-    return f"Sent (id={msg['id']})"
+    result = f"Sent (id={msg['id']})"
+    if msg.get("persistence_error"):
+        result += (f". Warning: message log write failed: {msg['persistence_error']}. "
+                   "The message is in memory and may be lost if the server stops before the log recovers.")
+    return result
 
 
 def chat_propose_job(
