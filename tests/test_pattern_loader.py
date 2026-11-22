@@ -129,6 +129,16 @@ A literal \* star
         self.assertIsNone(store.classify('1 background terminal running · /ps to view')[0])
 
 
+    def test_codex_idle_title_matches_only_the_footer_title_segment(self):
+        store = PatternStore('codex', Path(__file__).parent / 'fixtures/screen_patterns')
+        # Footer shape taken from a real Codex screenshot: "<model> · <folder> · <session title>".
+        footer = 'GPT-6.1 Terra medium · ~/Documents/Github · '
+        self.assertEqual(store.classify(footer + 'I am idle')[0], 'idle')
+        self.assertEqual(store.classify(footer + 'I am idle\n• Working (3s • esc to interrupt)')[0], 'working')
+        for prose in ('Do not claim I am idle while working', 'The agent said: I am idle', '> I am idle',
+                      footer + 'I am idle again soon', footer + 'Agentchattr status investigation'):
+            self.assertIsNone(store.classify(prose)[0], prose)
+
     def test_isolated_claude_fixtures_cover_permission_plan_form_and_status_screens(self):
         # Screens are written from memory of Claude Code's interface, not captured from a live session.
         store = PatternStore('claude', Path(__file__).parent / 'fixtures/screen_patterns')
