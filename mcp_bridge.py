@@ -110,8 +110,8 @@ _MCP_INSTRUCTIONS = (
     "- The channel has had 20+ messages since the last summary\n"
     "Do NOT update the summary mid-conversation, after trivial exchanges, or when another agent just updated it. "
     "Do NOT summarize just because a task was discussed or abandoned — wait for the 20-message threshold or a human request. "
-    "For /summary, report only the one work item currently in progress in that channel, or, if none is in progress, "
-    "the most recently completed work item. Reply in one line: 'Working: doing XYZ' for work in progress, "
+    "For /summary, report only your own current work item, or, if you have none in progress, "
+    "your own most recently completed work item. Do not summarize another agent's work. Reply in one line: 'Working: doing XYZ' for work in progress, "
     "or 'Idle: completed XYZ' when reporting the last completed item, replacing XYZ with the actual work. "
     "Do not include unrelated history. If the available messages do not establish an item, say so. "
     "Keep summaries factual and concise (under 150 words).\n\n"
@@ -428,8 +428,8 @@ def _serialize_messages(msgs: list[dict]) -> str:
         words = m["text"].strip().split(maxsplit=1)
         if m.get("type") == "chat" and words and words[0].lower() in ("/summary", "/summarise"):
             entry["command_instruction"] = (
-                "Summarize only the channel's current work item; if none is in progress, "
-                "summarize the most recently completed work item. Reply in one line using "
+                "Summarize only your own current work item; if you have none in progress, "
+                "summarize your own most recently completed work item. Do not report another agent's work. Reply in one line using "
                 "'Working: doing XYZ' for work in progress or 'Idle: completed XYZ' for the "
                 "last completed item, replacing XYZ with the actual work. "
                 "If the messages do not establish an item, say so."
@@ -951,8 +951,8 @@ def chat_summary(
       - read: Get the current summary for a channel (default: sender's last active channel).
       - write: Update the channel summary. Requires text (max 1000 chars).
 
-    For /summary, include only the channel's current work item or, if none is in
-    progress, its most recently completed work item. Use one line: 'Working: doing XYZ'
+    For /summary, include only your own current work item or, if you have none in
+    progress, your own most recently completed work item. Do not report another agent's work. Use one line: 'Working: doing XYZ'
     or 'Idle: completed XYZ', replacing XYZ with the actual work. If no item is
     established by the available messages, say so."""
     sender, err = _resolve_tool_identity(sender, ctx, field_name="sender", required=False)

@@ -275,7 +275,7 @@ The schedule popover validates that at least one agent is toggled before enablin
 ### Slash commands
 Type `/` in the input to open a Slack-style autocomplete menu:
 
-- `/summary @agent` — summarize the current work item as `Working: doing XYZ`, or the most recently completed item as `Idle: completed XYZ`
+- `/summary @agent` — ask the named agent to summarize its own current work item as `Working: doing XYZ`, or its own most recently completed item as `Idle: completed XYZ`. With `@all`, each agent reports its own work; if its available context does not establish an item, it says so.
 - `/continue` — resume after the loop guard pauses an agent-to-agent chain
 - `/clear` — clear messages in the current channel
 

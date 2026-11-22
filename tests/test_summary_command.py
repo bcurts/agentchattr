@@ -15,6 +15,8 @@ class SummaryCommandTests(unittest.TestCase):
         self.assertEqual(result["text"], "/summary @agent")
         self.assertIn("current work item", result["command_instruction"])
         self.assertIn("most recently completed work item", result["command_instruction"])
+        self.assertIn("your own current work item", result["command_instruction"])
+        self.assertIn("Do not report another agent's work", result["command_instruction"])
         self.assertIn("Working: doing XYZ", result["command_instruction"])
         self.assertIn("Idle: completed XYZ", result["command_instruction"])
         self.assertNotIn("command_instruction", original)
@@ -22,7 +24,8 @@ class SummaryCommandTests(unittest.TestCase):
                            ("/summary-more", "chat"), ("/summary", "summary")]:
             self.assertNotIn("command_instruction", json.loads(_serialize_messages([message(text, kind)]))[0])
         self.assertIn("command_instruction", json.loads(_serialize_messages([message(" /SUMMARY ")]))[0])
-        self.assertIn("command_instruction", json.loads(_serialize_messages([message("/summarise @agent")]))[0])
+        for text in ("/summarise @agent", "/summary @all"):
+            self.assertIn("your own current work item", json.loads(_serialize_messages([message(text)]))[0]["command_instruction"])
 
 
 if __name__ == "__main__":
