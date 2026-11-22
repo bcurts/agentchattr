@@ -439,8 +439,8 @@ def _register_instance(server_port: int, base: str, label: str | None = None, na
     return result
 
 
-def _register_at_startup(server_port, base, label, name, timeout=20):
-    """Allow a recently killed wrapper's heartbeat lease to expire on relaunch."""
+def _register_at_startup(server_port, base, label, name, timeout=40):
+    """Allow window-close grace, forced shutdown, and the identity lease to expire."""
     deadline = time.monotonic() + timeout
     while True:
         try:

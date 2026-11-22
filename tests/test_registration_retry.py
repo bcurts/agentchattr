@@ -8,6 +8,20 @@ import wrapper
 
 
 class RegistrationRetryTests(unittest.TestCase):
+    def test_release_after_window_shutdown_and_lease_expiry(self):
+        clock = [0]
+        def register(*args):
+            if clock[0] < 30:
+                raise wrapper.NameInUseError('in use')
+            return {'name': 'c2'}
+        def sleep(seconds):
+            clock[0] += seconds
+        with patch.object(wrapper, '_register_instance', side_effect=register), \
+             patch.object(wrapper.time, 'monotonic', side_effect=lambda: clock[0]), \
+             patch.object(wrapper.time, 'sleep', side_effect=sleep):
+            self.assertEqual(wrapper._register_at_startup(8300, 'codex', 'c2', 'c2'), {'name': 'c2'})
+        self.assertEqual(clock[0], 30)
+
     def test_conflict_then_release(self):
         conflict = wrapper.NameInUseError('Name already in use: c2')
         with patch.object(wrapper, '_register_instance', side_effect=[conflict, {'name': 'c2'}]) as register, \
