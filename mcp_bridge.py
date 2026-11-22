@@ -111,8 +111,9 @@ _MCP_INSTRUCTIONS = (
     "Do NOT update the summary mid-conversation, after trivial exchanges, or when another agent just updated it. "
     "Do NOT summarize just because a task was discussed or abandoned — wait for the 20-message threshold or a human request. "
     "For /summary, report only the one work item currently in progress in that channel, or, if none is in progress, "
-    "the most recently completed work item. Include its status and relevant next step or verification; "
-    "do not include unrelated history. If the available messages do not establish an item, say so. "
+    "the most recently completed work item. Reply in one line: 'Working: doing XYZ' for work in progress, "
+    "or 'Idle: completed XYZ' when reporting the last completed item, replacing XYZ with the actual work. "
+    "Do not include unrelated history. If the available messages do not establish an item, say so. "
     "Keep summaries factual and concise (under 150 words).\n\n"
     "Jobs are bounded work conversations — like Slack threads with status tracking. "
     "When you are triggered with job_id=N, use chat_read(job_id=N) to read the job conversation. "
@@ -428,8 +429,10 @@ def _serialize_messages(msgs: list[dict]) -> str:
         if m.get("type") == "chat" and words and words[0].lower() in ("/summary", "/summarise"):
             entry["command_instruction"] = (
                 "Summarize only the channel's current work item; if none is in progress, "
-                "summarize the most recently completed work item. Include its status and "
-                "relevant verification or next step. If the messages do not establish an item, say so."
+                "summarize the most recently completed work item. Reply in one line using "
+                "'Working: doing XYZ' for work in progress or 'Idle: completed XYZ' for the "
+                "last completed item, replacing XYZ with the actual work. "
+                "If the messages do not establish an item, say so."
             )
         if m.get("attachments"):
             entry["attachments"] = _resolve_attachments(m["attachments"])
@@ -949,7 +952,9 @@ def chat_summary(
       - write: Update the channel summary. Requires text (max 1000 chars).
 
     For /summary, include only the channel's current work item or, if none is in
-    progress, its most recently completed work item. Keep it factual and concise."""
+    progress, its most recently completed work item. Use one line: 'Working: doing XYZ'
+    or 'Idle: completed XYZ', replacing XYZ with the actual work. If no item is
+    established by the available messages, say so."""
     sender, err = _resolve_tool_identity(sender, ctx, field_name="sender", required=False)
     if err:
         return err

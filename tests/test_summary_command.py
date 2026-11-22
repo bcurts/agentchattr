@@ -15,6 +15,8 @@ class SummaryCommandTests(unittest.TestCase):
         self.assertEqual(result["text"], "/summary @agent")
         self.assertIn("current work item", result["command_instruction"])
         self.assertIn("most recently completed work item", result["command_instruction"])
+        self.assertIn("Working: doing XYZ", result["command_instruction"])
+        self.assertIn("Idle: completed XYZ", result["command_instruction"])
         self.assertNotIn("command_instruction", original)
         for text, kind in [("hello /summary @agent", "chat"),
                            ("/summary-more", "chat"), ("/summary", "summary")]:
