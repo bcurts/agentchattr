@@ -1621,7 +1621,8 @@ main#timeline {
 #channel-sidebar-list {
     flex: 1;
     overflow-y: auto;
-    padding: 0 4px 4px;
+    /* Leave room for the attention glow inside the scrolling clip. */
+    padding: 12px;
     display: flex;
     flex-direction: column;
     gap: 1px;
