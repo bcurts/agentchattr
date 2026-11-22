@@ -394,6 +394,10 @@ def _build_provider_launch(
     return launch_args, launch_env, inject_env, settings_path
 
 
+class NameInUseError(RuntimeError):
+    """A requested identity is still held by another registration."""
+
+
 def _register_instance(server_port: int, base: str, label: str | None = None, name: str | None = None) -> dict:
     import urllib.error
     import urllib.request
@@ -419,6 +423,8 @@ def _register_instance(server_port: int, base: str, label: str | None = None, na
             detail = json.loads(exc.read()).get('error', str(exc))
         except (ValueError, AttributeError):
             detail = str(exc)
+        if exc.code == 409 and name is not None and detail == f"Name already in use: {name}":
+            raise NameInUseError(detail) from exc
         raise RuntimeError(detail) from exc
     if name is not None and result.get('name') != name:
         # Older servers ignore the requested name. Do not launch under a different identity.
@@ -431,6 +437,19 @@ def _register_instance(server_port: int, base: str, label: str | None = None, na
             pass
         raise RuntimeError('Server did not assign the requested name; update and restart agentchattr')
     return result
+
+
+def _register_at_startup(server_port, base, label, name, timeout=20):
+    """Allow a recently killed wrapper's heartbeat lease to expire on relaunch."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            return _register_instance(server_port, base, label, name)
+        except NameInUseError:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise
+            time.sleep(min(1, remaining))
 
 
 def _auth_headers(token: str, *, include_json: bool = False) -> dict[str, str]:
@@ -663,7 +682,7 @@ def main():
     mcp_cfg = config.get("mcp", {})
 
     try:
-        registration = _register_instance(server_port, agent, args.label, args.name)
+        registration = _register_at_startup(server_port, agent, args.label, args.name)
     except Exception as exc:
         print(f"  Registration failed ({exc}).")
         print("  Wrapper cannot continue without a registered identity.")
