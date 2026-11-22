@@ -100,6 +100,24 @@ class StableIdentityTests(unittest.TestCase):
         self.reg.rename("builder", "codex")
         self.assertEqual(self.reg.resolve_name("codex"), "codex")
 
+    def test_requested_name_registers_identity_and_rejects_collisions(self):
+        first = self.reg.register("codex", requested_name="c2")
+        self.assertEqual(first["name"], "c2")
+        self.assertEqual(self.reg.resolve_token(first["token"])["name"], "c2")
+        with self.assertRaises(ValueError):
+            self.reg.register("codex", requested_name="c2")
+        self.assertEqual(self.reg.resolve_token(first["token"])["name"], "c2")
+        second = self.reg.register("codex", requested_name="codex-3")
+        self.assertEqual(second["slot"], 3)
+        self.assertEqual(self.reg.register("codex")["slot"], 2)
+
+    def test_requested_name_rejects_invalid_reserved_and_other_family(self):
+        self.reg.seed({"claude": {"label": "Claude"}})
+        for name in ("", "A", "x y", "../x", "system", "user", "claude-2", "codex-0"):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                self.reg.register("codex", requested_name=name)
+        self.assertEqual(self.reg.register("codex")["name"], "codex")
+
 
 if __name__ == "__main__":
     unittest.main()

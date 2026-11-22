@@ -62,6 +62,7 @@ def main():
     parser.add_argument("agent", choices=api_agents,
                         help=f"API agent to run ({', '.join(api_agents)})")
     parser.add_argument("--label", type=str, default=None, help="Custom display label")
+    parser.add_argument("--name", type=str, default=None, help="Requested chat identity (lowercase letters, digits and hyphens)")
     # Per-project isolation flags (consumed by apply_cli_overrides above;
     # listed here so --help shows them and argparse doesn't error on them).
     parser.add_argument("--data-dir",      default=None, help="Override server.data_dir (path)")
@@ -101,7 +102,7 @@ def main():
 
     # Register with server
     try:
-        registration = _register_instance(server_port, agent, args.label)
+        registration = _register_instance(server_port, agent, args.label, args.name)
     except Exception as exc:
         print(f"  Registration failed ({exc}).")
         print("  Is the server running? Start it with: python run.py")
@@ -159,7 +160,7 @@ def main():
             except urllib.error.HTTPError as exc:
                 if exc.code == 409:
                     try:
-                        replacement = _register_instance(server_port, agent, args.label)
+                        replacement = _register_instance(server_port, agent, args.label, get_name() if args.name else None)
                         set_identity(replacement["name"], replacement["token"])
                         print(f"  Re-registered as: {replacement['name']}")
                     except Exception:

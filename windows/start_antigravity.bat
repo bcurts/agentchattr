@@ -1,6 +1,7 @@
 @echo off
 setlocal
 REM agentchattr — starts server (if not running) + Antigravity (agy) wrapper
+REM Optional chat identity: --name NAME (for example: start_codex.bat --name c2)
 cd /d "%~dp0.."
 
 REM Pin agy's version — it self-updates and will otherwise drift out from under you
@@ -39,7 +40,7 @@ if %errorlevel% neq 0 (
     goto :wait_server
 )
 
-"%VENV_PY%" wrapper.py antigravity
+"%VENV_PY%" wrapper.py antigravity %*
 
 REM Always pause on exit so the window never vanishes silently — lets you read
 REM any error above whether the wrapper crashed or exited cleanly.

@@ -214,7 +214,7 @@ class RuntimeRegistry:
 
     # --- Registration ---
 
-    def register(self, base: str, label: str | None = None) -> dict | None:
+    def register(self, base: str, label: str | None = None, requested_name: str | None = None) -> dict | None:
         """Register a new instance of `base`. Returns slot info or None if unknown base.
 
         Primary names never change just because another instance joins or leaves.
@@ -223,6 +223,17 @@ class RuntimeRegistry:
         with self._lock:
             if base not in self._bases:
                 return None
+
+            if requested_name is not None:
+                import re
+                if not isinstance(requested_name, str) or not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?', requested_name):
+                    raise ValueError('Name must be 1–40 lowercase letters, digits or internal hyphens')
+                if requested_name in ('system', 'user'):
+                    raise ValueError('That name is reserved')
+                if requested_name in self._instances:
+                    raise ValueError(f'Name already in use: {requested_name}')
+                if error := self._conflicts_with_other_family(requested_name, base):
+                    raise ValueError(error)
 
             expired = []
             now = time.time()
@@ -238,6 +249,13 @@ class RuntimeRegistry:
             while slot in taken:
                 slot += 1
 
+            if requested_name is not None:
+                requested_base, requested_slot = self._parse_name(requested_name)
+                if requested_base == base:
+                    if requested_slot < 1 or requested_slot in taken:
+                        raise ValueError(f'Slot {requested_slot} already occupied or invalid')
+                    slot = requested_slot
+
             name = base if slot == 1 else f"{base}-{slot}"
             base_cfg = self._bases[base]
             color = _derive_color(base_cfg.get("color", "#888"), slot)
@@ -250,7 +268,7 @@ class RuntimeRegistry:
                 lbl = f"{base_cfg.get('label', base.capitalize())} {slot}"
 
             profile = self._profiles.get(base, {}).get(str(slot))
-            if profile:
+            if profile and requested_name is None:
                 saved_name = profile["name"]
                 if saved_name == f"{base}-1" and slot == 1:
                     saved_name = base
@@ -258,6 +276,9 @@ class RuntimeRegistry:
                     name = saved_name
                     lbl = label or profile["label"]
                     color = profile["color"]
+            if requested_name is not None:
+                name = requested_name
+                lbl = label or requested_name
             self._renames.pop(name, None)
 
             # Fresh registrations are immediately authoritative. Identity

@@ -1,6 +1,7 @@
 @echo off
 setlocal
 REM agentchattr — starts server (if not running) + MiniMax API agent wrapper
+REM Optional chat identity: --name NAME (for example: start_codex.bat --name c2)
 REM Usage: start_minimax.bat
 REM Requires MINIMAX_API_KEY environment variable.
 cd /d "%~dp0.."
@@ -32,7 +33,7 @@ if %errorlevel% neq 0 (
     goto :wait_server
 )
 
-"%VENV_PY%" wrapper_api.py minimax
+"%VENV_PY%" wrapper_api.py minimax %*
 if %errorlevel% neq 0 (
     echo.
     echo   Agent exited unexpectedly. Check the output above.

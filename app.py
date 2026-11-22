@@ -2490,7 +2490,13 @@ async def register_agent(request: Request):
     label = body.get("label")
     if not base:
         return JSONResponse({"error": "base is required"}, status_code=400)
-    result = registry.register(base, label)
+    if isinstance(body.get("name"), str) and body["name"].lower() == room_settings.get("username", "user").lower():
+        return JSONResponse({"error": "That name is reserved for the human user"}, status_code=409)
+    try:
+        result = (registry.register(base, label, body["name"]) if "name" in body
+                  else registry.register(base, label))
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=409)
     if result is None:
         return JSONResponse({"error": f"unknown base: {base}"}, status_code=400)
     # Touch presence so the instance doesn't immediately time out

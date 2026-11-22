@@ -394,10 +394,13 @@ def _build_provider_launch(
     return launch_args, launch_env, inject_env, settings_path
 
 
-def _register_instance(server_port: int, base: str, label: str | None = None) -> dict:
+def _register_instance(server_port: int, base: str, label: str | None = None, name: str | None = None) -> dict:
+    import urllib.error
     import urllib.request
 
     registration = {"base": base, "label": label}
+    if name is not None:
+        registration["name"] = name
     if os.environ.get("TERMGRID_BRIDGE_PORT") or os.environ.get("TERMGRID_BRIDGE_TOKEN"):
         # Mark activity unknown before registration makes the instance visible.
         registration["activity_known"] = False
@@ -408,8 +411,26 @@ def _register_instance(server_port: int, base: str, label: str | None = None) ->
         data=reg_body,
         headers={"Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(reg_req, timeout=5) as reg_resp:
-        return json.loads(reg_resp.read())
+    try:
+        with urllib.request.urlopen(reg_req, timeout=5) as reg_resp:
+            result = json.loads(reg_resp.read())
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = json.loads(exc.read()).get('error', str(exc))
+        except (ValueError, AttributeError):
+            detail = str(exc)
+        raise RuntimeError(detail) from exc
+    if name is not None and result.get('name') != name:
+        # Older servers ignore the requested name. Do not launch under a different identity.
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{server_port}/api/deregister/{result['name']}",
+                method='POST', headers=_auth_headers(result['token']))
+            urllib.request.urlopen(req, timeout=5).close()
+        except Exception:
+            pass
+        raise RuntimeError('Server did not assign the requested name; update and restart agentchattr')
+    return result
 
 
 def _auth_headers(token: str, *, include_json: bool = False) -> dict[str, str]:
@@ -612,6 +633,7 @@ def main():
     parser.add_argument("agent", choices=agent_names, help=f"Agent to wrap ({', '.join(agent_names)})")
     parser.add_argument("--no-restart", action="store_true", help="Do not restart on exit")
     parser.add_argument("--label", type=str, default=None, help="Custom display label")
+    parser.add_argument("--name", type=str, default=None, help="Requested chat identity (lowercase letters, digits and hyphens)")
     # Per-project isolation flags (must match the server's flags so wrappers
     # launched separately connect to the right instance). Values are consumed
     # by apply_cli_overrides() above; listing here so --help shows them.
@@ -632,7 +654,7 @@ def main():
     mcp_cfg = config.get("mcp", {})
 
     try:
-        registration = _register_instance(server_port, agent, args.label)
+        registration = _register_instance(server_port, agent, args.label, args.name)
     except Exception as exc:
         print(f"  Registration failed ({exc}).")
         print("  Wrapper cannot continue without a registered identity.")
@@ -799,7 +821,7 @@ def main():
             except urllib.error.HTTPError as exc:
                 if exc.code == 409:
                     try:
-                        replacement = _register_instance(server_port, agent, args.label)
+                        replacement = _register_instance(server_port, agent, args.label, current_name if args.name else None)
                         set_runtime_identity(replacement["name"], replacement["token"])
                         _notify_recovery(data_dir, replacement["name"])
                     except Exception:
