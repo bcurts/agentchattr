@@ -3706,7 +3706,7 @@ function buildMentionToggles() {
         btn.className = 'mention-toggle';
         btn.dataset.agent = name;
         btn.textContent = `@${cfg.label || name}`;
-        btn.title = `@${name}`;  // Tooltip: canonical name
+        btn.title = `@${name} — double-click to select only this agent`;
         btn.style.setProperty('--agent-color', colorOverrides[name] || cfg.color);
         // Restore active state for mentions that survived the rebuild
         if (activeMentions.has(name)) {
@@ -3719,6 +3719,16 @@ function buildMentionToggles() {
             } else {
                 activeMentions.add(name);
                 btn.classList.add('active');
+            }
+            persistMentions(activeChannel);
+            syncMentionAllToggle();
+            updateSchedulePopoverState();
+        };
+        btn.ondblclick = () => {
+            activeMentions.clear();
+            activeMentions.add(name);
+            for (const toggle of container.querySelectorAll('.mention-toggle')) {
+                toggle.classList.toggle('active', toggle.dataset.agent === name);
             }
             persistMentions(activeChannel);
             syncMentionAllToggle();
