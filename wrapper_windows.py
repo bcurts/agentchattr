@@ -16,6 +16,10 @@ if sys.platform != "win32":
 
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 user32 = ctypes.WinDLL("user32", use_last_error=True)
+kernel32.GetStdHandle.argtypes = [wintypes.DWORD]
+kernel32.GetStdHandle.restype = wintypes.HANDLE
+kernel32.GetNumberOfConsoleInputEvents.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+kernel32.GetNumberOfConsoleInputEvents.restype = wintypes.BOOL
 
 STD_INPUT_HANDLE = -10
 STD_OUTPUT_HANDLE_FOR_VT = -11  # kept distinct from STD_OUTPUT_HANDLE below to avoid forward-ref
@@ -133,6 +137,10 @@ class _INPUT_RECORD(ctypes.Structure):
     _fields_ = [("EventType", wintypes.WORD), ("Event", _EVENT_UNION)]
 
 
+kernel32.WriteConsoleInputW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_INPUT_RECORD), wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+kernel32.WriteConsoleInputW.restype = wintypes.BOOL
+
+
 def _write_key(handle, char: str, key_down: bool, vk: int = 0, scan: int = 0):
     rec = _INPUT_RECORD()
     rec.EventType = KEY_EVENT
@@ -157,11 +165,29 @@ def _send_wm_setfocus():
     user32.SendMessageW(hwnd, WM_ACTIVATE, WA_ACTIVE, 0)
 
 
+def _wait_for_input_drain(handle, timeout=30.0, poll=0.05):
+    """Wait for the target to read queued key events before the submit gesture.
+
+    A fixed sleep starts when events are queued, not when the CLI has read them.
+    Never submit on timeout or on an invalid console handle.
+    """
+    deadline = time.monotonic() + timeout
+    pending = wintypes.DWORD()
+    while True:
+        if not kernel32.GetNumberOfConsoleInputEvents(handle, ctypes.byref(pending)):
+            raise OSError(ctypes.get_last_error(), "Cannot inspect console input queue")
+        if pending.value == 0:
+            return
+        if time.monotonic() >= deadline:
+            raise TimeoutError("Console input queue did not drain; prompt was not submitted")
+        time.sleep(poll)
+
+
 def inject(text: str, *, delay: float = 0.3, enter_backend: str = "console_input"):
     """Inject text + Enter into the current console via WriteConsoleInput.
 
     Uses batch WriteConsoleInputW for the text (all records in one call)
-    then a separate Enter keystroke after a scaled delay.
+    then waits for the console queue to drain and a quiet period before Enter.
 
     `enter_backend` controls how the final Enter is delivered:
       - "console_input" (default): standard WriteConsoleInput + VK_RETURN.
@@ -190,9 +216,11 @@ def inject(text: str, *, delay: float = 0.3, enter_backend: str = "console_input
                 evt.wVirtualScanCode = 0
                 idx += 1
         written = wintypes.DWORD(0)
-        kernel32.WriteConsoleInputW(handle, records, n_events, ctypes.byref(written))
+        if not kernel32.WriteConsoleInputW(handle, records, n_events, ctypes.byref(written)) or written.value != n_events:
+            raise OSError(ctypes.get_last_error(), "Console prompt delivery incomplete; not submitting")
 
-    # Scale delay with text length so longer prompts get more processing time
+    # Wait until the CLI reads the events, then leave a quiet gap for paste processing.
+    _wait_for_input_drain(handle)
     scaled_delay = max(delay, len(text) * 0.001)
     time.sleep(scaled_delay)
 
